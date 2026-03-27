@@ -1,0 +1,129 @@
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-content {
+  background: linear-gradient(135deg, rgba(10, 10, 20, 0.98) 0%, rgba(17, 17, 34, 0.98) 100%);
+  border: 1px solid rgba(27, 60, 83, 0.3);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.3s ease;
+  backdrop-filter: blur(10px);
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modal-content h3 {
+  font-size: 16px;
+  margin: 0 0 16px 0;
+  color: #E3E3E3;
+}
+
+.modal-hint {
+  font-size: 12px;
+  color: #999;
+  margin: 0 0 12px 0;
+}
+
+.modal-content p {
+  font-size: 14px;
+  color: #E3E3E3;
+  margin: 0 0 12px 0;
+}
+
+.modal-content strong {
+  color: #234C6A;
+}
+
+.modal-content input {
+  width: 100%;
+  background: rgba(27, 60, 83, 0.2);
+  border: 1px solid rgba(27, 60, 83, 0.3);
+  color: #E3E3E3;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  margin-bottom: 16px;
+  transition: all 0.2s ease;
+}
+
+.modal-content input:focus {
+  outline: none;
+  border-color: #234C6A;
+  background: rgba(27, 60, 83, 0.4);
+  box-shadow: 0 0 0 3px rgba(27, 60, 83, 0.2);
+}
+
+.modal-content input::placeholder {
+  color: #A0A0B0;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.modal-buttons .btn {
+  flex: 1;
+  text-align: center;
+}
+
+.help-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px 0;
+}
+
+.help-list li {
+  font-size: 13px;
+  color: #E3E3E3;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(27, 60, 83, 0.1);
+}
+
+.help-list li:last-child {
+  border-bottom: none;
+}
+
+.help-list code {
+  background: rgba(27, 60, 83, 0.3);
+  color: #234C6A;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  margin-right: 4px;
+}

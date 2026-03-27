@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Quidec Chat</string>
+    <string name="title_activity_main">Quidec Chat</string>
+    <string name="package_name">com.quidec.app</string>
+    <string name="custom_url_scheme">com.quidec.app</string>
+</resources>
