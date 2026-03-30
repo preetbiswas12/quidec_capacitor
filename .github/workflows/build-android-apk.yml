@@ -32,6 +32,11 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      # ✅ ADD: install required SDK version (fixes androidx issue)
+      - name: Install Android SDK 35
+        run: |
+          sdkmanager "platforms;android-35"
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
@@ -49,17 +54,24 @@ jobs:
         run: |
           npm run build
 
-      # ❌ Removed global Capacitor install (can cause version mismatch)
-
       - name: Sync Capacitor
         run: |
           npx cap sync android
 
-      # ❌ Removed cache deletion step (this was breaking your build)
-
       - name: Force Gradle wrapper to 8.6
         run: |
           sed -i 's/gradle-.*-bin.zip/gradle-8.6-bin.zip/g' android/gradle/wrapper/gradle-wrapper.properties
+
+      # ✅ ADD: upgrade Android Gradle Plugin (fixes compileSdk restriction)
+      - name: Upgrade Android Gradle Plugin
+        run: |
+          sed -i 's/com.android.tools.build:gradle:8.2.0/com.android.tools.build:gradle:8.4.2/g' android/build.gradle || true
+
+      # ✅ ADD: update compileSdk to match dependencies
+      - name: Update compileSdk
+        run: |
+          sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle || true
+          sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle || true
 
       - name: Prepare clean Gradle environment
         run: |
@@ -75,9 +87,10 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean assembleRelease\
-           --no-daemon\
-           --refresh-dependencies\
+          ./gradlew clean assembleRelease \
+           --no-daemon \
+           --refresh-dependencies \
+           --no-build-cache \
            -Dorg.gradle.vfs.watch=false \
            -g /tmp/gradle-cache
 
