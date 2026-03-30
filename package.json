@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "name": "free-cluely-web",
   "version": "1.0.0",
   "description": "Free Cluely - Web version (React)",

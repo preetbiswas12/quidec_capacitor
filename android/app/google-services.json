@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "442442395819",
+    "project_id": "readux-96cf8",
+    "storage_bucket": "readux-96cf8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:442442395819:android:f6e8cb123473cab02107ee",
+        "android_client_info": {
+          "package_name": "com.aegix.readux"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCfadw7JBrPgyIWSYs6INlJaumj8KEthMg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

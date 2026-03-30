@@ -230,15 +230,6 @@ export default function App() {
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [])
-  
-  const handleIncomingFriendRequest = (from) => {
-    setIncomingRequestFrom(from)
-  }
-  
-  const { ws, messages, friends, typingUsers, friendRequests, outgoingRequests, refreshRequests } = useWebSocket(
-    currentUser,
-    handleIncomingFriendRequest
-  )
 
   if (!currentUser) {
     return <LoginScreen onLogin={handleLogin} onRegister={handleRegister} loading={loading} />

@@ -2,6 +2,6 @@
 <resources>
     <string name="app_name">Quidec Chat</string>
     <string name="title_activity_main">Quidec Chat</string>
-    <string name="package_name">com.quidec.app</string>
-    <string name="custom_url_scheme">com.quidec.app</string>
+    <string name="package_name">com.aegix.readux</string>
+    <string name="custom_url_scheme">com.aegix.readux</string>
 </resources>

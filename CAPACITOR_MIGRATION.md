@@ -143,7 +143,7 @@ cd android
 1. Go to https://console.firebase.google.com
 2. Create new project or use existing
 3. Add Android app:
-   - Package name: `com.quidec.app` (from `capacitor.config.ts`)
+   - Package name: `com.aegix.readux` (from `capacitor.config.ts`)
    - Download `google-services.json`
 4. Place file in: `android/app/google-services.json`
 
@@ -342,7 +342,7 @@ adb logcat
 adb shell getprop ro.build.version.sdk
 
 # Reinstall
-adb uninstall com.quidec.app
+adb uninstall com.aegix.readux
 adb install android/app/build/outputs/apk/debug/app-debug.apk
 ```
 

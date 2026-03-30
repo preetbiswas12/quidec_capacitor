@@ -6,7 +6,7 @@
 import { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
-  appId: 'com.quidec.app',
+  appId: 'com.aegix.readux',
   appName: 'Quidec Chat',
   webDir: 'dist',
   server: {
