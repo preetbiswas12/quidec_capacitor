@@ -57,6 +57,20 @@ jobs:
 
       # ❌ Removed cache deletion step (this was breaking your build)
 
+      - name: Force Gradle wrapper to 8.6
+        run: |
+          sed -i 's/gradle-.*-bin.zip/gradle-8.6-bin.zip/g' android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Prepare clean Gradle environment
+        run: |
+          rm -rf ~/.gradle
+          rm -rf /tmp/gradle-cache
+          mkdir -p /tmp/gradle-cache
+
+      - name: Patch bcprov issue (temporary fix)
+        run: |
+          echo "configurations.all { resolutionStrategy { force 'org.bouncycastle:bcprov-jdk18on:1.78' } }" >> android/build.gradle
+
       - name: Build APK with Gradle
         run: |
           cd android
@@ -64,6 +78,7 @@ jobs:
           ./gradlew clean assembleRelease\
            --no-daemon\
            --refresh-dependencies\
+           -Dorg.gradle.vfs.watch=false \
            -g /tmp/gradle-cache
 
       - name: Locate APK
