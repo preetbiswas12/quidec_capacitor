@@ -40,6 +40,10 @@ jobs:
       - name: Install web dependencies
         run: |
           npm install
+          npm install -D typescript
+
+      - name: Install Capacitor CLI
+        run: npm install -g @capacitor/cli
 
       - name: Build web app
         run: |
