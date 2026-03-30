@@ -31,12 +31,10 @@ jobs:
 
       - name: Install web dependencies
         run: |
-          cd web
           npm install
 
       - name: Build web app
         run: |
-          cd web
           npm run build
 
       - name: Install Capacitor CLI
@@ -44,12 +42,11 @@ jobs:
 
       - name: Sync Capacitor
         run: |
-          cd web
           npx cap sync android
 
       - name: Build APK with Gradle
         run: |
-          cd web/android
+          cd android
           chmod +x gradlew
           ./gradlew assembleRelease
 
