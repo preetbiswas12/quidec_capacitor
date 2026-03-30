@@ -32,6 +32,7 @@ jobs:
       - name: Install web dependencies
         run: |
           npm install
+          npm install -D typescript
 
       - name: Build web app
         run: |
@@ -53,14 +54,14 @@ jobs:
       - name: Locate APK
         id: apk
         run: |
-          APK_PATH=$(find web/android/app/build/outputs/apk -name "*.apk" -type f | head -1)
+          APK_PATH=$(find android/app/build/outputs/apk -name "*.apk" -type f | head -1)
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
           echo "apk_name=$(basename $APK_PATH)" >> $GITHUB_OUTPUT
 
       - name: Copy APK to web folder
         run: |
-          mkdir -p web/dist/apk
-          cp ${{ steps.apk.outputs.apk_path }} web/dist/apk/
+          mkdir -p dist/apk
+          cp ${{ steps.apk.outputs.apk_path }} dist/apk/
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
