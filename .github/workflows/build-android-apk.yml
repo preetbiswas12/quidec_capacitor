@@ -10,7 +10,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
+    env:
+      GRADLE_OPTS: "-Xmx2g -Dorg.gradle.daemon=false"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,37 +32,32 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Setup Gradle cache
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '8.2'
+          gradle-version: '8.5'
 
       - name: Install web dependencies
         run: |
           npm install
-          npm install -D typescript
 
       - name: Build web app
         run: |
           npm run build
 
-      - name: Install Capacitor CLI
-        run: npm install -g @capacitor/cli
+      # ❌ Removed global Capacitor install (can cause version mismatch)
 
       - name: Sync Capacitor
         run: |
           npx cap sync android
 
-      - name: Clear Gradle cache
-        run: |
-          rm -rf ~/.gradle/caches/jars-9/ || true
-          rm -rf ~/.gradle/caches/modules-2/ || true
+      # ❌ Removed cache deletion step (this was breaking your build)
 
       - name: Build APK with Gradle
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean assembleRelease --info
+          ./gradlew clean assembleRelease --no-daemon --refresh-dependencies
 
       - name: Locate APK
         id: apk
