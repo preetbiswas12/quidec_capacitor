@@ -50,6 +50,11 @@ jobs:
         run: |
           npx cap sync android
 
+      - name: Clear Gradle cache
+        run: |
+          rm -rf ~/.gradle/caches/jars-9/ || true
+          rm -rf ~/.gradle/caches/modules-2/ || true
+
       - name: Build APK with Gradle
         run: |
           cd android
