@@ -23,16 +23,17 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Set up JDK 17
+      # ✅ FIX: upgrade to Java 21 (required by AGP 8.4+)
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      # ✅ ADD: install required SDK version (fixes androidx issue)
+      # ✅ FIX: install required SDK for androidx 1.15+
       - name: Install Android SDK 35
         run: |
           sdkmanager "platforms;android-35"
@@ -58,41 +59,45 @@ jobs:
         run: |
           npx cap sync android
 
+      # ✅ FIX: force Gradle 8.6 (wrapper overrides everything else)
       - name: Force Gradle wrapper to 8.6
         run: |
           sed -i 's/gradle-.*-bin.zip/gradle-8.6-bin.zip/g' android/gradle/wrapper/gradle-wrapper.properties
 
-      # ✅ ADD: upgrade Android Gradle Plugin (fixes compileSdk restriction)
+      # ✅ FIX: upgrade Android Gradle Plugin
       - name: Upgrade Android Gradle Plugin
         run: |
           sed -i 's/com.android.tools.build:gradle:8.2.0/com.android.tools.build:gradle:8.4.2/g' android/build.gradle || true
 
-      # ✅ ADD: update compileSdk to match dependencies
+      # ✅ FIX: align compileSdk with dependencies
       - name: Update compileSdk
         run: |
           sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle || true
           sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle || true
 
+      # ✅ FIX: clean + isolate Gradle cache
       - name: Prepare clean Gradle environment
         run: |
           rm -rf ~/.gradle
           rm -rf /tmp/gradle-cache
           mkdir -p /tmp/gradle-cache
 
-      - name: Patch bcprov issue (temporary fix)
+      # ✅ FIX: bcprov crash workaround
+      - name: Patch bcprov issue
         run: |
           echo "configurations.all { resolutionStrategy { force 'org.bouncycastle:bcprov-jdk18on:1.78' } }" >> android/build.gradle
 
+      # ✅ FINAL BUILD (stable flags)
       - name: Build APK with Gradle
         run: |
           cd android
           chmod +x gradlew
           ./gradlew clean assembleRelease \
-           --no-daemon \
-           --refresh-dependencies \
-           --no-build-cache \
-           -Dorg.gradle.vfs.watch=false \
-           -g /tmp/gradle-cache
+            --no-daemon \
+            --no-build-cache \
+            --refresh-dependencies \
+            -Dorg.gradle.vfs.watch=false \
+            -g /tmp/gradle-cache
 
       - name: Locate APK
         id: apk
