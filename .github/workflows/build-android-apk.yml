@@ -61,7 +61,10 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean assembleRelease --no-daemon --refresh-dependencies
+          ./gradlew clean assembleRelease\
+           --no-daemon\
+           --refresh-dependencies\
+           -g /tmp/gradle-cache
 
       - name: Locate APK
         id: apk
