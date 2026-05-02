@@ -1,6 +1,12 @@
 name: Build Android App Bundle (AAB)
 
 on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to build'
+        required: false
+        type: string
   workflow_dispatch:
     inputs:
       version:
@@ -8,6 +14,8 @@ on:
         required: true
         type: string
   push:
+    branches:
+      - main
 
 jobs:
   build:

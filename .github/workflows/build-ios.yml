@@ -1,6 +1,13 @@
 name: Build iOS App
 
 on:
+  workflow_call:
+    inputs:
+      build_config:
+        description: 'Build configuration'
+        required: false
+        type: string
+        default: 'Debug'
   workflow_dispatch:
     inputs:
       build_config:
@@ -12,8 +19,8 @@ on:
           - Debug
           - Release
   push:
-    paths:
-      - '.github/workflows/build-ios.yml'
+    branches:
+      - main
 
 jobs:
   build:
@@ -27,6 +34,7 @@ jobs:
     env:
       NODE_ENV: production
       VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
+      BUILD_CONFIG: ${{ inputs.build_config || github.event.inputs.build_config || 'Debug' }}
 
     steps:
       - name: Checkout code
@@ -107,7 +115,7 @@ jobs:
           fi
 
       - name: Build Debug
-        if: github.event.inputs.build_config == 'Debug'
+        if: ${{ env.BUILD_CONFIG == 'Debug' }}
         run: |
           cd web/ios
           xcodebuild build \
@@ -122,7 +130,7 @@ jobs:
             | xcpretty
 
       - name: Build Release
-        if: github.event.inputs.build_config == 'Release' || github.ref == 'refs/heads/main'
+        if: ${{ env.BUILD_CONFIG == 'Release' }}
         run: |
           cd web/ios
           xcodebuild build \
@@ -134,7 +142,7 @@ jobs:
             | xcpretty
 
       - name: Create Archive
-        if: github.event.inputs.build_config == 'Release' || github.ref == 'refs/heads/main'
+        if: ${{ env.BUILD_CONFIG == 'Release' }}
         run: |
           cd web/ios
           xcodebuild archive \
@@ -146,7 +154,7 @@ jobs:
             | xcpretty
 
       - name: Export IPA
-        if: github.event.inputs.build_config == 'Release' || github.ref == 'refs/heads/main'
+        if: ${{ env.BUILD_CONFIG == 'Release' }}
         run: |
           cd web/ios/build
           xcodebuild -exportArchive \
@@ -188,7 +196,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload to TestFlight
-        if: github.ref == 'refs/heads/main' && steps.artifact.outputs.type == 'ipa'
+        if: ${{ env.BUILD_CONFIG == 'Release' && steps.artifact.outputs.type == 'ipa' }}
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}

@@ -1,7 +1,18 @@
 name: Build Android APK
 
 on:
+  workflow_call:
+    inputs:
+      build_type:
+        description: 'APK build type'
+        required: false
+        type: string
+        default: 'release'
   push:
+    branches:
+      - main
+      - develop
+      - staging
 
 jobs:
   build:
@@ -79,7 +90,7 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean assembleRelease \
+          ./gradlew clean assemble${{ inputs.build_type == 'debug' && 'Debug' || 'Release' }} \
             --no-daemon \
             --no-build-cache \
             --refresh-dependencies \
