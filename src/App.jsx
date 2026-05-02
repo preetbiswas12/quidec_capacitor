@@ -235,8 +235,6 @@ function AppContent() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [])
 
-  }
-
   // Show loading screen while initializing
   if (loading) {
     return <LoadingScreen message="Initializing app..." />

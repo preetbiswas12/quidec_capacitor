@@ -21,6 +21,7 @@ export default defineConfig({
     sourcemap: false,
     outDir: 'dist',
     rollupOptions: {
+      external: (id) => id.startsWith('@capacitor/') || id === '@capacitor/core',
       output: {
         manualChunks: undefined,
       },

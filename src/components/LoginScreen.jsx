@@ -159,10 +159,3 @@ export default function LoginScreen({ onLogin, onRegister, loading }) {
     </div>
   )
 }
-            </button>
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-}

@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { RouterProvider } from 'react-router';
 import { router } from './routes';
+import { initializePushNotifications } from '../utils/firebase';
 
 // ─── Error boundary ───────────────────────────────────────────────────────────
 interface EBState { hasError: boolean; message: string }
@@ -36,6 +37,33 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, EBSta
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
+  useEffect(() => {
+    // Initialize Firebase push notifications
+    const initNotifications = async () => {
+      try {
+        console.log('🔔 Initializing push notifications...');
+        
+        // Initialize with message handler
+        await initializePushNotifications((payload) => {
+          console.log('📬 Message received:', payload);
+          // Handle notification in foreground
+          const notification = payload.notification || {};
+          console.log(`Title: ${notification.title}, Body: ${notification.body}`);
+        });
+
+        console.log('✅ Push notifications ready');
+      } catch (err) {
+        console.error('❌ Push notification initialization failed:', err);
+        // App still works without notifications
+      }
+    };
+
+    // Only initialize in production/staging
+    if (import.meta.env.PROD) {
+      initNotifications();
+    }
+  }, []);
+
   return (
     <ErrorBoundary>
       <RouterProvider router={router} />

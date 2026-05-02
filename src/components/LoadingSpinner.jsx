@@ -32,7 +32,7 @@ export function SkeletonLoader({ count = 3 }) {
           <div style={styles.skeletonAvatar}></div>
           <div>
             <div style={styles.skeletonLine}></div>
-            <div style={styles.skeletonLine} style={{ width: '60%' }}></div>
+            <div style={{ ...styles.skeletonLine, width: '60%' }}></div>
           </div>
         </div>
       ))}

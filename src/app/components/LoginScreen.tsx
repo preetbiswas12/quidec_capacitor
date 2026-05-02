@@ -74,7 +74,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <div className="h-full w-full bg-gradient-to-b from-[#0a0e27] to-[#111B21] flex flex-col items-center justify-center p-4">
+    <div className="h-full w-full bg-linear-to-b from-[#0a0e27] to-[#111B21] flex flex-col items-center justify-center p-4">
       <motion.div
         className="w-full max-w-sm space-y-6"
         initial={{ opacity: 0, y: 20 }}
@@ -84,7 +84,7 @@ export default function LoginScreen() {
         {/* Header */}
         <div className="text-center space-y-2">
           <motion.div
-            className="w-16 h-16 mx-auto bg-gradient-to-br from-[#00A884] to-[#008C6E] rounded-3xl flex items-center justify-center shadow-lg"
+            className="w-16 h-16 mx-auto bg-linear-to-br from-[#00A884] to-[#008C6E] rounded-3xl flex items-center justify-center shadow-lg"
             animate={{ y: [0, -8, 0] }}
             transition={{ duration: 2, repeat: Infinity }}
           >

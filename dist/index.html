@@ -2,14 +2,62 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>0408</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='75' font-size='90'>🎭</text></svg>">
-  <script type="module" crossorigin src="/assets/index-ryGrocil.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/style-DoNnHM3Y.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1">
+  
+  <!-- App metadata -->
+  <title>Quidec Chat - Encrypted Real-time Messaging</title>
+  <meta name="description" content="A real-time encrypted chat application with friends and messaging">
+  <meta name="theme-color" content="#1B3C53">
+  <meta name="color-scheme" content="dark">
+  
+  <!-- Apple specific -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Quidec">
+  
+  <!-- iOS icons -->
+  <link rel="apple-touch-icon" href="/icon-192x192.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/icon-152x152.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icon-192x192.png">
+  
+  <!-- Android -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="application-name" content="Quidec">
+  
+  <!-- Icon and manifest -->
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/icon-192x192.png" type="image/png" sizes="192x192">
+  <link rel="manifest" href="/manifest.json">
+  
+  <!-- Capacitor -->
+  <script src="https://cdn.jsdelivr.net/npm/@capacitor/core@latest/dist/capacitor.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@capacitor/app@latest/dist/plugin.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@capacitor/device@latest/dist/plugin.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@capacitor/network@latest/dist/plugin.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@capacitor/push-notifications@latest/dist/plugin.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@capacitor/local-notifications@latest/dist/plugin.js"></script>
+  
+  <!-- Performance optimization -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="dns-prefetch" href="https://quidec-server.onrender.com">
+  
+  <!-- Security headers -->
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline';">
+  <script type="module" crossorigin src="/assets/index-C0azONCK.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/style-CJZ6qf2V.css">
 </head>
 <body>
   <div id="root"></div>
+  
+  <!-- Service worker registration for PWA -->
+  <script>
+    if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
+      navigator.serviceWorker.register('/sw.js').catch(() => {
+        console.log('Service Worker registration failed')
+      })
+    }
+  </script>
 </body>
 </html>
 
