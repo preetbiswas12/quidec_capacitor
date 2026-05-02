@@ -13,8 +13,6 @@ on:
         default: false
         type: boolean
   push:
-    tags:
-      - 'v*.*.*'
 
 jobs:
   prepare:

@@ -1,4 +1,4 @@
-package com.aegix.readux;
+package com.quidec.chat;
 
 import com.getcapacitor.BridgeActivity;
 

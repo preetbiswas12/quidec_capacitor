@@ -1,4 +1,4 @@
-package com.getcapacitor.myapp;
+package com.quidec.chat;
 
 import static org.junit.Assert.*;
 

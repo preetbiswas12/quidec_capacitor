@@ -2,21 +2,7 @@ name: Test & Lint
 
 on:
   push:
-    branches:
-      - main
-      - develop
-      - staging
-    paths:
-      - 'web/src/**'
-      - 'web/package.json'
-      - 'web/tsconfig.json'
   pull_request:
-    branches:
-      - main
-      - develop
-    paths:
-      - 'web/src/**'
-      - 'web/package.json'
 
 jobs:
   lint:

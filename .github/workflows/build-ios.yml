@@ -12,12 +12,7 @@ on:
           - Debug
           - Release
   push:
-    branches:
-      - main
-      - develop
     paths:
-      - 'web/src/**'
-      - 'web/package.json'
       - '.github/workflows/build-ios.yml'
 
 jobs:

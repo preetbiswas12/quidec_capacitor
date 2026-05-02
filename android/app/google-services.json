@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "442442395819",
-    "project_id": "readux-96cf8",
-    "storage_bucket": "readux-96cf8.firebasestorage.app"
+    "project_number": "1016231429284",
+    "project_id": "octate-wee",
+    "storage_bucket": "octate-wee.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:442442395819:android:f6e8cb123473cab02107ee",
+        "mobilesdk_app_id": "1:1016231429284:android:d8ec552383e8cff8a9d231",
         "android_client_info": {
-          "package_name": "com.aegix.readux"
+          "package_name": "com.quidec.chat"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyCfadw7JBrPgyIWSYs6INlJaumj8KEthMg"
+          "current_key": "AIzaSyAMAtSTFjpICFsHJnMa4rdlx9Y_OH7agLw"
         }
       ],
       "services": {

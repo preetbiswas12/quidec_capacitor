@@ -2,16 +2,7 @@ name: Code Quality & Build Verification
 
 on:
   push:
-    branches:
-      - '**'
-    paths:
-      - 'web/src/**'
-      - 'web/package.json'
-      - '.github/workflows/*.yml'
   pull_request:
-    branches:
-      - main
-      - develop
 
 jobs:
   verify:
