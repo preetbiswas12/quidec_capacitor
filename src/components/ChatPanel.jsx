@@ -1,6 +1,26 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import '../styles/chat-panel.css'
 
+// Format last seen time into human-readable format
+function formatLastSeen(lastSeenDate) {
+  if (!lastSeenDate) return 'Never'
+  
+  const date = new Date(lastSeenDate)
+  const now = new Date()
+  const diffMs = now - date
+  const diffSecs = Math.floor(diffMs / 1000)
+  const diffMins = Math.floor(diffSecs / 60)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+  
+  if (diffSecs < 60) return 'Just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  if (diffHours < 24) return `${diffHours}h ago`
+  if (diffDays < 7) return `${diffDays}d ago`
+  
+  return date.toLocaleDateString()
+}
+
 export default function ChatPanel({
   currentUser,
   currentChatWith,
@@ -419,10 +439,22 @@ export default function ChatPanel({
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2>{currentChatWith}</h2>
           <div className="status-indicator">
-            <span className="status-dot" style={{ 
-              background: friends.find(f => f.username === currentChatWith)?.online ? '#4ade80' : '#A0A0B0'
-            }}></span>
-            <small>{friends.find(f => f.username === currentChatWith)?.online ? 'Online now' : 'Offline'}</small>
+            {(() => {
+              const friend = friends.find(f => f.username === currentChatWith)
+              const isOnline = friend?.online
+              const lastSeen = friend?.lastSeen
+              
+              return (
+                <>
+                  <span className="status-dot" style={{ 
+                    background: isOnline ? '#4ade80' : '#A0A0B0'
+                  }}></span>
+                  <small>
+                    {isOnline ? 'Online now' : `Last seen ${formatLastSeen(lastSeen)}`}
+                  </small>
+                </>
+              )
+            })()}
           </div>
         </div>
       </div>

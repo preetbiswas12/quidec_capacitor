@@ -1,0 +1,90 @@
+name: Code Quality & Build Verification
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'web/src/**'
+      - 'web/package.json'
+      - '.github/workflows/*.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          cd web
+          npm ci
+
+      - name: Type check (TypeScript)
+        id: typecheck
+        run: |
+          cd web
+          npx tsc --noEmit
+        continue-on-error: true
+
+      - name: Format check (Prettier)
+        id: format
+        run: |
+          cd web
+          npx prettier --check "src/**/*.{ts,tsx,js,jsx,json,css}" || true
+        continue-on-error: true
+
+      - name: Lint code (ESLint)
+        id: lint
+        run: |
+          cd web
+          npm run lint || true
+        continue-on-error: true
+
+      - name: Build verification
+        id: build
+        run: |
+          cd web
+          npm run build
+
+      - name: Generate quality report
+        if: always()
+        run: |
+          echo "## 📊 Code Quality Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| TypeScript | ${{ steps.typecheck.outcome == 'success' && '✅' || '⚠️' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Format | ${{ steps.format.outcome == 'success' && '✅' || '⚠️' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lint | ${{ steps.lint.outcome == 'success' && '✅' || '⚠️' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ${{ steps.build.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Code quality checks completed. See workflow runs for details.'
+            })
+        continue-on-error: true

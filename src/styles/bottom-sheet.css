@@ -1,0 +1,95 @@
+.bottom-sheet-container {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.bottom-sheet-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  animation: fadeIn 0.3s ease-out;
+}
+
+.bottom-sheet {
+  background: var(--bg-tertiary);
+  border-radius: 20px 20px 0 0;
+  border-top: 1px solid var(--border-color);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
+  position: relative;
+  z-index: 1;
+  max-height: 60vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  animation: slideUp 0.3s ease-out;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.bottom-sheet-handle {
+  width: 40px;
+  height: 4px;
+  background: rgba(227, 227, 227, 0.2);
+  border-radius: 2px;
+  margin: 12px auto;
+  cursor: grab;
+}
+
+.bottom-sheet-handle:active {
+  cursor: grabbing;
+}
+
+.bottom-sheet-title {
+  font-size: 18px;
+  font-weight: 600;
+  padding: 0 16px 8px;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.bottom-sheet-content {
+  padding: 0 16px 16px;
+}
+
+/* Support for keyboard on mobile */
+@media (max-height: 600px) {
+  .bottom-sheet {
+    max-height: 80vh;
+  }
+}
+
+/* Landscape mode */
+@media (orientation: landscape) {
+  .bottom-sheet {
+    max-height: 90vh;
+    border-radius: 12px 12px 0 0;
+  }
+}

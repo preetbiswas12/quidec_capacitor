@@ -5,12 +5,21 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    host: true,
+    host: '0.0.0.0',
+    strictPort: false,
   },
   build: {
-    target: 'esnext',
-    minify: false,
+    target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari13'],
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        passes: 2,
+      },
+      mangle: true,
+    },
     cssCodeSplit: false,
+    sourcemap: false,
+    outDir: 'dist',
     rollupOptions: {
       output: {
         manualChunks: undefined,

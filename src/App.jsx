@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import LoginScreen from './components/LoginScreen'
 import ChatScreen from './components/ChatScreen'
+import ErrorBoundary from './components/ErrorBoundary'
+import { LoadingScreen } from './components/LoadingSpinner'
 import useWebSocket from './hooks/useWebSocket'
 import { initializeDB, getAuth, saveAuth, clearAuth } from './utils/storage'
 import { getEncryptionKey } from './utils/encryption'
@@ -9,9 +11,10 @@ import { requestCameraAndMicPermissions, setupPermissionListeners } from './util
 import { initializePushNotifications, setupNotificationActions } from './utils/fcm'
 import { App as CapacitorApp } from '@capacitor/app'
 
-export default function App() {
+function AppContent() {
   const [currentUser, setCurrentUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [initError, setInitError] = useState(null)
   const [incomingRequestFrom, setIncomingRequestFrom] = useState(null)
   const [isOnline, setIsOnline] = useState(true)
   
@@ -57,6 +60,7 @@ export default function App() {
         console.log('✅ Capacitor app initialized')
       } catch (err) {
         console.error('❌ Mobile initialization error:', err)
+        setInitError('Failed to initialize app')
       }
     }
 
@@ -231,6 +235,31 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [])
 
+  }
+
+  // Show loading screen while initializing
+  if (loading) {
+    return <LoadingScreen message="Initializing app..." />
+  }
+
+  // Show error if initialization failed
+  if (initError) {
+    return (
+      <div style={errorStyles.container}>
+        <div style={errorStyles.content}>
+          <h1 style={errorStyles.title}>⚠️ Initialization Error</h1>
+          <p style={errorStyles.message}>{initError}</p>
+          <button
+            style={errorStyles.button}
+            onClick={() => window.location.reload()}
+          >
+            Reload App
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (!currentUser) {
     return <LoginScreen onLogin={handleLogin} onRegister={handleRegister} loading={loading} />
   }
@@ -248,6 +277,53 @@ export default function App() {
       onIncomingRequestHandled={() => setIncomingRequestFrom(null)}
       onLogout={handleLogout}
       refreshRequests={refreshRequests}
+      isOnline={isOnline}
     />
   )
 }
+
+const errorStyles = {
+  container: {
+    width: '100%',
+    height: '100vh',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'linear-gradient(135deg, #0a0a14 0%, #111122 100%)',
+    color: '#E3E3E3',
+  },
+  content: {
+    textAlign: 'center',
+    maxWidth: '400px',
+    padding: '20px',
+  },
+  title: {
+    fontSize: '24px',
+    marginBottom: '12px',
+  },
+  message: {
+    fontSize: '14px',
+    color: '#A0A0B0',
+    marginBottom: '24px',
+  },
+  button: {
+    padding: '12px 24px',
+    background: 'linear-gradient(135deg, #1B3C53, #234C6A)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: '500',
+    cursor: 'pointer',
+  },
+}
+
+// Export wrapped version with ErrorBoundary
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  )
+}
+

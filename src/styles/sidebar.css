@@ -212,6 +212,16 @@
   max-width: 160px;
 }
 
+.friend-last-seen {
+  font-size: 10px;
+  color: #7A8FA0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+  font-style: italic;
+}
+
 .friend-unread-badge {
   display: inline-flex;
   align-items: center;

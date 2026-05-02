@@ -1,0 +1,211 @@
+name: Build iOS App
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_config:
+        description: 'Build configuration'
+        required: true
+        default: 'Debug'
+        type: choice
+        options:
+          - Debug
+          - Release
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'web/src/**'
+      - 'web/package.json'
+      - '.github/workflows/build-ios.yml'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    permissions:
+      contents: read
+      checks: write
+
+    env:
+      NODE_ENV: production
+      VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            web/ios/Pods
+            ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-pods-${{ hashFiles('web/ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Install dependencies
+        run: |
+          cd web
+          npm ci
+
+      - name: Install Capacitor CLI
+        uses: codetalkio/setup-capacitor@v1
+
+      - name: Type check
+        run: |
+          cd web
+          npx tsc --noEmit
+        continue-on-error: true
+
+      - name: Build web app
+        run: |
+          cd web
+          npm run build
+        env:
+          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
+
+      - name: Sync Capacitor
+        run: |
+          cd web
+          npx cap sync ios
+
+      - name: Install CocoaPods
+        run: |
+          cd web/ios
+          pod install --repo-update
+
+      - name: Decode provisioning profile
+        if: github.event.inputs.build_config == 'Release' || github.ref == 'refs/heads/main'
+        env:
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          if [ -n "$PROVISIONING_PROFILE_BASE64" ]; then
+            echo "$PROVISIONING_PROFILE_BASE64" | base64 -d > ~/ios.mobileprovision
+            echo "✅ Provisioning profile decoded"
+          fi
+
+      - name: Decode signing certificate
+        if: github.event.inputs.build_config == 'Release' || github.ref == 'refs/heads/main'
+        env:
+          CODE_SIGN_IDENTITY_BASE64: ${{ secrets.IOS_CODE_SIGN_IDENTITY_BASE64 }}
+          CODE_SIGN_PASSWORD: ${{ secrets.IOS_CODE_SIGN_PASSWORD }}
+        run: |
+          if [ -n "$CODE_SIGN_IDENTITY_BASE64" ]; then
+            echo "$CODE_SIGN_IDENTITY_BASE64" | base64 -d > ~/certificate.p12
+            security create-keychain -p "$CODE_SIGN_PASSWORD" ~/Library/Keychains/build.keychain-db
+            security default-keychain -s ~/Library/Keychains/build.keychain-db
+            security unlock-keychain -p "$CODE_SIGN_PASSWORD" ~/Library/Keychains/build.keychain-db
+            security import ~/certificate.p12 -k ~/Library/Keychains/build.keychain-db -P "$CODE_SIGN_PASSWORD" -T /usr/bin/codesign
+            echo "✅ Code signing certificate installed"
+          fi
+
+      - name: Build Debug
+        if: github.event.inputs.build_config == 'Debug'
+        run: |
+          cd web/ios
+          xcodebuild build \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            PROVISIONING_PROFILE="" \
+            | xcpretty
+
+      - name: Build Release
+        if: github.event.inputs.build_config == 'Release' || github.ref == 'refs/heads/main'
+        run: |
+          cd web/ios
+          xcodebuild build \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            | xcpretty
+
+      - name: Create Archive
+        if: github.event.inputs.build_config == 'Release' || github.ref == 'refs/heads/main'
+        run: |
+          cd web/ios
+          xcodebuild archive \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -derivedDataPath build \
+            -archivePath build/App.xcarchive \
+            | xcpretty
+
+      - name: Export IPA
+        if: github.event.inputs.build_config == 'Release' || github.ref == 'refs/heads/main'
+        run: |
+          cd web/ios/build
+          xcodebuild -exportArchive \
+            -archivePath App.xcarchive \
+            -exportOptionsPlist ../ExportOptions.plist \
+            -exportPath . \
+            | xcpretty
+
+      - name: Locate build artifact
+        id: artifact
+        run: |
+          if [ -f "web/ios/build/App.ipa" ]; then
+            echo "type=ipa" >> $GITHUB_OUTPUT
+            echo "path=web/ios/build/App.ipa" >> $GITHUB_OUTPUT
+            echo "size=$(du -h web/ios/build/App.ipa | cut -f1)" >> $GITHUB_OUTPUT
+          elif [ -d "web/ios/build/Debug-iphonesimulator" ]; then
+            echo "type=simulator" >> $GITHUB_OUTPUT
+            echo "path=web/ios/build/Debug-iphonesimulator" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate build report
+        run: |
+          echo "## 🍎 iOS Build Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Configuration:** ${{ github.event.inputs.build_config || 'Debug' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Artifact Type:** ${{ steps.artifact.outputs.type }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.artifact.outputs.type }}" == "ipa" ]; then
+            echo "**IPA Size:** ${{ steps.artifact.outputs.size }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "**Build Time:** $(date)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload artifact
+        if: steps.artifact.outputs.type == 'ipa'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-${{ github.sha }}
+          path: ${{ steps.artifact.outputs.path }}
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload to TestFlight
+        if: github.ref == 'refs/heads/main' && steps.artifact.outputs.type == 'ipa'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          ASC_PROVIDER: ${{ secrets.ASC_PROVIDER }}
+        run: |
+          if [ -n "$APPLE_ID" ]; then
+            xcrun altool --upload-app -f web/ios/build/App.ipa \
+              -t ios \
+              -u "$APPLE_ID" \
+              -p "$APPLE_ID_PASSWORD"
+            echo "✅ Uploaded to TestFlight"
+          else
+            echo "⚠️ Apple credentials not configured - skipping TestFlight upload"
+          fi
+        continue-on-error: true

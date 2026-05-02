@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1B3C53;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#234C6A;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <rect width="512" height="512" fill="url(#bgGradient)" rx="110"/>
+  
+  <!-- Chat bubbles -->
+  <g>
+    <!-- First message bubble (left) -->
+    <path d="M 80 140 Q 60 140 60 160 L 60 220 Q 60 240 80 240 L 140 240 L 130 270 L 160 240 L 240 240 Q 260 240 260 220 L 260 160 Q 260 140 240 140 Z" fill="#4a6fa5" opacity="0.8"/>
+    
+    <!-- Second message bubble (right) -->
+    <path d="M 272 280 Q 252 280 252 300 L 252 360 Q 252 380 272 380 L 332 380 Q 352 380 352 360 L 352 300 Q 352 280 332 280 Z" fill="#456882" opacity="0.6"/>
+    
+    <!-- Message text indicators -->
+    <circle cx="100" cy="180" r="6" fill="white" opacity="0.7"/>
+    <circle cx="130" cy="180" r="6" fill="white" opacity="0.7"/>
+    <circle cx="160" cy="180" r="6" fill="white" opacity="0.7"/>
+    
+    <circle cx="280" cy="320" r="6" fill="white" opacity="0.7"/>
+    <circle cx="310" cy="320" r="6" fill="white" opacity="0.7"/>
+    <circle cx="340" cy="320" r="6" fill="white" opacity="0.7"/>
+  </g>
+  
+  <!-- Theater masks emoji representation -->
+  <g transform="translate(350, 80) scale(0.8)">
+    <circle cx="0" cy="0" r="30" fill="white" opacity="0.2"/>
+    <circle cx="0" cy="0" r="24" fill="white" opacity="0.3"/>
+  </g>
+</svg>
