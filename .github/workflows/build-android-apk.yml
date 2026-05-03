@@ -1,18 +1,8 @@
 name: Build Android APK
 
 on:
-  workflow_call:
-    inputs:
-      build_type:
-        description: 'APK build type (debug/release)'
-        required: false
-        type: string
-        default: 'release'
-  push:
-    branches:
-      - main
-      - develop
-      - staging
+  push:   # ✅ runs on every commit
+  workflow_dispatch:  # optional manual trigger
 
 jobs:
   build:
@@ -21,12 +11,10 @@ jobs:
 
     permissions:
       contents: read
-      checks: write
 
     env:
       GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
       NODE_ENV: production
-      BUILD_TYPE: ${{ inputs.build_type != '' && inputs.build_type || 'release' }}
 
     steps:
       - name: Checkout code
@@ -64,20 +52,20 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      # DEPENDENCIES
+      # INSTALL
       - name: Install dependencies
         id: install_deps
         run: pnpm install --frozen-lockfile
 
       - name: Fallback install
-        if: steps.install_deps.outcome == 'failure'
+        if: ${{ failure() }}
         run: pnpm install
 
       # BUILD WEB
       - name: Build web app
         run: pnpm build
         env:
-          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL != '' && secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
+          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
 
       # CAPACITOR
       - name: Ensure Android project exists
@@ -86,53 +74,25 @@ jobs:
       - name: Sync Capacitor
         run: pnpm exec cap sync android
 
-      # KEYSTORE (only for release)
-      - name: Setup keystore
-        if: env.BUILD_TYPE == 'release' && secrets.KEYSTORE_BASE64 != ''
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/keystore.jks
-
-      # BUILD APK
-      - name: Build APK
+      # BUILD APK (always debug for commit builds)
+      - name: Build Debug APK
         run: |
           cd android
           chmod +x gradlew
-
-          if [ "${BUILD_TYPE}" = "debug" ]; then
-            ./gradlew clean assembleDebug --no-daemon
-          else
-            ./gradlew clean assembleRelease --no-daemon
-          fi
-        env:
-          KEYSTORE_PATH: ${{ github.workspace }}/android/keystore.jks
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          ./gradlew clean assembleDebug --no-daemon
 
       # LOCATE APK
       - name: Locate APK
         id: apk
         run: |
-          APK_DIR="android/app/build/outputs/apk/${BUILD_TYPE}"
-          APK_PATH=$(find $APK_DIR -name "*.apk" -type f | head -1)
+          APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -1)
 
           if [ -z "$APK_PATH" ]; then
-            echo "❌ APK not found!"
+            echo "APK not found"
             exit 1
           fi
 
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-          echo "apk_name=$(basename $APK_PATH)" >> $GITHUB_OUTPUT
-          echo "apk_size=$(du -h $APK_PATH | cut -f1)" >> $GITHUB_OUTPUT
-
-      # REPORT
-      - name: Build report
-        run: |
-          echo "## 📱 Android APK Build Report" >> $GITHUB_STEP_SUMMARY
-          echo "**APK Name:** ${{ steps.apk.outputs.apk_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**APK Size:** ${{ steps.apk.outputs.apk_size }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Build Type:** ${{ env.BUILD_TYPE }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Time:** $(date)" >> $GITHUB_STEP_SUMMARY
 
       # UPLOAD
       - name: Upload APK
@@ -140,5 +100,3 @@ jobs:
         with:
           name: android-apk-${{ github.sha }}
           path: ${{ steps.apk.outputs.apk_path }}
-          retention-days: 30
-          if-no-files-found: error
