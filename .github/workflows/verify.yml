@@ -25,7 +25,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd web
           npm ci
 
       - name: Type check (TypeScript)

@@ -113,7 +113,7 @@ jobs:
       - name: Build Debug
         if: ${{ env.BUILD_CONFIG == 'Debug' }}
         run: |
-          cd web/ios
+          cd ios
           xcodebuild build \
             -workspace App.xcworkspace \
             -scheme App \
@@ -128,7 +128,7 @@ jobs:
       - name: Build Release
         if: ${{ env.BUILD_CONFIG == 'Release' }}
         run: |
-          cd web/ios
+          cd ios
           xcodebuild build \
             -workspace App.xcworkspace \
             -scheme App \
@@ -140,7 +140,7 @@ jobs:
       - name: Create Archive
         if: ${{ env.BUILD_CONFIG == 'Release' }}
         run: |
-          cd web/ios
+          cd ios
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
@@ -152,7 +152,7 @@ jobs:
       - name: Export IPA
         if: ${{ env.BUILD_CONFIG == 'Release' }}
         run: |
-          cd web/ios/build
+          cd ios/build
           xcodebuild -exportArchive \
             -archivePath App.xcarchive \
             -exportOptionsPlist ../ExportOptions.plist \
