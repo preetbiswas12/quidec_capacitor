@@ -13,8 +13,8 @@ on:
       build_config:
         description: 'Build configuration'
         required: true
-        default: 'Debug'
         type: choice
+        default: 'Debug'
         options:
           - Debug
           - Release
@@ -33,8 +33,7 @@ jobs:
 
     env:
       NODE_ENV: production
-      VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
-      BUILD_CONFIG: ${{ inputs.build_config || github.event.inputs.build_config || 'Debug' }}
+      BUILD_CONFIG: ${{ inputs.build_config || 'Debug' }}
 
     steps:
       - name: Checkout code
@@ -59,61 +58,65 @@ jobs:
             ${{ runner.os }}-pods-
 
       - name: Install dependencies
-        run: |
-          npm ci
+        run: npm ci
 
       - name: Install Capacitor CLI
-        uses: codetalkio/setup-capacitor@v1
+        run: npm install -g @capacitor/cli
 
       - name: Type check
-        run: |
-          npx tsc --noEmit
+        run: npx tsc --noEmit
         continue-on-error: true
 
       - name: Build web app
-        run: |
-          npm run build
+        run: npm run build
         env:
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
 
       - name: Sync Capacitor
-        run: |
-          npx cap sync ios
+        run: npx cap sync ios
 
       - name: Install CocoaPods
         run: |
-          cd ios
+          cd web/ios
           pod install --repo-update
 
+      - name: Setup code signing (Release)
+        if: env.BUILD_CONFIG == 'Release'
+        run: |
+          # Validate secrets exist
+          if [ -z "${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}" ]; then
+            echo "⚠️ Warning: IOS_PROVISIONING_PROFILE_BASE64 not configured"
+          fi
+          
+          if [ -z "${{ secrets.IOS_CODE_SIGN_IDENTITY_BASE64 }}" ]; then
+            echo "⚠️ Warning: IOS_CODE_SIGN_IDENTITY_BASE64 not configured"
+          fi
+
       - name: Decode provisioning profile
-        if: github.event.inputs.build_config == 'Release' || github.ref == 'refs/heads/main'
+        if: env.BUILD_CONFIG == 'Release' && secrets.IOS_PROVISIONING_PROFILE_BASE64
         env:
           PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
         run: |
-          if [ -n "$PROVISIONING_PROFILE_BASE64" ]; then
-            echo "$PROVISIONING_PROFILE_BASE64" | base64 -d > ~/ios.mobileprovision
-            echo "✅ Provisioning profile decoded"
-          fi
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 -d > ~/ios.mobileprovision
+          echo "✅ Provisioning profile decoded"
 
-      - name: Decode signing certificate
-        if: github.event.inputs.build_config == 'Release' || github.ref == 'refs/heads/main'
+      - name: Decode and import code signing certificate
+        if: env.BUILD_CONFIG == 'Release' && secrets.IOS_CODE_SIGN_IDENTITY_BASE64
         env:
           CODE_SIGN_IDENTITY_BASE64: ${{ secrets.IOS_CODE_SIGN_IDENTITY_BASE64 }}
           CODE_SIGN_PASSWORD: ${{ secrets.IOS_CODE_SIGN_PASSWORD }}
         run: |
-          if [ -n "$CODE_SIGN_IDENTITY_BASE64" ]; then
-            echo "$CODE_SIGN_IDENTITY_BASE64" | base64 -d > ~/certificate.p12
-            security create-keychain -p "$CODE_SIGN_PASSWORD" ~/Library/Keychains/build.keychain-db
-            security default-keychain -s ~/Library/Keychains/build.keychain-db
-            security unlock-keychain -p "$CODE_SIGN_PASSWORD" ~/Library/Keychains/build.keychain-db
-            security import ~/certificate.p12 -k ~/Library/Keychains/build.keychain-db -P "$CODE_SIGN_PASSWORD" -T /usr/bin/codesign
-            echo "✅ Code signing certificate installed"
-          fi
+          echo "$CODE_SIGN_IDENTITY_BASE64" | base64 -d > ~/certificate.p12
+          security create-keychain -p "$CODE_SIGN_PASSWORD" ~/Library/Keychains/build.keychain-db
+          security default-keychain -s ~/Library/Keychains/build.keychain-db
+          security unlock-keychain -p "$CODE_SIGN_PASSWORD" ~/Library/Keychains/build.keychain-db
+          security import ~/certificate.p12 -k ~/Library/Keychains/build.keychain-db -P "$CODE_SIGN_PASSWORD" -T /usr/bin/codesign
+          echo "✅ Code signing certificate installed"
 
-      - name: Build Debug
-        if: ${{ env.BUILD_CONFIG == 'Debug' }}
+      - name: Build Debug App
+        if: env.BUILD_CONFIG == 'Debug'
         run: |
-          cd ios
+          cd web/ios
           xcodebuild build \
             -workspace App.xcworkspace \
             -scheme App \
@@ -125,10 +128,10 @@ jobs:
             PROVISIONING_PROFILE="" \
             | xcpretty
 
-      - name: Build Release
-        if: ${{ env.BUILD_CONFIG == 'Release' }}
+      - name: Build Release App
+        if: env.BUILD_CONFIG == 'Release'
         run: |
-          cd ios
+          cd web/ios
           xcodebuild build \
             -workspace App.xcworkspace \
             -scheme App \
@@ -138,9 +141,9 @@ jobs:
             | xcpretty
 
       - name: Create Archive
-        if: ${{ env.BUILD_CONFIG == 'Release' }}
+        if: env.BUILD_CONFIG == 'Release'
         run: |
-          cd ios
+          cd web/ios
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
@@ -149,10 +152,18 @@ jobs:
             -archivePath build/App.xcarchive \
             | xcpretty
 
-      - name: Export IPA
-        if: ${{ env.BUILD_CONFIG == 'Release' }}
+      - name: Validate ExportOptions.plist exists
+        if: env.BUILD_CONFIG == 'Release'
         run: |
-          cd ios/build
+          if [ ! -f "web/ios/ExportOptions.plist" ]; then
+            echo "❌ ExportOptions.plist not found at web/ios/ExportOptions.plist"
+            exit 1
+          fi
+
+      - name: Export IPA
+        if: env.BUILD_CONFIG == 'Release'
+        run: |
+          cd web/ios/build
           xcodebuild -exportArchive \
             -archivePath App.xcarchive \
             -exportOptionsPlist ../ExportOptions.plist \
@@ -169,15 +180,17 @@ jobs:
           elif [ -d "web/ios/build/Debug-iphonesimulator" ]; then
             echo "type=simulator" >> $GITHUB_OUTPUT
             echo "path=web/ios/build/Debug-iphonesimulator" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Warning: No build artifacts found"
           fi
 
       - name: Generate build report
         run: |
           echo "## 🍎 iOS Build Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Build Configuration:** ${{ github.event.inputs.build_config || 'Debug' }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Artifact Type:** ${{ steps.artifact.outputs.type }}" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.artifact.outputs.type }}" == "ipa" ]; then
+          echo "**Build Configuration:** ${{ env.BUILD_CONFIG }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Artifact Type:** ${{ steps.artifact.outputs.type || 'None' }}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.artifact.outputs.size }}" ]; then
             echo "**IPA Size:** ${{ steps.artifact.outputs.size }}" >> $GITHUB_STEP_SUMMARY
           fi
           echo "**Build Time:** $(date)" >> $GITHUB_STEP_SUMMARY
@@ -192,19 +205,20 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload to TestFlight
-        if: ${{ env.BUILD_CONFIG == 'Release' && steps.artifact.outputs.type == 'ipa' }}
+        if: env.BUILD_CONFIG == 'Release' && steps.artifact.outputs.type == 'ipa'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           ASC_PROVIDER: ${{ secrets.ASC_PROVIDER }}
         run: |
-          if [ -n "$APPLE_ID" ]; then
-            xcrun altool --upload-app -f web/ios/build/App.ipa \
-              -t ios \
-              -u "$APPLE_ID" \
-              -p "$APPLE_ID_PASSWORD"
-            echo "✅ Uploaded to TestFlight"
-          else
+          if [ -z "$APPLE_ID" ]; then
             echo "⚠️ Apple credentials not configured - skipping TestFlight upload"
+            exit 0
           fi
+          
+          xcrun altool --upload-app -f web/ios/build/App.ipa \
+            -t ios \
+            -u "$APPLE_ID" \
+            -p "$APPLE_ID_PASSWORD"
+          echo "✅ Uploaded to TestFlight"
         continue-on-error: true

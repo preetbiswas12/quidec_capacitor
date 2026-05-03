@@ -13,6 +13,8 @@ on:
         default: false
         type: boolean
   push:
+    tags:
+      - 'v*'
 
 jobs:
   prepare:
@@ -36,8 +38,15 @@ jobs:
             IS_PRERELEASE=${{ github.event.inputs.pre_release }}
           else
             VERSION=${GITHUB_REF#refs/tags/v}
-            IS_PRERELEASE=$(echo "$VERSION" | grep -q 'alpha\|beta\|rc' && echo 'true' || echo 'false')
+            IS_PRERELEASE=$(echo "$VERSION" | grep -qE 'alpha|beta|rc' && echo 'true' || echo 'false')
           fi
+          
+          # Validate version format
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "❌ Invalid version format: $VERSION"
+            exit 1
+          fi
+          
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
           echo "📦 Release Version: $VERSION (Pre-release: $IS_PRERELEASE)"
@@ -50,9 +59,13 @@ jobs:
           else
             CHANGELOG="See commits for changes"
           fi
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Properly escape multi-line output
+          {
+            echo 'changelog<<EOF'
+            echo "$CHANGELOG"
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
 
   test:
     needs: prepare
@@ -70,16 +83,13 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: |
-          npm ci
+        run: npm ci
 
       - name: Type check
-        run: |
-          npx tsc --noEmit
+        run: npx tsc --noEmit
 
       - name: Build web app
-        run: |
-          npm run build
+        run: npm run build
 
   build-android-apk:
     needs: test
@@ -107,6 +117,10 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
 
+    permissions:
+      contents: write
+      packages: read
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -132,27 +146,34 @@ jobs:
           path: artifacts/
         continue-on-error: true
 
+      - name: Verify artifacts
+        run: |
+          echo "📦 Downloaded artifacts:"
+          ls -lh artifacts/ || echo "No artifacts found"
+
       - name: Create release notes
         id: release_notes
         run: |
-          echo "## 🎉 Quidec v${{ needs.prepare.outputs.version }}" > release_notes.md
-          echo "" >> release_notes.md
-          echo "### 📋 Release Information" >> release_notes.md
-          echo "- **Version:** ${{ needs.prepare.outputs.version }}" >> release_notes.md
-          echo "- **Release Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> release_notes.md
-          echo "- **Pre-release:** ${{ needs.prepare.outputs.is_prerelease }}" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "### 📦 Builds Included" >> release_notes.md
-          echo "- ✅ Android Debug APK" >> release_notes.md
-          echo "- ✅ Android App Bundle (Play Store)" >> release_notes.md
-          echo "- ✅ iOS App Archive (TestFlight)" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "### 📝 Changelog" >> release_notes.md
-          echo "${{ needs.prepare.outputs.changelog }}" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "### 🚀 Installation" >> release_notes.md
-          echo "- **Android:** Download APK or use Google Play Store" >> release_notes.md
-          echo "- **iOS:** Available on TestFlight and App Store" >> release_notes.md
+          {
+            echo "## 🎉 Quidec v${{ needs.prepare.outputs.version }}"
+            echo ""
+            echo "### 📋 Release Information"
+            echo "- **Version:** ${{ needs.prepare.outputs.version }}"
+            echo "- **Release Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+            echo "- **Pre-release:** ${{ needs.prepare.outputs.is_prerelease }}"
+            echo ""
+            echo "### 📦 Builds Included"
+            [ -f "artifacts/"*.apk ] && echo "- ✅ Android Debug APK" || echo "- ⚠️ Android Debug APK"
+            [ -f "artifacts/"*.aab ] && echo "- ✅ Android App Bundle (Play Store)" || echo "- ⚠️ Android App Bundle"
+            [ -f "artifacts/"*.ipa ] && echo "- ✅ iOS App Archive (TestFlight)" || echo "- ⚠️ iOS App Archive"
+            echo ""
+            echo "### 📝 Changelog"
+            echo "${{ needs.prepare.outputs.changelog }}"
+            echo ""
+            echo "### 🚀 Installation"
+            echo "- **Android:** Download APK or use Google Play Store"
+            echo "- **iOS:** Available on TestFlight and App Store"
+          } >> release_notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -162,35 +183,33 @@ jobs:
           tag_name: v${{ needs.prepare.outputs.version }}
           draft: false
           prerelease: ${{ needs.prepare.outputs.is_prerelease }}
-          generate_release_notes: true
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate release report
         run: |
-          echo "## 🎊 Release Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** ${{ needs.prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Pre-release:** ${{ needs.prepare.outputs.is_prerelease }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Available Downloads" >> $GITHUB_STEP_SUMMARY
-          if ls artifacts/*.apk &>/dev/null; then
-            echo "- Android APK: $(ls artifacts/*.apk | xargs -I {} basename {})" >> $GITHUB_STEP_SUMMARY
-          fi
-          if ls artifacts/*.aab &>/dev/null; then
-            echo "- Android AAB: $(ls artifacts/*.aab | xargs -I {} basename {})" >> $GITHUB_STEP_SUMMARY
-          fi
-          if ls artifacts/*.ipa &>/dev/null; then
-            echo "- iOS IPA: $(ls artifacts/*.ipa | xargs -I {} basename {})" >> $GITHUB_STEP_SUMMARY
-          fi
+          {
+            echo "## 🎊 Release Complete"
+            echo ""
+            echo "**Version:** v${{ needs.prepare.outputs.version }}"
+            echo "**Pre-release:** ${{ needs.prepare.outputs.is_prerelease }}"
+            echo ""
+            echo "### 📦 Available Downloads"
+            for file in artifacts/*; do
+              if [ -f "$file" ]; then
+                echo "- $(basename "$file"): $(du -h "$file" | cut -f1)"
+              fi
+            done
+          } >> $GITHUB_STEP_SUMMARY
 
   notify:
-    needs: release
+    needs: [prepare, release]
     runs-on: ubuntu-latest
     if: always()
 
     steps:
-      - name: Slack notification
+      - name: Slack failure notification
         if: failure()
         uses: slackapi/slack-github-action@v1
         with:
@@ -202,17 +221,30 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "❌ *Release Failed*\n*Version:* ${{ needs.prepare.outputs.version }}\n*Repository:* ${{ github.repository }}"
+                    "text": "❌ *Release Failed*\n*Version:* ${{ needs.prepare.outputs.version }}\n*Repository:* ${{ github.repository }}\n*Branch:* ${{ github.ref }}"
                   }
                 }
               ]
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
         continue-on-error: true
 
-      - name: Success notification
+      - name: Slack success notification
         if: success()
-        run: |
-          echo "✅ Release completed successfully!"
-          echo "Version: ${{ needs.prepare.outputs.version }}"
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "✅ Release successful for Quidec v${{ needs.prepare.outputs.version }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "✅ *Release Successful*\n*Version:* ${{ needs.prepare.outputs.version }}\n*Repository:* ${{ github.repository }}"
+                  }
+                }
+              ]
+            }
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true
