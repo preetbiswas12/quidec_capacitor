@@ -1,8 +1,8 @@
 name: Build Android APK
 
 on:
-  push:   # ✅ runs on every commit
-  workflow_dispatch:  # optional manual trigger
+  push:   # runs on every commit
+  workflow_dispatch:
 
 jobs:
   build:
@@ -20,16 +20,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # PNPM
+      # ✅ pnpm (version comes from package.json)
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
           cache: 'pnpm'
 
       # JAVA
@@ -52,7 +50,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      # INSTALL
+      # INSTALL DEPENDENCIES
       - name: Install dependencies
         id: install_deps
         run: pnpm install --frozen-lockfile
@@ -74,7 +72,7 @@ jobs:
       - name: Sync Capacitor
         run: pnpm exec cap sync android
 
-      # BUILD APK (always debug for commit builds)
+      # BUILD DEBUG APK (no signing needed for CI)
       - name: Build Debug APK
         run: |
           cd android
@@ -85,18 +83,20 @@ jobs:
       - name: Locate APK
         id: apk
         run: |
-          APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -1)
+          APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" -type f | head -1)
 
           if [ -z "$APK_PATH" ]; then
-            echo "APK not found"
+            echo "❌ APK not found!"
             exit 1
           fi
 
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
 
-      # UPLOAD
+      # UPLOAD APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: android-apk-${{ github.sha }}
           path: ${{ steps.apk.outputs.apk_path }}
+          retention-days: 30
+          if-no-files-found: error
