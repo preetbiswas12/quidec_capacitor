@@ -71,17 +71,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd web
           npm ci
 
       - name: Type check
         run: |
-          cd web
           npx tsc --noEmit
 
       - name: Build web app
         run: |
-          cd web
           npm run build
 
   build-android-apk:

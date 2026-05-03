@@ -21,24 +21,20 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd web
           npm ci
 
       - name: Type check
         run: |
-          cd web
           npx tsc --noEmit
         continue-on-error: true
 
       - name: Lint
         run: |
-          cd web
           npm run lint
         continue-on-error: true
 
       - name: Format check
         run: |
-          cd web
           npx prettier --check "src/**/*.{ts,tsx,js,jsx,json,css}" || true
         continue-on-error: true
 
@@ -52,7 +48,6 @@ jobs:
 
       - name: Run npm audit
         run: |
-          cd web
           npm audit --audit-level=moderate || true
 
       - name: Dependency check

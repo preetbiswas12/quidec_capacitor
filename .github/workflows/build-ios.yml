@@ -60,7 +60,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd web
           npm ci
 
       - name: Install Capacitor CLI
@@ -68,25 +67,22 @@ jobs:
 
       - name: Type check
         run: |
-          cd web
           npx tsc --noEmit
         continue-on-error: true
 
       - name: Build web app
         run: |
-          cd web
           npm run build
         env:
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
 
       - name: Sync Capacitor
         run: |
-          cd web
           npx cap sync ios
 
       - name: Install CocoaPods
         run: |
-          cd web/ios
+          cd ios
           pod install --repo-update
 
       - name: Decode provisioning profile

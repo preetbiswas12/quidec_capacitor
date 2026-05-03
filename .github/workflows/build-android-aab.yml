@@ -77,7 +77,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd web
           npm ci
 
       - name: Install Capacitor CLI
@@ -85,20 +84,17 @@ jobs:
 
       - name: Type check
         run: |
-          cd web
           npx tsc --noEmit
         continue-on-error: true
 
       - name: Build web app
         run: |
-          cd web
           npm run build
         env:
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
 
       - name: Sync Capacitor
         run: |
-          cd web
           npx cap sync android
 
       - name: Decode keystore
@@ -109,19 +105,17 @@ jobs:
             echo "❌ Error: KEYSTORE_BASE64 secret is not set"
             exit 1
           fi
-          cd web
           echo "$KEYSTORE_BASE64" | base64 -d > android/keystore.jks
           echo "✅ Keystore decoded"
 
       - name: Update build config
         run: |
-          cd web/android
-          sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' app/build.gradle || true
-          sed -i 's/compileSdk 34/compileSdk 35/g' app/build.gradle || true
+          sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle || true
+          sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle || true
 
       - name: Build App Bundle
         run: |
-          cd web/android
+          cd android
           chmod +x gradlew
           ./gradlew bundleRelease \
             --no-daemon \
