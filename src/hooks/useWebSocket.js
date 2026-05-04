@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { getFriendRequests, getFriends, saveFriendRequests, saveFriends, saveMessage } from '../utils/storage'
+import { syncPendingMessagesWithSocket } from '../utils/network'
+import { getConversationKey, encryptMessage, decryptMessage } from '../utils/encryption'
 
 export default function useWebSocket(currentUser, onIncomingFriendRequest) {
   const [ws, setWs] = useState(null)
@@ -28,20 +31,26 @@ export default function useWebSocket(currentUser, onIncomingFriendRequest) {
       serverUrlRef.current = serverUrl
       const websocket = new WebSocket(serverUrl)
 
-    // HTTP fallback function
+    // Local storage fallback: read friend requests and friends from IndexedDB storage
     const refreshRequestsHTTP = async () => {
       try {
-        const httpUrl = serverUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:')
-        
-        const incomingRes = await fetch(`${httpUrl}/api/friend-requests/incoming/${currentUser}`)
-        const incomingData = await incomingRes.json()
-        setFriendRequests(incomingData.requests || [])
-        
-        const outgoingRes = await fetch(`${httpUrl}/api/friend-requests/outgoing/${currentUser}`)
-        const outgoingData = await outgoingRes.json()
-        setOutgoingRequests(outgoingData.outgoing || [])
+        const { incoming, outgoing } = await getFriendRequests()
+        // Map stored requests back to the expected format
+        const incomingList = incoming.map(r => 
+          typeof r === 'string' ? { sender: r, sentAt: new Date().toISOString() } :
+          r.relatedUser ? { sender: r.relatedUser, sentAt: r.sentAt } : r
+        )
+        const outgoingList = outgoing.map(r =>
+          typeof r === 'string' ? { recipient: r, sentAt: new Date().toISOString() } :
+          r.relatedUser ? { recipient: r.relatedUser, sentAt: r.sentAt } : r
+        )
+        setFriendRequests(incomingList)
+        setOutgoingRequests(outgoingList)
+
+        const friendsList = await getFriends()
+        setFriends(friendsList || [])
       } catch (err) {
-        console.error('❌ HTTP fallback error:', err)
+        console.error('❌ Local storage fallback error:', err)
       }
     }
 
@@ -53,14 +62,22 @@ export default function useWebSocket(currentUser, onIncomingFriendRequest) {
       switch (message.type) {
         case 'friends-list':
           setFriends(message.friends || [])
+          saveFriends(message.friends || []).catch(e => console.error('Failed to save friends locally:', e))
           break
 
         case 'pending-requests':
-          setFriendRequests(message.requests || [])
+          const incomingReqs = message.requests || []
+          setFriendRequests(incomingReqs)
+          saveFriendRequests(incomingReqs, []).catch(e => console.error('Failed to save incoming requests locally:', e))
           break
 
         case 'outgoing-requests':
-          setOutgoingRequests(message.outgoing || [])
+          const outgoingReqs = message.outgoing || []
+          setOutgoingRequests(outgoingReqs)
+          // Get existing incoming requests from state and save both
+          getFriendRequests().then(({ incoming }) => {
+            saveFriendRequests(incoming || [], outgoingReqs).catch(e => console.error('Failed to save outgoing requests locally:', e))
+          })
           break
 
         case 'request-sent':
@@ -69,6 +86,31 @@ export default function useWebSocket(currentUser, onIncomingFriendRequest) {
             ...prev,
             { recipient: message.to, sentAt: message.sentAt }
           ])
+          break
+
+        case 'friend-response':
+          // When someone accepts/rejects our friend request
+          if (message.accept) {
+            // Add to friends list
+            setFriends((prev) => [...prev, { username: message.from, online: false }])
+            // Remove from outgoing requests
+            setOutgoingRequests((prev) =>
+              prev.filter((req) => {
+                const recipient = typeof req === 'string' ? req : req.recipient
+                return recipient !== message.from
+              })
+            )
+            console.log('✅ Friend request accepted by', message.from)
+          } else {
+            // Remove from outgoing requests on rejection
+            setOutgoingRequests((prev) =>
+              prev.filter((req) => {
+                const recipient = typeof req === 'string' ? req : req.recipient
+                return recipient !== message.from
+              })
+            )
+            console.log('❌ Friend request rejected by', message.from)
+          }
           break
 
         case 'incoming-request':
@@ -145,10 +187,42 @@ export default function useWebSocket(currentUser, onIncomingFriendRequest) {
           break
 
         case 'message':
-          // Handle incoming chat messages from other users
-          // Messages are handled via polling from ChatPanel
-          // This ensures messages are fetched and displayed correctly
-          // You can optionally trigger a re-fetch here if needed
+          // Receive and decrypt incoming message
+          if (message.from && (message.content || message.encrypted)) {
+            const conversationKey = [currentUser, message.from].sort().join('-')
+            
+            const handleDecryptedMessage = async (decryptedContent) => {
+              const msgObj = {
+                id: `msg-${Date.now()}`,
+                messageId: message.messageId || `msg-${Date.now()}`,
+                conversationKey,
+                from: message.from,
+                to: currentUser,
+                content: decryptedContent,
+                timestamp: message.timestamp || new Date().toISOString(),
+                read: false,
+                unread: true,
+                encrypted: !!message.encrypted, // Flag that message was encrypted
+              }
+              saveMessage(msgObj).catch(e => console.error('Failed to save message locally:', e))
+            }
+            
+            // If message is encrypted, decrypt it first
+            if (message.encrypted) {
+              try {
+                const conversationKey_obj = await getConversationKey(currentUser, message.from)
+                const decrypted = await decryptMessage(message.encrypted, conversationKey_obj)
+                handleDecryptedMessage(decrypted.content || decrypted)
+                console.log('🔓 Message decrypted from', message.from)
+              } catch (err) {
+                console.error('❌ Failed to decrypt message:', err)
+                handleDecryptedMessage('[Decryption failed]')
+              }
+            } else {
+              // Fallback for unencrypted messages
+              handleDecryptedMessage(message.content)
+            }
+          }
           break
 
         case 'typing':
@@ -165,6 +239,14 @@ export default function useWebSocket(currentUser, onIncomingFriendRequest) {
           // Handle real-time read receipts from WebSocket
           // The message will trigger a re-fetch of messages via polling
           // which will update the read status
+          break
+
+        case 'webrtc-offer':
+        case 'webrtc-answer':
+        case 'webrtc-candidate':
+          // Pass through WebRTC signaling messages to global handler
+          // Call screens will listen for these on the WebSocket
+          console.log('📡 WebRTC message received:', message.type, 'from', message.from)
           break
 
         default:
@@ -203,8 +285,11 @@ export default function useWebSocket(currentUser, onIncomingFriendRequest) {
         websocket.send(JSON.stringify({
           type: 'get-outgoing',
         }))
+
+        // Sync any pending (queued) messages over WebSocket
+        syncPendingMessagesWithSocket(websocket).catch(e => console.error('Failed to sync pending messages:', e))
         
-        // Use HTTP fallback after 2 seconds if WebSocket messages don't arrive
+        // Use local storage fallback after 2 seconds if WebSocket messages don't arrive
         setTimeout(() => {
           refreshRequestsHTTP()
         }, 2000);
@@ -260,11 +345,11 @@ export default function useWebSocket(currentUser, onIncomingFriendRequest) {
       }
       clearInterval(pollingInterval)
     }
-  }, [currentUser])
+  }, [currentUser, wsRef])
 
   // Track page visibility and send status updates
   useEffect(() => {
-    if (!currentUser || !wsRef.current) return;
+    if (!currentUser || !wsRef.current) return
 
     const handleVisibilityChange = () => {
       const isHidden = document.hidden;
@@ -287,37 +372,78 @@ export default function useWebSocket(currentUser, onIncomingFriendRequest) {
     console.log('🎣 useWebSocket hook returning:', { friendRequests, outgoingRequests });
   }, [friendRequests, outgoingRequests])
 
-  // Manual refresh function - uses HTTP fallback since WebSocket isn't bidirectional on Render
+  // Manual refresh function - reads from local storage (IndexedDB)
   const refreshRequests = useCallback(async () => {
     if (!currentUser) return;
     
     try {
-      const serverUrl = import.meta.env.VITE_SERVER_URL || 'wss://quidec-server.onrender.com'
-      const httpUrl = serverUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:')
+      console.log('🔄 Loading requests and friends from local storage...')
       
-      console.log('🔄 HTTP fallback: fetching requests and friends from', httpUrl)
+      const { incoming, outgoing } = await getFriendRequests()
+      console.log('📥 Incoming requests (local):', incoming)
       
-      // Fetch incoming requests
-      const incomingRes = await fetch(`${httpUrl}/api/friend-requests/incoming/${currentUser}`)
-      const incomingData = await incomingRes.json()
-      console.log('📥 Incoming requests (HTTP):', incomingData)
-      setFriendRequests(incomingData.requests || [])
+      // Map stored requests back to the expected format
+      const incomingList = incoming.map(r => 
+        typeof r === 'string' ? { sender: r, sentAt: new Date().toISOString() } :
+        r.relatedUser ? { sender: r.relatedUser, sentAt: r.sentAt } : r
+      )
+      const outgoingList = outgoing.map(r =>
+        typeof r === 'string' ? { recipient: r, sentAt: new Date().toISOString() } :
+        r.relatedUser ? { recipient: r.relatedUser, sentAt: r.sentAt } : r
+      )
+      setFriendRequests(incomingList)
+      setOutgoingRequests(outgoingList)
+      console.log('📤 Outgoing requests (local):', outgoingList)
       
-      // Fetch outgoing requests
-      const outgoingRes = await fetch(`${httpUrl}/api/friend-requests/outgoing/${currentUser}`)
-      const outgoingData = await outgoingRes.json()
-      console.log('📤 Outgoing requests (HTTP):', outgoingData)
-      setOutgoingRequests(outgoingData.outgoing || [])
-      
-      // Fetch friends list
-      const friendsRes = await fetch(`${httpUrl}/api/friends/${currentUser}`)
-      const friendsData = await friendsRes.json()
-      console.log('👥 Friends list (HTTP):', friendsData)
-      setFriends(friendsData.friends || [])
+      const friendsList = await getFriends()
+      console.log('👥 Friends list (local):', friendsList)
+      setFriends(friendsList || [])
     } catch (err) {
-      console.error('❌ Error fetching requests/friends via HTTP:', err)
+      console.error('❌ Error loading requests/friends from local storage:', err)
     }
   }, [currentUser])
 
-  return { ws, friends, messages, typingUsers, friendRequests, outgoingRequests, refreshRequests }
+  // Send an encrypted message via WebSocket to a recipient
+  const sendEncryptedMessage = useCallback(async (recipient, content) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      console.error('❌ WebSocket not ready')
+      return false
+    }
+
+    try {
+      // Get the conversation-specific encryption key
+      const conversationKey_obj = await getConversationKey(currentUser, recipient)
+      
+      // Encrypt the message content
+      const messagePayload = { content }
+      const encryptedContent = await encryptMessage(messagePayload, conversationKey_obj)
+      
+      // Send encrypted message via WebSocket
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'message',
+          to: recipient,
+          encrypted: encryptedContent, // Send encrypted blob
+          timestamp: new Date().toISOString(),
+        })
+      )
+      
+      console.log('🔒 Encrypted message sent to', recipient)
+      return true
+    } catch (err) {
+      console.error('❌ Failed to send encrypted message:', err)
+      return false
+    }
+  }, [currentUser])
+
+  return { 
+    ws: wsRef.current, 
+    friends, 
+    messages, 
+    typingUsers, 
+    friendRequests, 
+    outgoingRequests, 
+    refreshRequests,
+    sendEncryptedMessage,
+  }
 }

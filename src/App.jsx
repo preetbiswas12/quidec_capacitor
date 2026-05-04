@@ -128,7 +128,7 @@ function AppContent() {
     setIncomingRequestFrom(from)
   }
   
-  const { ws, messages, friends, typingUsers, friendRequests, outgoingRequests, refreshRequests } = useWebSocket(
+  const { ws, messages, friends, typingUsers, friendRequests, outgoingRequests, refreshRequests, sendEncryptedMessage } = useWebSocket(
     currentUser,
     handleIncomingFriendRequest
   )
@@ -276,6 +276,7 @@ function AppContent() {
       onLogout={handleLogout}
       refreshRequests={refreshRequests}
       isOnline={isOnline}
+      sendEncryptedMessage={sendEncryptedMessage}
     />
   )
 }

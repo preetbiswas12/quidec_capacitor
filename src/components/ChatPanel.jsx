@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import '../styles/chat-panel.css'
+import { getMessages, saveMessage, markMessagesAsRead, addToSyncQueue, deleteConversation } from '../utils/storage'
+import { getConversationKey, encryptMessage } from '../utils/encryption'
 
 // Format last seen time into human-readable format
 function formatLastSeen(lastSeenDate) {
@@ -29,6 +31,7 @@ export default function ChatPanel({
   typingUsers,
   onMobileBack,
   friends,
+  sendEncryptedMessage,
 }) {
   const [messageText, setMessageText] = useState('')
   const [chatMessages, setChatMessages] = useState([])
@@ -169,7 +172,7 @@ export default function ChatPanel({
     friendStatusRef.current[currentChatWith] = friend.online;
   }, [currentChatWith, friends])
 
-  // Fetch chat history when conversation changes
+  // Load chat history from local storage when conversation changes
   useEffect(() => {
     if (!currentChatWith) return;
     
@@ -177,21 +180,18 @@ export default function ChatPanel({
     isUserScrollingRef.current = false
     setShowJumpButton(false)
     
-    const fetchHistory = async () => {
+    const loadHistory = async () => {
       try {
-        const serverUrl = import.meta.env.VITE_SERVER_URL || 'wss://quidec-server.onrender.com'
-        const httpUrl = serverUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:')
-        
-        const response = await fetch(`${httpUrl}/api/messages/${currentUser}/${currentChatWith}`)
-        const data = await response.json()
-        console.log('📬 Chat history fetched:', data.messages)
-        setChatMessages(data.messages || [])
+        const conversationKey = [currentUser, currentChatWith].sort().join('-')
+        const messages = await getMessages(conversationKey)
+        console.log('📬 Chat history loaded from storage:', messages)
+        setChatMessages(messages || [])
       } catch (err) {
-        console.error('❌ Error fetching chat history:', err)
+        console.error('❌ Error loading chat history:', err)
       }
     }
     
-    fetchHistory();
+    loadHistory();
   }, [currentChatWith, currentUser])
 
   // Scroll to bottom when chat is first opened or messages loaded (WhatsApp-like behavior)
@@ -209,42 +209,39 @@ export default function ChatPanel({
     return () => clearTimeout(timeoutId)
   }, [currentChatWith, chatMessages.length])
 
-  // Poll for new messages every 2 seconds when in a conversation
+  // Poll for new messages from local storage every 1 second when in a conversation
   useEffect(() => {
     if (!currentChatWith) return;
     
     const pollMessages = async () => {
       try {
-        const serverUrl = import.meta.env.VITE_SERVER_URL || 'wss://quidec-server.onrender.com'
-        const httpUrl = serverUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:')
+        const conversationKey = [currentUser, currentChatWith].sort().join('-')
+        const messages = await getMessages(conversationKey)
         
-        const response = await fetch(`${httpUrl}/api/messages/${currentUser}/${currentChatWith}`)
-        const data = await response.json()
-        
-        // Update messages with latest data from server (including updated read status)
-        if (data.messages) {
-          console.log('🔄 Polling messages from', currentChatWith)
+        // Update messages with latest data from local storage
+        if (messages) {
+          console.log('🔄 Polling messages from local storage for', currentChatWith)
           
-          // Always update with fresh data from server to get latest read status
-          setChatMessages(data.messages)
+          // Always update with fresh data from storage to get latest read status
+          setChatMessages(messages)
           
           // Don't auto-mark here! Let the Intersection Observer and visibility detection handle marking
-          // Polling is just for syncing the latest read status from server
-          console.log('📋 Chat history updated, waiting for visibility detection to mark as read')
+          // Polling is just for syncing the latest read status from local storage
+          console.log('📋 Chat history updated from storage')
         }
       } catch (err) {
-        console.error('❌ Error polling messages:', err)
+        console.error('❌ Error polling messages from storage:', err)
       }
     }
     
-    // Poll immediately and then every 500ms for faster message delivery
+    // Poll immediately and then every 1 second for message delivery
     pollMessages();
-    pollingIntervalRef.current = setInterval(pollMessages, 500)
+    pollingIntervalRef.current = setInterval(pollMessages, 1000)
     
     return () => {
       if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current)
     }
-  }, [currentChatWith, chatMessages.length, currentUser])
+  }, [currentChatWith, currentUser])
 
   // Cleanup observer when component unmounts or conversation changes
   useEffect(() => {
@@ -264,41 +261,30 @@ export default function ChatPanel({
         return
       }
       
-      const serverUrl = import.meta.env.VITE_SERVER_URL || 'wss://quidec-server.onrender.com'
-      const httpUrl = serverUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:')
+      console.log('📤 Marking message as read locally:', { messageId, readBy: currentUser })
       
-      console.log('📤 Sending mark-read request:', { messageId, readBy: currentUser })
-      const response = await fetch(`${httpUrl}/api/messages/read`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messageId,
-          readBy: currentUser,
-        }),
-      })
+      // Update the message in local storage and UI
+      const conversationKey = [currentUser, currentChatWith].sort().join('-')
+      await markMessagesAsRead(conversationKey)
       
-      console.log('📥 Mark-read response:', response.status)
-      if (response.ok) {
-        console.log(`✅ Message ${messageId} marked as read on server`)
-        
-        // Update the actual message object to mark it as read with timestamp
-        // Check multiple ID fields since server might use different one
-        setChatMessages((prev) =>
-          prev.map((msg) => {
-            const msgId = msg.messageId || msg._id || msg.id
-            if (msgId === messageId) {
-              console.log('📝 Updating message read status in UI')
-              return { ...msg, read: true, readAt: new Date().toISOString() }
-            }
-            return msg
-          })
-        )
-      }
+      // Update the actual message object to mark it as read with timestamp
+      setChatMessages((prev) =>
+        prev.map((msg) => {
+          const msgId = msg.messageId || msg._id || msg.id
+          if (msgId === messageId) {
+            console.log('📝 Updating message read status in UI')
+            return { ...msg, read: true, readAt: new Date().toISOString() }
+          }
+          return msg
+        })
+      )
+      
+      console.log(`✅ Message ${messageId} marked as read locally`)
     } catch (err) {
       console.error('❌ Error marking message as read:', err)
     }
 
-    // ALWAYS send via WebSocket for real-time updates (even if HTTP fails)
+    // ALWAYS send via WebSocket for real-time updates
     // This ensures the sender gets the read notification immediately
     if (ws && ws.readyState === WebSocket.OPEN && currentChatWith) {
       console.log('📡 Broadcasting read status via WebSocket:', { messageId, to: currentChatWith })
@@ -335,45 +321,58 @@ export default function ChatPanel({
     }
 
     try {
-      const serverUrl = import.meta.env.VITE_SERVER_URL || 'wss://quidec-server.onrender.com'
-      const httpUrl = serverUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:')
+      const conversationKey = [currentUser, currentChatWith].sort().join('-')
+      const messageId = `msg-${Date.now()}`
+      const timestamp = new Date().toISOString()
       
-      console.log('📤 Sending message via HTTP:', { from: currentUser, to: currentChatWith, content })
+      // Get recipient's online status
+      const recipient = friends.find((f) => f.username === currentChatWith)
+      const recipientOffline = !recipient?.online
       
-      const response = await fetch(`${httpUrl}/api/messages/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const msgObj = {
+        id: messageId,
+        messageId,
+        conversationKey,
+        from: currentUser,
+        to: currentChatWith,
+        content,
+        timestamp,
+        read: false,
+        unread: true,
+        recipientOffline, // Track if recipient was offline when sent
+      }
+      
+      // Save to local storage immediately (optimistic update)
+      await saveMessage(msgObj)
+      console.log('✅ Message saved locally:', msgObj)
+      
+      // Add to local UI immediately
+      setChatMessages((prev) => [...prev, msgObj])
+      
+      // Send encrypted message via WebSocket if connected
+      if (sendEncryptedMessage) {
+        console.log('📤 Sending encrypted message via WebSocket:', { from: currentUser, to: currentChatWith })
+        const sent = await sendEncryptedMessage(currentChatWith, content)
+        if (!sent) {
+          // If encryption failed, queue for later sync
+          console.log('📋 Failed to send encrypted message, queueing for sync')
+          await addToSyncQueue(msgObj)
+        }
+      } else if (ws && ws.readyState === WebSocket.OPEN) {
+        // Fallback: send unencrypted if sendEncryptedMessage not available
+        console.log('⚠️ sendEncryptedMessage not available, sending unencrypted message')
+        ws.send(JSON.stringify({
+          type: 'message',
           from: currentUser,
           to: currentChatWith,
           content,
-        }),
-      })
-
-      const data = await response.json()
-      
-      if (response.ok) {
-        console.log('✅ Message sent successfully:', data)
-        
-        // Get recipient's online status
-        const recipient = friends.find((f) => f.username === currentChatWith)
-        const recipientOffline = !recipient?.online
-        
-        // Add to local messages immediately (optimistic update)
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            from: currentUser,
-            content,
-            timestamp: data.timestamp,
-            read: false,
-            readAt: null,
-            messageId: data.messageId,
-            recipientOffline, // Track if recipient was offline when sent
-          },
-        ])
+          messageId,
+          timestamp,
+        }))
       } else {
-        alert('Failed to send message: ' + data.error)
+        // If not connected, queue for later sync
+        console.log('📋 WebSocket not connected, queueing message for sync')
+        await addToSyncQueue(msgObj)
       }
     } catch (err) {
       console.error('❌ Error sending message:', err)
@@ -386,29 +385,14 @@ export default function ChatPanel({
   const handleCommand = async (command) => {
     if (command === '/clear') {
       try {
-        const serverUrl = import.meta.env.VITE_SERVER_URL || 'wss://quidec-server.onrender.com'
-        const httpUrl = serverUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:')
+        const conversationKey = [currentUser, currentChatWith].sort().join('-')
+        console.log('🗑️ Clearing chat from local storage...')
         
-        console.log('🗑️ Clearing chat via HTTP...')
+        await deleteConversation(conversationKey)
         
-        const response = await fetch(`${httpUrl}/api/messages/clear`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username: currentUser,
-            withUser: currentChatWith,
-          }),
-        })
-        
-        const data = await response.json()
-        
-        if (response.ok) {
-          console.log('✅ Chat cleared:', data)
-          setChatMessages([])
-          console.log(`✅ Chat cleared! Deleted ${data.deletedCount} messages.`)
-        } else {
-          console.error('❌ Failed to clear chat:', data.error)
-        }
+        console.log('✅ Chat cleared!')
+        setChatMessages([])
+        console.log(`✅ Chat cleared! Deleted all messages from conversation.`)
       } catch (err) {
         console.error('❌ Error clearing chat:', err)
       }

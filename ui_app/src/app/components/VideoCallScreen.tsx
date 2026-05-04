@@ -12,7 +12,7 @@ import Avatar from './Avatar';
 export default function VideoCallScreen() {
   const { id: contactId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { contacts } = useApp();
+  const { contacts, currentUser } = useApp();
   const contact = contacts.find(c => c.id === contactId);
 
   const [callState, setCallState] = useState<'calling' | 'connected' | 'ended'>('calling');
@@ -25,11 +25,162 @@ export default function VideoCallScreen() {
   const timerRef = useRef<ReturnType<typeof setInterval>>();
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // WebRTC refs
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Get WebSocket from window
   useEffect(() => {
-    const connectTimer = setTimeout(() => {
-      setCallState('connected');
-    }, 2000);
-    return () => clearTimeout(connectTimer);
+    const ws = (window as any).__ws;
+    if (ws) wsRef.current = ws;
+  }, []);
+
+  // Initialize WebRTC call
+  useEffect(() => {
+    if (!contact || !currentUser) return;
+
+    const initializeVideoCall = async () => {
+      try {
+        // Get user media (audio + video)
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: isFrontCamera ? 'user' : 'environment',
+          },
+        });
+
+        localStreamRef.current = stream;
+
+        // Display local video
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+
+        // Create peer connection with STUN + TURN
+        const peerConnection = new RTCPeerConnection({
+          iceServers: [
+            {
+              urls: [
+                'stun:stun.l.google.com:19302',
+                'stun:stun1.l.google.com:19302',
+                'stun:stun2.l.google.com:19302',
+              ],
+            },
+            // TURN servers for relay across different networks
+            // Express TURN - FREE tier, reliable and fast
+            // https://expressturn.com/
+            {
+              urls: [
+                'turn:free.expressturn.com:3478',
+              ],
+              username: '0000000020932600049',
+              credential: 'K8KMvixuaPZkje9gjLJojFTM0+Y=',
+            },
+          ],
+        });
+
+        peerConnectionRef.current = peerConnection;
+
+        // Add local stream tracks
+        stream.getTracks().forEach(track => {
+          peerConnection.addTrack(track, stream);
+        });
+
+        // Handle remote stream
+        peerConnection.ontrack = (event) => {
+          if (!remoteStreamRef.current) {
+            remoteStreamRef.current = new MediaStream();
+          }
+          remoteStreamRef.current.addTrack(event.track);
+          
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = remoteStreamRef.current;
+          }
+        };
+
+        // Handle ICE candidates
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate && wsRef.current) {
+            wsRef.current.send(JSON.stringify({
+              type: 'webrtc-candidate',
+              from: currentUser?.userId,
+              to: contact.id,
+              candidate: event.candidate,
+            }));
+          }
+        };
+
+        // Handle connection state
+        peerConnection.onconnectionstatechange = () => {
+          if (peerConnection.connectionState === 'connected' || peerConnection.iceConnectionState === 'connected') {
+            setCallState('connected');
+          }
+        };
+
+        // Create and send offer
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+
+        if (wsRef.current) {
+          wsRef.current.send(JSON.stringify({
+            type: 'webrtc-offer',
+            from: currentUser?.userId,
+            to: contact.id,
+            offer: offer,
+          }));
+        }
+      } catch (err) {
+        console.error('❌ Failed to initialize video call:', err);
+        setCallState('ended');
+      }
+    };
+
+    initializeVideoCall();
+
+    return () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+      }
+    };
+  }, [contact, currentUser, isFrontCamera]);
+
+  // Handle WebRTC messages
+  useEffect(() => {
+    if (!wsRef.current) return;
+
+    const handleMessage = async (event: Event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data);
+
+        if (data.type === 'webrtc-answer' && peerConnectionRef.current) {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } else if (data.type === 'webrtc-candidate' && peerConnectionRef.current && data.candidate) {
+          try {
+            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+          } catch (err) {
+            console.warn('⚠️ Failed to add ICE candidate:', err);
+          }
+        }
+      } catch (err) {
+        console.error('Error handling WebRTC message:', err);
+      }
+    };
+
+    wsRef.current.addEventListener('message', handleMessage);
+    return () => wsRef.current?.removeEventListener('message', handleMessage);
   }, []);
 
   useEffect(() => {
@@ -39,18 +190,28 @@ export default function VideoCallScreen() {
     return () => clearInterval(timerRef.current);
   }, [callState]);
 
-  // Auto-hide controls after 4s of inactivity
-  useEffect(() => {
-    if (callState === 'connected') {
-      controlsTimerRef.current = setTimeout(() => setShowControls(false), 4000);
-    }
-    return () => clearTimeout(controlsTimerRef.current);
-  }, [callState, showControls]);
-
   const handleTap = () => {
     setShowControls(true);
     clearTimeout(controlsTimerRef.current);
     controlsTimerRef.current = setTimeout(() => setShowControls(false), 4000);
+  };
+
+  const toggleMute = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach(track => {
+        track.enabled = isMuted; // Toggle enabled state
+      });
+    }
+    setIsMuted(!isMuted);
+  };
+
+  const toggleCamera = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getVideoTracks().forEach(track => {
+        track.enabled = isCameraOff; // Toggle enabled state
+      });
+    }
+    setIsCameraOff(!isCameraOff);
   };
 
   const formatDuration = (s: number) => {
@@ -65,6 +226,44 @@ export default function VideoCallScreen() {
     setTimeout(() => navigate(-1), 1500);
   };
 
+  const handleFlipCamera = async () => {
+    if (!localStreamRef.current) return;
+    
+    try {
+      // Stop current video track
+      localStreamRef.current.getVideoTracks().forEach(track => track.stop());
+      
+      // Get new stream with flipped camera
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: !isFrontCamera ? 'user' : 'environment',
+        },
+      });
+      
+      // Replace video track in peer connection
+      const videoTrack = stream.getVideoTracks()[0];
+      if (peerConnectionRef.current) {
+        const sender = peerConnectionRef.current.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) {
+          await sender.replaceTrack(videoTrack);
+        }
+      }
+      
+      // Update local stream and video element
+      localStreamRef.current = stream;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+      
+      setIsFrontCamera(!isFrontCamera);
+    } catch (err) {
+      console.error('❌ Failed to flip camera:', err);
+    }
+  };
+
   if (!contact) return null;
 
   return (
@@ -74,26 +273,40 @@ export default function VideoCallScreen() {
     >
       {/* Main video (remote - contact's side) */}
       <div className="absolute inset-0">
-        {contact.avatar && (
-          <img
-            src={contact.avatar}
-            alt={contact.name}
-            className="w-full h-full object-cover"
-            style={{ filter: callState === 'calling' ? 'blur(8px) brightness(0.4)' : 'brightness(0.7)' }}
-          />
-        )}
-        {!contact.avatar && (
-          <div
-            className="w-full h-full flex items-center justify-center"
-            style={{ background: `linear-gradient(135deg, ${contact.avatarColor}44, #0B141A)` }}
-          >
-            <Avatar
-              src={null}
-              name={contact.name}
-              color={contact.avatarColor}
-              size={120}
-            />
-          </div>
+        {/* Remote video stream */}
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          className="w-full h-full object-cover"
+          style={{ display: callState === 'connected' ? 'block' : 'none' }}
+        />
+        
+        {/* Fallback while connecting or camera off */}
+        {callState !== 'connected' || !remoteStreamRef.current && (
+          <>
+            {contact.avatar && (
+              <img
+                src={contact.avatar}
+                alt={contact.name}
+                className="w-full h-full object-cover"
+                style={{ filter: callState === 'calling' ? 'blur(8px) brightness(0.4)' : 'brightness(0.7)' }}
+              />
+            )}
+            {!contact.avatar && (
+              <div
+                className="w-full h-full flex items-center justify-center"
+                style={{ background: `linear-gradient(135deg, ${contact.avatarColor}44, #0B141A)` }}
+              >
+                <Avatar
+                  src={null}
+                  name={contact.name}
+                  color={contact.avatarColor}
+                  size={120}
+                />
+              </div>
+            )}
+          </>
         )}
 
         {/* Video off overlay */}
@@ -123,12 +336,13 @@ export default function VideoCallScreen() {
         drag
         dragConstraints={{ top: 60, right: 0, bottom: -400, left: -200 }}
       >
-        <div className="w-full h-full bg-gradient-to-br from-[#2A3942] to-[#1F2C34] flex items-center justify-center">
-          <div className="text-center">
-            <Video size={20} className="text-white/30 mx-auto" />
-            <p className="text-white/30 text-xs mt-1">You</p>
-          </div>
-        </div>
+        <video
+          ref={localVideoRef}
+          autoPlay
+          playsInline
+          muted
+          className="w-full h-full object-cover"
+        />
       </motion.div>
 
       {/* Top overlay */}
@@ -223,13 +437,13 @@ export default function VideoCallScreen() {
                 icon={isMuted ? <MicOff size={22} /> : <Mic size={22} />}
                 label={isMuted ? 'Unmute' : 'Mute'}
                 active={isMuted}
-                onClick={() => setIsMuted(!isMuted)}
+                onClick={toggleMute}
               />
               <VideoCallBtn
                 icon={isCameraOff ? <VideoOff size={22} /> : <Video size={22} />}
                 label={isCameraOff ? 'Start' : 'Stop'}
                 active={isCameraOff}
-                onClick={() => setIsCameraOff(!isCameraOff)}
+                onClick={toggleCamera}
               />
               <VideoCallBtn
                 icon={isSpeakerMuted ? <VolumeX size={22} /> : <Volume2 size={22} />}
@@ -240,7 +454,7 @@ export default function VideoCallScreen() {
               <VideoCallBtn
                 icon={<RotateCcw size={22} />}
                 label="Flip"
-                onClick={() => setIsFrontCamera(f => !f)}
+                onClick={handleFlipCamera}
               />
             </div>
 

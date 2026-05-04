@@ -11,7 +11,7 @@
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "pnpm exec vite build",
     "preview": "vite preview",
     "build:web": "vite build",
     "sync:ios": "pnpm build:web && cap sync ios",

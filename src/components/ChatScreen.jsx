@@ -17,6 +17,7 @@ export default function ChatScreen({
   onIncomingRequestHandled,
   onLogout,
   refreshRequests,
+  sendEncryptedMessage,
 }) {
   const [currentChatWith, setCurrentChatWith] = useState(null)
   const [notificationFrom, setNotificationFrom] = useState(null)
@@ -179,6 +180,7 @@ export default function ChatScreen({
         typingUsers={typingUsers}
         onMobileBack={isMobile ? handleBackFromChat : null}
         friends={friends}
+        sendEncryptedMessage={sendEncryptedMessage}
       />
 
       {notificationFrom && (

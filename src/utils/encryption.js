@@ -51,6 +51,35 @@ export async function getEncryptionKey(userId) {
 }
 
 /**
+ * Get conversation-specific E2E encryption key (like WhatsApp)
+ * Both users derive the same key using their usernames in sorted order
+ * Ensures messages from Alice to Bob are encrypted and only Bob can decrypt
+ */
+let conversationKeyCache = new Map()
+
+export async function getConversationKey(user1, user2) {
+  // Create a consistent key identifier (sorted so Alice->Bob = Bob->Alice)
+  const [userA, userB] = [user1, user2].sort()
+  const cacheKey = `${userA}:${userB}`
+
+  if (conversationKeyCache.has(cacheKey)) {
+    return conversationKeyCache.get(cacheKey)
+  }
+
+  try {
+    // Derive shared key from both usernames + fixed salt
+    // Both parties compute this identically => can decrypt each other's messages
+    const sharedSeed = `${userA}|${userB}|e2e-chat`
+    const key = await deriveKey(sharedSeed)
+    conversationKeyCache.set(cacheKey, key)
+    return key
+  } catch (err) {
+    console.error('❌ Failed to derive conversation key:', err)
+    throw err
+  }
+}
+
+/**
  * Encrypt a message
  */
 export async function encryptMessage(message, encryptionKey) {

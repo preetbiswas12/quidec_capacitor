@@ -4,7 +4,7 @@
  */
 
 export const WEBRTC_CONFIG = {
-  // STUN servers (for NAT traversal)
+  // STUN servers (for NAT traversal) - works for direct connections
   iceServers: [
     {
       urls: [
@@ -15,12 +15,16 @@ export const WEBRTC_CONFIG = {
         'stun:stun4.l.google.com:19302',
       ],
     },
-    // Optional: Add TURN servers for relay (if provided by backend)
-    // {
-    //   urls: ['turn:your-turn-server.com:3478'],
-    //   username: 'user',
-    //   credential: 'pass',
-    // },
+    // TURN servers for relay (when direct connection impossible)
+    // Express TURN - FREE tier, reliable and fast
+    // https://expressturn.com/
+    {
+      urls: [
+        'turn:free.expressturn.com:3478',
+      ],
+      username: '0000000020932600049',
+      credential: 'K8KMvixuaPZkje9gjLJojFTM0+Y=',
+    },
   ],
 
   // ICE gathering and transport configuration

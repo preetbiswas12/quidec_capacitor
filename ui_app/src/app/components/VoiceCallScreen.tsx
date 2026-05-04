@@ -11,7 +11,7 @@ import Avatar from './Avatar';
 export default function VoiceCallScreen() {
   const { id: contactId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { contacts } = useApp();
+  const { contacts, currentUser } = useApp();
   const contact = contacts.find(c => c.id === contactId);
 
   const [callState, setCallState] = useState<'calling' | 'connected' | 'ended'>('calling');
@@ -19,14 +19,139 @@ export default function VoiceCallScreen() {
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const [duration, setDuration] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval>>();
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
+  // Get WebSocket from window or context
   useEffect(() => {
-    // Simulate call being answered
-    const connectTimer = setTimeout(() => {
-      setCallState('connected');
-    }, 2500);
+    // Try to get active WebSocket - this is a placeholder, real implementation needs proper context
+    const ws = (window as any).__ws;
+    if (ws) wsRef.current = ws;
+  }, []);
 
-    return () => clearTimeout(connectTimer);
+  // Initialize call with WebRTC
+  useEffect(() => {
+    if (!contact || !currentUser) return;
+
+    const initializeCall = async () => {
+      try {
+        // Get user media (audio only for voice call)
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
+        
+        localStreamRef.current = stream;
+
+        // Create peer connection with STUN + TURN
+        const peerConnection = new RTCPeerConnection({
+          iceServers: [
+            {
+              urls: [
+                'stun:stun.l.google.com:19302',
+                'stun:stun1.l.google.com:19302',
+                'stun:stun2.l.google.com:19302',
+              ],
+            },
+            // TURN servers for relay across different networks
+            // Express TURN - FREE tier, reliable and fast
+            // https://expressturn.com/
+            {
+              urls: [
+                'turn:free.expressturn.com:3478',
+              ],
+              username: '0000000020932600049',
+              credential: 'K8KMvixuaPZkje9gjLJojFTM0+Y=',
+            },
+          ],
+        });
+
+        peerConnectionRef.current = peerConnection;
+
+        // Add local stream to peer connection
+        stream.getTracks().forEach(track => {
+          peerConnection.addTrack(track, stream);
+        });
+
+        // Handle ICE candidates
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate && wsRef.current) {
+            wsRef.current.send(JSON.stringify({
+              type: 'webrtc-candidate',
+              from: currentUser?.userId,
+              to: contact.id,
+              candidate: event.candidate,
+            }));
+          }
+        };
+
+        // Handle connection state changes
+        peerConnection.onconnectionstatechange = () => {
+          if (peerConnection.connectionState === 'connected' || peerConnection.iceConnectionState === 'connected') {
+            setCallState('connected');
+          }
+        };
+
+        // Create and send offer
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+
+        if (wsRef.current) {
+          wsRef.current.send(JSON.stringify({
+            type: 'webrtc-offer',
+            from: currentUser?.userId,
+            to: contact.id,
+            offer: offer,
+          }));
+        }
+      } catch (err) {
+        console.error('❌ Failed to initialize call:', err);
+        setCallState('ended');
+      }
+    };
+
+    initializeCall();
+
+    return () => {
+      // Cleanup
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+      }
+    };
+  }, [contact, currentUser]);
+
+  // Handle incoming WebRTC messages
+  useEffect(() => {
+    if (!wsRef.current) return;
+
+    const handleMessage = async (event: Event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data);
+
+        if (data.type === 'webrtc-answer' && peerConnectionRef.current) {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } else if (data.type === 'webrtc-candidate' && peerConnectionRef.current && data.candidate) {
+          try {
+            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+          } catch (err) {
+            console.warn('⚠️ Failed to add ICE candidate:', err);
+          }
+        }
+      } catch (err) {
+        console.error('Error handling WebRTC message:', err);
+      }
+    };
+
+    wsRef.current.addEventListener('message', handleMessage);
+    return () => wsRef.current?.removeEventListener('message', handleMessage);
   }, []);
 
   useEffect(() => {
@@ -40,6 +165,19 @@ export default function VoiceCallScreen() {
     const m = Math.floor(s / 60).toString().padStart(2, '0');
     const sec = (s % 60).toString().padStart(2, '0');
     return `${m}:${sec}`;
+  };
+
+  const toggleMute = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach(track => {
+        track.enabled = isMuted; // Toggle enabled state
+      });
+    }
+    setIsMuted(!isMuted);
+  };
+
+  const toggleSpeaker = () => {
+    setIsSpeakerOn(!isSpeakerOn);
   };
 
   const handleEndCall = () => {
@@ -195,7 +333,7 @@ export default function VoiceCallScreen() {
               icon={isMuted ? <MicOff size={22} /> : <Mic size={22} />}
               label={isMuted ? 'Unmute' : 'Mute'}
               active={isMuted}
-              onClick={() => setIsMuted(!isMuted)}
+              onClick={toggleMute}
             />
             <CallButton
               icon={<Video size={22} />}
@@ -206,7 +344,7 @@ export default function VoiceCallScreen() {
               icon={isSpeakerOn ? <Volume2 size={22} /> : <VolumeX size={22} />}
               label="Speaker"
               active={isSpeakerOn}
-              onClick={() => setIsSpeakerOn(!isSpeakerOn)}
+              onClick={toggleSpeaker}
             />
             <CallButton
               icon={<MessageSquare size={22} />}
