@@ -10,6 +10,7 @@ import { initializeNetworkMonitoring } from './utils/network'
 import { requestCameraAndMicPermissions, setupPermissionListeners } from './utils/permissions'
 import { initializePushNotifications, setupNotificationActions } from './utils/fcm'
 import { App as CapacitorApp } from '@capacitor/app'
+import * as ed from '@noble/ed25519'
 
 function AppContent() {
   const [currentUser, setCurrentUser] = useState(null)
@@ -139,16 +140,32 @@ function AppContent() {
       const serverUrl = import.meta.env.VITE_SERVER_URL || 'wss://quidec-server.onrender.com'
       const httpUrl = serverUrl.replace(/wss?:/, 'https:').replace('http:', 'http:')
       
+      // Load stored keypair
+      const auth = await getAuth()
+      if (!auth.privateKey || !auth.publicKey) {
+        alert('No keypair found. Please register first.')
+        setLoading(false)
+        return { success: false }
+      }
+
+      // Sign username with Ed25519
+      const signature = await ed.sign(username, Buffer.from(auth.privateKey, 'hex'))
+
       const response = await fetch(`${httpUrl}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({
+          username,
+          password,
+          publicKey: auth.publicKey,
+          signature: Buffer.from(signature).toString('hex'),
+        }),
       })
 
       const data = await response.json()
       if (response.ok) {
-        // Save to IndexedDB instead of localStorage
-        await saveAuth(username, data.userId)
+        // Save to IndexedDB
+        await saveAuth(username, data.userId, auth.privateKey, auth.publicKey)
 
         // Initialize encryption key
         const encKey = await getEncryptionKey(data.userId)
@@ -170,7 +187,7 @@ function AppContent() {
       }
     } catch (err) {
       console.error('Login error details:', err)
-      alert('Server connection error: ' + err.message + '\nMake sure server is running at: https://quidec-server.onrender.com')
+      alert('Server connection error: ' + err.message)
       return { success: false }
     } finally {
       setLoading(false)
@@ -183,16 +200,33 @@ function AppContent() {
       const serverUrl = import.meta.env.VITE_SERVER_URL || 'wss://quidec-server.onrender.com'
       const httpUrl = serverUrl.replace(/wss?:/, 'https:').replace('http:', 'http:')
       
+      // Generate Ed25519 keypair
+      const privateKey = ed.utils.randomPrivateKey()
+      const publicKey = await ed.getPublicKey(privateKey)
+
+      // Sign username with private key
+      const signature = await ed.sign(username, privateKey)
+
       const response = await fetch(`${httpUrl}/api/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({
+          username,
+          password,
+          publicKey: Buffer.from(publicKey).toString('hex'),
+          signature: Buffer.from(signature).toString('hex'),
+        }),
       })
 
       const data = await response.json()
       if (response.ok) {
-        // Save to IndexedDB instead of localStorage
-        await saveAuth(username, data.userId)
+        // Save keypair to IndexedDB
+        await saveAuth(
+          username,
+          data.userId,
+          Buffer.from(privateKey).toString('hex'),
+          Buffer.from(publicKey).toString('hex')
+        )
 
         // Initialize encryption key
         const encKey = await getEncryptionKey(data.userId)
@@ -208,6 +242,7 @@ function AppContent() {
         alert(data.error || 'Registration failed')
       }
     } catch (err) {
+      console.error('Registration error:', err)
       alert('Server connection error: ' + err.message)
     } finally {
       setLoading(false)

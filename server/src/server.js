@@ -3,6 +3,7 @@ import { WebSocketServer } from 'ws';
 import http from 'http';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import * as ed from '@noble/ed25519';
 
 dotenv.config();
 
@@ -12,9 +13,10 @@ const wss = new WebSocketServer({ server });
 
 const PORT = process.env.PORT || 3000;
 
-// Minimal in-memory map of active connections: username -> ws
-// Keep this tiny and ephemeral; do not store messages or grow arrays.
-const userConnections = new Map();
+// Minimal in-memory maps for stateless operation
+const userConnections = new Map();     // username -> ws (active connections)
+const userPublicKeys = new Map();      // username -> public key (hex)
+const sessionUsernames = new Set();    // Track taken usernames in this session
 
 app.use(cors());
 app.use(express.json());
@@ -24,19 +26,107 @@ function generateEphemeralId() {
   return Math.floor(10000000 + Math.random() * 90000000).toString();
 }
 
-// Lightweight stateless register/login endpoints (ephemeral, no DB)
+// Generate unique username if taken
+function generateUniqueUsername(baseUsername) {
+  if (!usernameStore.has(baseUsername)) {
+    return baseUsername;
+  }
+  // Append random suffix
+  const suffix = Math.floor(Math.random() * 10000);
+  return `${baseUsername}_${suffix}`;
+}
+
+// Lightweight register endpoint with Ed25519 signature verification
 app.post('/api/register', (req, res) => {
-  const { username } = req.body || {};
-  if (!username) return res.status(400).json({ error: 'username required' });
-  const userId = generateEphemeralId();
-  return res.json({ success: true, username, userId });
+  try {
+    const { username, password, publicKey, signature } = req.body || {};
+    
+    if (!username || !publicKey || !signature) {
+      return res.status(400).json({ error: 'username, publicKey, and signature required' });
+    }
+
+    // Verify Ed25519 signature
+    try {
+      const isValid = ed.verify(
+        Buffer.from(signature, 'hex'),
+        username,
+        Buffer.from(publicKey, 'hex')
+      );
+
+      if (!isValid) {
+        return res.status(401).json({ error: 'invalid-signature' });
+      }
+    } catch (err) {
+      return res.status(401).json({ error: 'signature-verification-failed' });
+    }
+
+    // Generate unique username if taken
+    const finalUsername = generateUniqueUsername(username);
+    const userId = generateEphemeralId();
+
+    // Store username and public key
+    usernameStore.set(finalUsername, {
+      publicKey,
+      createdAt: new Date().toISOString(),
+    });
+    userPublicKeys.set(finalUsername, publicKey);
+
+    console.log(`✅ User registered: ${finalUsername}`);
+    return res.json({
+      success: true,
+      username: finalUsername,
+      userId,
+      publicKey,
+    });
+  } catch (err) {
+    console.error('❌ Registration error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
 });
 
+// Lightweight login endpoint with Ed25519 signature verification
 app.post('/api/login', (req, res) => {
-  const { username } = req.body || {};
-  if (!username) return res.status(400).json({ error: 'username required' });
-  const userId = generateEphemeralId();
-  return res.json({ success: true, username, userId });
+  try {
+    const { username, password, publicKey, signature } = req.body || {};
+
+    if (!username) {
+      return res.status(400).json({ error: 'username required' });
+    }
+
+    // If signature provided, verify it
+    if (signature && publicKey) {
+      try {
+        const isValid = ed.verify(
+          Buffer.from(signature, 'hex'),
+          username,
+          Buffer.from(publicKey, 'hex')
+        );
+
+        if (!isValid) {
+          return res.status(401).json({ error: 'invalid-signature' });
+        }
+
+        // Verify public key matches registered key
+        const storedKey = userPublicKeys.get(username);
+        if (storedKey && storedKey !== publicKey) {
+          return res.status(401).json({ error: 'public-key-mismatch' });
+        }
+      } catch (err) {
+        return res.status(401).json({ error: 'signature-verification-failed' });
+      }
+    }
+
+    const userId = generateEphemeralId();
+    console.log(`✅ User logged in: ${username}`);
+    return res.json({
+      success: true,
+      username,
+      userId,
+    });
+  } catch (err) {
+    console.error('❌ Login error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
 });
 
 app.get('/health', (req, res) => {
@@ -75,12 +165,40 @@ wss.on('connection', (ws) => {
     const { type } = message || {};
 
     if (type === 'auth') {
-      const username = message.username;
-      if (username) {
-        currentUser = username;
-        userConnections.set(username, ws);
-        broadcastUserStatus(username, true);
+      const { username, publicKey, signature } = message;
+      
+      if (!username) {
+        safeSend(ws, { type: 'error', message: 'username required' });
+        return;
       }
+
+      // If signature provided, verify Ed25519 signature
+      if (signature && publicKey) {
+        try {
+          const isValid = ed.verify(
+            Buffer.from(signature, 'hex'),
+            username,
+            Buffer.from(publicKey, 'hex')
+          );
+
+          if (!isValid) {
+            safeSend(ws, { type: 'error', message: 'invalid-signature' });
+            return;
+          }
+
+          // Store public key for this session
+          userPublicKeys.set(username, publicKey);
+        } catch (err) {
+          console.error('❌ Signature verification error:', err);
+          safeSend(ws, { type: 'error', message: 'signature-verification-failed' });
+          return;
+        }
+      }
+
+      currentUser = username;
+      userConnections.set(username, ws);
+      broadcastUserStatus(username, true);
+      console.log(`🔐 User authenticated: ${username}`);
       return;
     }
 

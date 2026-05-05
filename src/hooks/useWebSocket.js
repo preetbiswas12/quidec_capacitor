@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getFriendRequests, getFriends, saveFriendRequests, saveFriends, saveMessage } from '../utils/storage'
+import { getFriendRequests, getFriends, saveFriendRequests, saveFriends, saveMessage, getAuth } from '../utils/storage'
 import { syncPendingMessagesWithSocket } from '../utils/network'
 import { getConversationKey, encryptMessage, decryptMessage } from '../utils/encryption'
+import * as ed from '@noble/ed25519'
 
 export default function useWebSocket(currentUser, onIncomingFriendRequest) {
   const [ws, setWs] = useState(null)
@@ -259,7 +260,7 @@ export default function useWebSocket(currentUser, onIncomingFriendRequest) {
     }
 
     // Now set onopen after onmessage is ready
-    websocket.onopen = () => {
+    websocket.onopen = async () => {
       
       // Reset reconnection counter on successful connection
       reconnectAttemptsRef.current = 0
@@ -267,10 +268,34 @@ export default function useWebSocket(currentUser, onIncomingFriendRequest) {
         clearTimeout(reconnectTimeoutRef.current)
       }
       
-      websocket.send(JSON.stringify({
-        type: 'auth',
-        username: currentUser,
-      }))
+      // Get stored keypair and sign the auth message
+      try {
+        const auth = await getAuth()
+        if (auth.privateKey && auth.publicKey) {
+          // Sign username with Ed25519
+          const signature = await ed.sign(currentUser, Buffer.from(auth.privateKey, 'hex'))
+          
+          websocket.send(JSON.stringify({
+            type: 'auth',
+            username: currentUser,
+            publicKey: auth.publicKey,
+            signature: Buffer.from(signature).toString('hex'),
+          }))
+          console.log('🔐 Signed auth sent')
+        } else {
+          // Fallback if no keypair (shouldn't happen)
+          websocket.send(JSON.stringify({
+            type: 'auth',
+            username: currentUser,
+          }))
+        }
+      } catch (err) {
+        console.error('❌ Error signing auth message:', err)
+        websocket.send(JSON.stringify({
+          type: 'auth',
+          username: currentUser,
+        }))
+      }
 
       // Add a small delay to ensure server processes auth before requesting data
       setTimeout(() => {

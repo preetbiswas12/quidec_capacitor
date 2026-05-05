@@ -82,11 +82,17 @@ export async function initializeDB() {
 /**
  * Auth operations
  */
-export async function saveAuth(currentUser, userId) {
+export async function saveAuth(currentUser, userId, privateKey, publicKey) {
   const database = await initializeDB()
   const tx = database.transaction(STORES.AUTH, 'readwrite')
   await tx.objectStore(STORES.AUTH).put({ key: 'currentUser', value: currentUser })
   await tx.objectStore(STORES.AUTH).put({ key: 'userId', value: userId })
+  if (privateKey) {
+    await tx.objectStore(STORES.AUTH).put({ key: 'privateKey', value: privateKey })
+  }
+  if (publicKey) {
+    await tx.objectStore(STORES.AUTH).put({ key: 'publicKey', value: publicKey })
+  }
   await tx.done
 }
 
@@ -94,9 +100,13 @@ export async function getAuth() {
   const database = await initializeDB()
   const user = await database.get(STORES.AUTH, 'currentUser')
   const userId = await database.get(STORES.AUTH, 'userId')
+  const privateKey = await database.get(STORES.AUTH, 'privateKey')
+  const publicKey = await database.get(STORES.AUTH, 'publicKey')
   return {
     currentUser: user?.value || null,
     userId: userId?.value || null,
+    privateKey: privateKey?.value || null,
+    publicKey: publicKey?.value || null,
   }
 }
 
