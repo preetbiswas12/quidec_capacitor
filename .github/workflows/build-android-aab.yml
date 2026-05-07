@@ -11,23 +11,24 @@ on:
     inputs:
       version:
         description: 'Version to build'
-        required: true
+        required: false
         type: string
   push:
     branches:
       - main
+      - release/*
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     permissions:
       contents: read
       checks: write
 
     env:
-      GRADLE_OPTS: "-Xmx2g -Dorg.gradle.daemon=false"
+      GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=4"
       NODE_ENV: production
 
     steps:
@@ -36,7 +37,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up pnpm           # ← MUST COME FIRST
+      - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
@@ -47,29 +48,27 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK components
         run: |
+          yes | sdkmanager --licenses
           sdkmanager "platforms;android-35"
           sdkmanager "build-tools;35.0.0"
+          sdkmanager "platform-tools"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '8.5'
+          gradle-version: wrapper
           cache-disabled: false
 
       - name: Install dependencies
@@ -77,14 +76,10 @@ jobs:
         continue-on-error: true
 
       - name: Install dependencies (fallback)
-        if: failure()
+        if: ${{ failure() }}
         run: |
           echo "⚠️ Frozen lockfile failed, installing with updates"
           pnpm install
-          git add pnpm-lock.yaml
-          git config user.email "github-actions@github.com"
-          git config user.name "GitHub Actions"
-          git commit -m "chore: update pnpm-lock.yaml" || true
 
       - name: Type check
         run: pnpm exec tsc --noEmit
@@ -94,9 +89,16 @@ jobs:
         run: pnpm build
         env:
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || '' }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID || '' }}
 
       - name: Sync Capacitor
         run: pnpm exec cap sync android
+
+      - name: Update Android SDK to 35
+        run: |
+          sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle || true
+          sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle || true
 
       - name: Validate keystore secret
         env:
@@ -104,6 +106,11 @@ jobs:
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
             echo "❌ Error: KEYSTORE_BASE64 secret is not set"
+            echo "Please set the following secrets in GitHub:"
+            echo "  - KEYSTORE_BASE64"
+            echo "  - KEYSTORE_PASSWORD"
+            echo "  - KEY_ALIAS"
+            echo "  - KEY_PASSWORD"
             exit 1
           fi
 
@@ -111,13 +118,9 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > android/keystore.jks
-          echo "✅ Keystore decoded"
-
-      - name: Update Android SDK version
-        run: |
-          sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle || true
-          sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle || true
+          mkdir -p android/keystore-dir
+          echo "$KEYSTORE_BASE64" | base64 -d > android/keystore-dir/release.jks
+          echo "✅ Keystore decoded successfully"
 
       - name: Build App Bundle
         run: |
@@ -125,12 +128,11 @@ jobs:
           chmod +x gradlew
           ./gradlew bundleRelease \
             --no-daemon \
-            --no-build-cache \
-            --parallel \
-            -Dorg.gradle.jvmargs="-Xmx2g" \
+            --info \
+            -Dorg.gradle.jvmargs="-Xmx4g" \
             -Dorg.gradle.workers.max=4
         env:
-          KEYSTORE_PATH: ${{ github.workspace }}/android/keystore.jks
+          KEYSTORE_PATH: ${{ github.workspace }}/android/keystore-dir/release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -140,20 +142,27 @@ jobs:
         run: |
           AAB_PATH=$(find android/app/build/outputs/bundle -name "*.aab" -type f | head -1)
           if [ -z "$AAB_PATH" ]; then
-            echo "❌ AAB not found!"
+            echo "❌ AAB not found in outputs!"
+            find android/app/build/outputs -type f -name "*.aab" 2>/dev/null || echo "No AAB files found"
             exit 1
           fi
+          AAB_SIZE=$(du -h "$AAB_PATH" | cut -f1)
           echo "aab_path=$AAB_PATH" >> $GITHUB_OUTPUT
           echo "aab_name=$(basename $AAB_PATH)" >> $GITHUB_OUTPUT
-          echo "aab_size=$(du -h $AAB_PATH | cut -f1)" >> $GITHUB_OUTPUT
+          echo "aab_size=$AAB_SIZE" >> $GITHUB_OUTPUT
+          echo "✅ AAB found: $AAB_PATH ($AAB_SIZE)"
 
       - name: Generate build report
+        if: always()
         run: |
           echo "## 📦 App Bundle Build Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Bundle Name:** ${{ steps.aab.outputs.aab_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Bundle Size:** ${{ steps.aab.outputs.aab_size }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Ready for:** Google Play Store" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.aab.outputs.aab_name }}" ]; then
+            echo "**Bundle Name:** ${{ steps.aab.outputs.aab_name }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Bundle Size:** ${{ steps.aab.outputs.aab_size }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Ready for:** Google Play Store" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "**Build Time:** $(date)" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload AAB artifact

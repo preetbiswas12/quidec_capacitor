@@ -7,22 +7,26 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     permissions:
       contents: read
 
     env:
-      GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
+      GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=4"
       NODE_ENV: production
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # ✅ pnpm (version comes from package.json)
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -36,6 +40,7 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+          cache: 'gradle'
 
       # ANDROID
       - name: Set up Android SDK
@@ -45,25 +50,34 @@ jobs:
         run: |
           yes | sdkmanager --licenses
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager "platform-tools"
 
       # GRADLE
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: wrapper
+          cache-disabled: false
 
       # INSTALL DEPENDENCIES
       - name: Install dependencies
         id: install_deps
         run: pnpm install --frozen-lockfile
+        continue-on-error: true
 
       - name: Fallback install
         if: ${{ failure() }}
-        run: pnpm install
+        run: |
+          echo "⚠️ Frozen lockfile failed, installing with updates"
+          pnpm install
 
       # BUILD WEB
       - name: Build web app
         run: pnpm build
         env:
-          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
+          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || '' }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID || '' }}
 
       # CAPACITOR
       - name: Ensure Android project exists
@@ -72,12 +86,21 @@ jobs:
       - name: Sync Capacitor
         run: pnpm exec cap sync android
 
+      - name: Update Android SDK to 35
+        run: |
+          sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle || true
+          sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle || true
+
       # BUILD DEBUG APK (no signing needed for CI)
       - name: Build Debug APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean assembleDebug --no-daemon
+          ./gradlew clean assembleDebug \
+            --no-daemon \
+            --info \
+            -Dorg.gradle.jvmargs="-Xmx4g" \
+            -Dorg.gradle.workers.max=4
 
       # LOCATE APK
       - name: Locate APK
@@ -86,11 +109,16 @@ jobs:
           APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" -type f | head -1)
 
           if [ -z "$APK_PATH" ]; then
-            echo "❌ APK not found!"
+            echo "❌ APK not found in default location, searching all outputs..."
+            find android/app/build/outputs -name "*.apk" -type f
             exit 1
           fi
 
+          APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+          echo "apk_name=$(basename $APK_PATH)" >> $GITHUB_OUTPUT
+          echo "apk_size=$APK_SIZE" >> $GITHUB_OUTPUT
+          echo "✅ APK found: $APK_PATH ($APK_SIZE)"
 
       # UPLOAD APK
       - name: Upload APK
@@ -100,3 +128,15 @@ jobs:
           path: ${{ steps.apk.outputs.apk_path }}
           retention-days: 30
           if-no-files-found: error
+
+      - name: Build Report
+        if: always()
+        run: |
+          echo "## 📱 Android APK Build Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.apk.outputs.apk_name }}" ]; then
+            echo "**APK Name:** ${{ steps.apk.outputs.apk_name }}" >> $GITHUB_STEP_SUMMARY
+            echo "**APK Size:** ${{ steps.apk.outputs.apk_size }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "**Build Time:** $(date)" >> $GITHUB_STEP_SUMMARY

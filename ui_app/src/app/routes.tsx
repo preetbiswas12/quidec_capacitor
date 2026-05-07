@@ -6,8 +6,9 @@ import Onboarding from './components/Onboarding';
 import MainLayout from './components/MainLayout';
 import WelcomeScreen from './components/WelcomeScreen';
 import ChatWindow from './components/ChatWindow';
-import VoiceCallScreen from './components/VoiceCallScreen';
-import VideoCallScreen from './components/VideoCallScreen';
+// ❌ DISABLED: Voice and Video Call Features (for now)
+// import VoiceCallScreen from './components/VoiceCallScreen';
+// import VideoCallScreen from './components/VideoCallScreen';
 
 /**
  * Root layout — wraps every route with AppProvider + MobileFrame so that
@@ -39,8 +40,9 @@ export const router = createBrowserRouter([
           { path: 'chat/:id', element: <ChatWindow /> },
         ],
       },
-      { path: '/call/voice/:id', element: <VoiceCallScreen /> },
-      { path: '/call/video/:id', element: <VideoCallScreen /> },
+      // ❌ DISABLED: Voice and Video Call Features (for now)
+      // { path: '/call/voice/:id', element: <VoiceCallScreen /> },
+      // { path: '/call/video/:id', element: <VideoCallScreen /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

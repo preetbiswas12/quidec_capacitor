@@ -3,6 +3,12 @@ import '../styles/chat-panel.css'
 import { getMessages, saveMessage, markMessagesAsRead, addToSyncQueue, deleteConversation } from '../utils/storage'
 import { getConversationKey, encryptMessage } from '../utils/encryption'
 
+// ✅ NEW: Import encrypted media utilities
+import { useEncryptedMedia, useMediaUpload } from '../hooks/useEncryptedMedia'
+import EncryptedMediaDisplay from './EncryptedMediaDisplay'
+import EncryptedMediaUpload from './EncryptedMediaUpload'
+import { messageDb, getConversationId, saveEncryptedMessageWithMedia } from '../utils/messageDatabase'
+
 // Format last seen time into human-readable format
 function formatLastSeen(lastSeenDate) {
   if (!lastSeenDate) return 'Never'
@@ -38,6 +44,14 @@ export default function ChatPanel({
   const [isTyping, setIsTyping] = useState(false)
   const [readReceipts, setReadReceipts] = useState({})
   const [showJumpButton, setShowJumpButton] = useState(false)  // Show jump-to-latest button
+  
+  // ✅ NEW: Encrypted media state
+  const [uploadedFileId, setUploadedFileId] = useState(null)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [showMediaUpload, setShowMediaUpload] = useState(false)
+  const [mediaLoading, setMediaLoading] = useState({}) // Track loading state per media file
+  const [mediaCache, setMediaCache] = useState({}) // Cache decrypted media URLs
+  
   const messagesEndRef = useRef(null)
   const pollingIntervalRef = useRef(null)
   const friendStatusRef = useRef({})  // Track friend status to detect changes
@@ -94,6 +108,18 @@ export default function ChatPanel({
       focusRef.current = false
       console.log('❌ Window BLURRED - messages will not auto-mark')
     }
+
+    // ✅ NEW: Initialize encrypted message database
+    const initializeDB = async () => {
+      try {
+        await messageDb.initialize()
+        console.log('✅ Encrypted message database initialized')
+      } catch (err) {
+        console.error('❌ Failed to initialize message database:', err)
+      }
+    }
+
+    initializeDB()
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('focus', handleFocus)
@@ -309,7 +335,7 @@ export default function ChatPanel({
 
   const handleSendMessage = async (e) => {
     e.preventDefault()
-    if (!messageText.trim() || !currentChatWith) return
+    if (!messageText.trim() && !uploadedFileId) return
 
     const content = messageText.trim()
 
@@ -339,7 +365,27 @@ export default function ChatPanel({
         timestamp,
         read: false,
         unread: true,
-        recipientOffline, // Track if recipient was offline when sent
+        recipientOffline,
+        // ✅ NEW: Add media attachment
+        attachmentFileIds: uploadedFileId ? [uploadedFileId] : [],
+      }
+      
+      // ✅ NEW: Save encrypted message with media to IndexedDB
+      if (uploadedFileId || content) {
+        try {
+          await saveEncryptedMessageWithMedia(
+            content,
+            currentUser,
+            currentChatWith,
+            uploadedFileId ? [uploadedFileId] : [],
+            currentUser,
+            currentChatWith
+          )
+          console.log('✅ Encrypted message saved to database')
+        } catch (err) {
+          console.warn('⚠️ Failed to save to encrypted DB:', err)
+          // Continue with local storage fallback
+        }
       }
       
       // Save to local storage immediately (optimistic update)
@@ -352,7 +398,7 @@ export default function ChatPanel({
       // Send encrypted message via WebSocket if connected
       if (sendEncryptedMessage) {
         console.log('📤 Sending encrypted message via WebSocket:', { from: currentUser, to: currentChatWith })
-        const sent = await sendEncryptedMessage(currentChatWith, content)
+        const sent = await sendEncryptedMessage(currentChatWith, content, uploadedFileId)
         if (!sent) {
           // If encryption failed, queue for later sync
           console.log('📋 Failed to send encrypted message, queueing for sync')
@@ -368,18 +414,24 @@ export default function ChatPanel({
           content,
           messageId,
           timestamp,
+          attachmentFileIds: uploadedFileId ? [uploadedFileId] : [],
         }))
       } else {
         // If not connected, queue for later sync
         console.log('📋 WebSocket not connected, queueing message for sync')
         await addToSyncQueue(msgObj)
       }
+      
+      // Clear form
+      setMessageText('')
+      setUploadedFileId(null)
+      setUploadProgress(0)
+      setShowMediaUpload(false)
+      
     } catch (err) {
       console.error('❌ Error sending message:', err)
       alert('Error sending message: ' + err.message)
     }
-
-    setMessageText('')
   }
 
   const handleCommand = async (command) => {
@@ -510,6 +562,28 @@ export default function ChatPanel({
             >
               <div className="message-content">
                 <p className="message-text">{msg.content}</p>
+                
+                {/* ✅ NEW: Display encrypted media attachments */}
+                {msg.attachmentFileIds && msg.attachmentFileIds.length > 0 && (
+                  <div className="message-attachments" style={{ marginTop: msg.content ? '8px' : '0' }}>
+                    {msg.attachmentFileIds.map((fileId) => (
+                      <div key={fileId} className="media-attachment">
+                        <EncryptedMediaDisplay
+                          fileId={fileId}
+                          mediaType="image"
+                          currentUserId={currentUser}
+                          otherUserId={currentChatWith}
+                          maxHeight={250}
+                          maxWidth="100%"
+                          onError={(err) => {
+                            console.error('Failed to load media:', err)
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
                 <div className="message-footer">
                   <span className="message-time">
                     {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -534,17 +608,96 @@ export default function ChatPanel({
         <div ref={messagesEndRef} />
       </div>
 
+      {/* ✅ NEW: Media upload section */}
+      {showMediaUpload && (
+        <div className="media-upload-section" style={{ padding: '12px', borderTop: '1px solid #e5e5e5' }}>
+          <EncryptedMediaUpload
+            mediaType="image"
+            currentUserId={currentUser}
+            otherUserId={currentChatWith}
+            onUploadComplete={(fileId) => {
+              setUploadedFileId(fileId)
+              setShowMediaUpload(false)
+              console.log('✅ Media uploaded:', fileId)
+            }}
+            onError={(err) => {
+              console.error('❌ Upload error:', err)
+              alert('Failed to upload media: ' + err.message)
+            }}
+          />
+        </div>
+      )}
+
       <form onSubmit={handleSendMessage} className="message-input-form">
-        <input
-          type="text"
-          placeholder="Message... (/ for commands)"
-          value={messageText}
-          onChange={(e) => setMessageText(e.target.value)}
-          autoFocus
-        />
-        <button type="submit" className="btn btn-send">
-          Send
-        </button>
+        <div className="input-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {/* ✅ NEW: Media upload toggle button */}
+          <button
+            type="button"
+            className="btn btn-media"
+            onClick={() => setShowMediaUpload(!showMediaUpload)}
+            title="Upload image/video"
+            style={{
+              background: uploadedFileId ? '#4ade80' : '#f0f0f0',
+              color: uploadedFileId ? 'white' : '#666',
+              border: 'none',
+              borderRadius: '50%',
+              width: '36px',
+              height: '36px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+            }}
+          >
+            {uploadedFileId ? '✓' : '📎'}
+          </button>
+          
+          <input
+            type="text"
+            placeholder="Message... (/ for commands)"
+            value={messageText}
+            onChange={(e) => setMessageText(e.target.value)}
+            autoFocus
+            style={{ flex: 1 }}
+          />
+          <button type="submit" className="btn btn-send">
+            Send
+          </button>
+        </div>
+
+        {/* Show upload progress */}
+        {uploadProgress > 0 && uploadProgress < 100 && (
+          <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+            📤 Uploading... {uploadProgress}%
+          </div>
+        )}
+
+        {/* Show uploaded file indicator */}
+        {uploadedFileId && (
+          <div style={{
+            marginTop: '8px',
+            padding: '8px 12px',
+            background: '#e8f5e9',
+            borderRadius: '4px',
+            fontSize: '12px',
+            color: '#2e7d32',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}>
+            <span>✅ Media ready to send</span>
+            <button
+              type="button"
+              onClick={() => {
+                setUploadedFileId(null)
+                setUploadProgress(0)
+              }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px' }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </form>
     </div>
   )

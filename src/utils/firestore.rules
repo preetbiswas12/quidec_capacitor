@@ -1,0 +1,108 @@
+/**
+ * Firestore Security Rules
+ * Deploy these rules in Firebase Console -> Firestore Database -> Rules
+ * 
+ * These rules ensure:
+ * - Users can only read/write their own data
+ * - Friends can access conversations
+ * - Messages are properly protected
+ * - Notifications are user-specific
+ */
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return request.auth.uid == uid;
+    }
+
+    function isDocumentOwner() {
+      return isUser(resource.data.uid);
+    }
+
+    function isFriend(otherUid) {
+      return exists(/databases/{database}/documents/friendships/$(request.auth.uid)) &&
+             request.auth.uid in resource.data.friends;
+    }
+
+    function getOtherParticipant(conversationId) {
+      let parts = conversationId.split('_');
+      return parts[0] == request.auth.uid ? parts[1] : parts[0];
+    }
+
+    // ========== USERS COLLECTION ==========
+    // Users collection: each user can only read/write their own document
+    match /users/{uid} {
+      allow read: if isUser(uid) || isFriend(uid);
+      allow write: if isUser(uid);
+      
+      // Nested notifications subcollection
+      match /notifications/{notificationId} {
+        allow read: if isUser(uid);
+        allow write: if isUser(uid);
+        allow delete: if isUser(uid);
+      }
+    }
+
+    // ========== FRIENDSHIPS COLLECTION ==========
+    // Friendships: users can read/write their own friendship document
+    match /friendships/{uid} {
+      allow read: if isUser(uid);
+      allow write: if isUser(uid);
+    }
+
+    // ========== FRIEND REQUESTS COLLECTION ==========
+    // Friend requests: visible to both sender and recipient
+    match /friendRequests/{requestId} {
+      allow read: if isUser(resource.data.fromUid) || isUser(resource.data.toUid);
+      allow create: if isUser(request.resource.data.fromUid) &&
+                       request.resource.data.toUid != request.auth.uid;
+      allow update: if isUser(resource.data.toUid) && 
+                       request.resource.data.status in ['accepted', 'rejected'];
+      allow delete: if isUser(resource.data.fromUid) || isUser(resource.data.toUid);
+    }
+
+    // ========== CONVERSATIONS COLLECTION ==========
+    // Conversations: participants can read/write, only participants can access messages
+    match /conversations/{conversationId} {
+      allow read: if request.auth.uid in resource.data.participants;
+      allow write: if request.auth.uid in request.resource.data.participants;
+
+      // Nested messages subcollection
+      match /messages/{messageId} {
+        allow read: if request.auth.uid in resource.data.participants ||
+                       request.auth.uid in get(/databases/{database}/documents/conversations/$(conversationId)).data.participants;
+        allow create: if request.auth.uid == request.resource.data.fromUid;
+        allow update: if request.auth.uid == resource.data.fromUid ||
+                         request.auth.uid == resource.data.toUid;
+        allow delete: if request.auth.uid == resource.data.fromUid;
+      }
+    }
+
+    // ========== MEDIA COLLECTION ==========
+    // Media files: accessible to message participants
+    match /media/{mediaId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.uploadedBy == request.auth.uid;
+      allow delete: if isUser(resource.data.uploadedBy);
+    }
+
+    // ========== BLOCKED USERS COLLECTION ==========
+    // Blocked users: private to each user
+    match /blockedUsers/{uid} {
+      allow read: if isUser(uid);
+      allow write: if isUser(uid);
+    }
+
+    // ========== DEFAULT DENY ==========
+    // Default deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

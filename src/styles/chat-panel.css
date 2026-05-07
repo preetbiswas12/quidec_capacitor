@@ -435,3 +435,78 @@
     gap: 6px;
   }
 }
+
+/* ✅ NEW: Media attachment styles */
+.message-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.media-attachment {
+  display: flex;
+  justify-content: center;
+  max-width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.media-attachment img,
+.media-attachment video {
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.media-upload-section {
+  border-top: 1px solid rgba(27, 60, 83, 0.2);
+  background: rgba(17, 17, 34, 0.4);
+  animation: slideIn 0.2s ease;
+}
+
+.input-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn-media {
+  background: #f0f0f0;
+  color: #666;
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 18px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.btn-media:hover {
+  background: #e0e0e0;
+  transform: scale(1.05);
+}
+
+.btn-media.active {
+  background: #4ade80;
+  color: white;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

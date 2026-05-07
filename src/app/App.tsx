@@ -1,7 +1,12 @@
 import React, { useEffect } from 'react';
 import { RouterProvider } from 'react-router';
 import { router } from './routes';
-import { initializePushNotifications } from '../utils/firebase';
+import { auth } from '../utils/firebase';
+import {
+  authService,
+  presenceService,
+  notificationService,
+} from '../utils/firebaseServices';
 
 // ─── Error boundary ───────────────────────────────────────────────────────────
 interface EBState { hasError: boolean; message: string }
@@ -38,30 +43,109 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, EBSta
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   useEffect(() => {
-    // Initialize Firebase push notifications
-    const initNotifications = async () => {
+    // Initialize Firebase services
+    const initializeFirebase = async () => {
       try {
-        console.log('🔔 Initializing push notifications...');
-        
-        // Initialize with message handler
-        await initializePushNotifications((payload) => {
-          console.log('📬 Message received:', payload);
-          // Handle notification in foreground
-          const notification = payload.notification || {};
-          console.log(`Title: ${notification.title}, Body: ${notification.body}`);
-        });
+        console.log('🚀 Initializing Firebase services...');
 
-        console.log('✅ Push notifications ready');
+        // Listen to auth state
+        const unsubscribeAuth = authService.onAuthStateChange(
+          async (user) => {
+            if (user) {
+              console.log(`✅ User authenticated: ${user.email}`);
+
+              // Set user online
+              await presenceService.setUserOnline(user.uid, user.displayName || user.email!);
+
+              // Request FCM permission and setup notifications
+              try {
+                await notificationService.requestFCMPermission(user.uid);
+                console.log('📬 FCM notifications enabled');
+
+                // Listen to foreground notifications
+                const unsubscribeNotif = notificationService.listenToNotifications(
+                  (notification) => {
+                    console.log(
+                      '📬 Notification received:',
+                      notification
+                    );
+                    // Show local notification
+                    notificationService.sendLocalNotification(
+                      notification.title || 'New Message',
+                      {
+                        body: notification.body,
+                        tag: 'message-notification',
+                        requireInteraction: false,
+                      }
+                    );
+                  }
+                );
+
+                // Listen to user notifications from Firestore
+                const unsubscribeUserNotif = notificationService.listenToUserNotifications(
+                  user.uid,
+                  (notifications) => {
+                    console.log(
+                      `📬 User has ${notifications.filter((n: any) => !n.read).length} unread notifications`
+                    );
+                  }
+                );
+
+                // Cleanup on unmount
+                return () => {
+                  unsubscribeNotif?.();
+                  unsubscribeUserNotif?.();
+                };
+              } catch (err) {
+                console.warn('⚠️ FCM setup skipped (user denied or not available):', err);
+              }
+            } else {
+              console.log('❌ User logged out');
+              // User logged out - presence will be handled by logoutUser
+            }
+          }
+        );
+
+        console.log('✅ Firebase services initialized');
+
+        // Handle page visibility for online/offline status
+        const handleVisibilityChange = () => {
+          const user = auth.currentUser;
+          if (!user) return;
+
+          if (document.hidden) {
+            // Page hidden - set offline
+            presenceService.setUserOffline(user.uid);
+          } else {
+            // Page visible - set online
+            presenceService.setUserOnline(user.uid, user.displayName || user.email!);
+          }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        // Handle page unload
+        const handleBeforeUnload = () => {
+          const user = auth.currentUser;
+          if (user) {
+            presenceService.setUserOffline(user.uid);
+          }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+
+        // Cleanup
+        return () => {
+          unsubscribeAuth();
+          document.removeEventListener('visibilitychange', handleVisibilityChange);
+          window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
       } catch (err) {
-        console.error('❌ Push notification initialization failed:', err);
-        // App still works without notifications
+        console.error('❌ Firebase initialization error:', err);
       }
     };
 
-    // Only initialize in production/staging
-    if (import.meta.env.PROD) {
-      initNotifications();
-    }
+    initializeFirebase();
   }, []);
 
   return (
