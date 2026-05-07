@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
+import { authService } from '../../utils/firebaseServices';
 
 // ─── Types (Matching UI App Expectations) ──────────────────────────────────
 
@@ -102,9 +103,9 @@ interface AppContextType {
   isAuthenticating: boolean;
   completeOnboarding: (user: CurrentUser) => void;
   updateCurrentUser: (updates: Partial<CurrentUser>) => void;
-  login: (username: string, password: string) => Promise<boolean>;
-  register: (username: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  login: (email: string, password: string) => Promise<{ success: boolean; emailVerified?: boolean; message?: string }>;
+  register: (email: string, username: string, password: string) => Promise<{ success: boolean; emailVerified?: boolean; message?: string }>;
+  logout: () => Promise<void>;
 
   // WebSocket & Real Data
   isConnected: boolean;
@@ -226,93 +227,132 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ─── Auth Methods ─────────────────────────────────────────────────────────
 
-  const login = useCallback(async (username: string, password: string): Promise<boolean> => {
+  const login = useCallback(async (email: string, password: string): Promise<any> => {
     setIsAuthenticating(true);
     try {
-      const serverUrl = import.meta.env.VITE_SERVER_URL || 'wss://quidec-server.onrender.com';
-      const httpUrl = serverUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
+      const result = await authService.loginUser(email, password);
 
-      const response = await fetch(`${httpUrl}/api/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        const user: CurrentUser = {
-          name: username,
-          userId: `@${username}`,
-          avatar: null,
-          about: '',
-        };
-        setCurrentUser(user);
-        setIsOnboarded(true);
-        localStorage.setItem('auth', JSON.stringify({ username, password }));
-        return true;
-      } else {
-        console.error('Login failed:', data);
-        return false;
+      if (!result.success) {
+        console.error('Login failed:', result.message);
+        return result; // Return object with emailVerified: false if not verified
       }
+
+      // User verified - set up context
+      const user: CurrentUser = {
+        name: result.user?.displayName || email.split('@')[0],
+        email: email,
+        userId: result.uid || result.user?.uid || '',
+        avatar: result.user?.photoURL || null,
+        about: '',
+      };
+      setCurrentUser(user);
+      setIsOnboarded(true);
+      return { success: true, emailVerified: true };
     } catch (err) {
       console.error('Login error:', err);
-      return false;
+      return { success: false, message: (err as any).message || 'Login failed' };
     } finally {
       setIsAuthenticating(false);
     }
   }, []);
 
-  const register = useCallback(async (username: string, password: string): Promise<boolean> => {
+  const register = useCallback(async (email: string, username: string, password: string): Promise<any> => {
     setIsAuthenticating(true);
     try {
-      const serverUrl = import.meta.env.VITE_SERVER_URL || 'wss://quidec-server.onrender.com';
-      const httpUrl = serverUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
+      const result = await authService.registerUser(email, username, password);
 
-      const response = await fetch(`${httpUrl}/api/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        const user: CurrentUser = {
-          name: username,
-          userId: `@${username}`,
-          avatar: null,
-          about: '',
-        };
-        setCurrentUser(user);
-        setIsOnboarded(true);
-        localStorage.setItem('auth', JSON.stringify({ username, password }));
-        return true;
-      } else {
-        console.error('Registration failed:', data);
-        return false;
+      if (!result.success) {
+        console.error('Registration failed:', result.message);
+        return result;
       }
+
+      // Registration successful - user needs to verify email
+      const user: CurrentUser = {
+        name: username,
+        email: email,
+        userId: result.uid || result.user?.uid || '',
+        avatar: null,
+        about: '',
+      };
+      setCurrentUser(user);
+      // Don't set isOnboarded yet - user must verify email first
+      return { success: true, emailVerified: false, user: result.user };
     } catch (err) {
       console.error('Registration error:', err);
-      return false;
+      return { success: false, message: (err as any).message || 'Registration failed' };
     } finally {
       setIsAuthenticating(false);
     }
   }, []);
 
-  const logout = useCallback(() => {
-    setCurrentUser(null);
-    setIsOnboarded(false);
-    setContacts([]);
-    setMessages({});
-    setChatRequests([]);
-    localStorage.removeItem('auth');
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+  const logout = useCallback(async () => {
+    setIsAuthenticating(true);
+    try {
+      await authService.logoutUser();
+      setCurrentUser(null);
+      setIsOnboarded(false);
+      setContacts([]);
+      setMessages({});
+      setChatRequests([]);
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      setIsAuthenticating(false);
+      navigate('/login');
     }
-    navigate('/');
   }, [navigate]);
+
+  // ─── Initialize Auth State on Mount ───────────────────────────────────────
+
+  useEffect(() => {
+    const initializeAuth = async () => {
+      try {
+        const currentFirebaseUser = await authService.getCurrentUser();
+        if (currentFirebaseUser) {
+          // User is already logged in
+          if (currentFirebaseUser.emailVerified) {
+            // User verified - set up context
+            const user: CurrentUser = {
+              name: currentFirebaseUser.displayName || currentFirebaseUser.email?.split('@')[0] || 'User',
+              email: currentFirebaseUser.email || '',
+              userId: currentFirebaseUser.uid || '',
+              avatar: currentFirebaseUser.photoURL || null,
+              about: '',
+            };
+            setCurrentUser(user);
+            setIsOnboarded(true);
+          } else {
+            // User exists but not verified
+            const user: CurrentUser = {
+              name: currentFirebaseUser.displayName || currentFirebaseUser.email?.split('@')[0] || 'User',
+              email: currentFirebaseUser.email || '',
+              userId: currentFirebaseUser.uid || '',
+              avatar: null,
+              about: '',
+            };
+            setCurrentUser(user);
+            setIsOnboarded(false); // Prevent access to app
+          }
+        } else {
+          // No user logged in
+          setCurrentUser(null);
+          setIsOnboarded(false);
+        }
+      } catch (err) {
+        console.error('Auth initialization error:', err);
+        setCurrentUser(null);
+        setIsOnboarded(false);
+      } finally {
+        setIsAuthenticating(false);
+      }
+    };
+
+    initializeAuth();
+  }, []);
 
   const completeOnboarding = useCallback((user: CurrentUser) => {
     setCurrentUser(user);

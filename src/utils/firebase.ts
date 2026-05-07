@@ -1,16 +1,27 @@
 /**
- * Firebase Cloud Messaging Setup
- * Handles push notifications for messages and calls
+ * Firebase Setup & Configuration
+ * Initializes Firebase services with all required modules:
+ * - Authentication (Email/Password, Google, Apple)
+ * - Firestore Database
+ * - Realtime Database (for presence/typing)
+ * - Cloud Storage
+ * - Cloud Messaging (Push notifications)
  */
 
 import { initializeApp } from 'firebase/app';
-import { getMessaging, onMessage } from 'firebase/messaging';
+import { getAuth, Auth } from 'firebase/auth';
+import { getFirestore, Firestore } from 'firebase/firestore';
+import { getDatabase, Database } from 'firebase/database';
+import { getMessaging, Messaging, onMessage } from 'firebase/messaging';
 
 let firebaseApp: any = null;
-let messaging: any = null;
+let authInstance: Auth | null = null;
+let firestoreInstance: Firestore | null = null;
+let realtimeDatabaseInstance: Database | null = null;
+let messagingInstance: Messaging | null = null;
 
 /**
- * Initialize Firebase
+ * Initialize Firebase with all services
  */
 export function initializeFirebase() {
   try {
@@ -21,6 +32,7 @@ export function initializeFirebase() {
       storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
       messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
       appId: import.meta.env.VITE_FIREBASE_APP_ID,
+      databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
     };
 
     if (!firebaseConfig.apiKey) {
@@ -28,8 +40,10 @@ export function initializeFirebase() {
       return null;
     }
 
-    firebaseApp = initializeApp(firebaseConfig);
-    console.log('✅ Firebase initialized');
+    if (!firebaseApp) {
+      firebaseApp = initializeApp(firebaseConfig);
+      console.log('✅ Firebase initialized successfully');
+    }
 
     return firebaseApp;
   } catch (err) {
@@ -39,22 +53,60 @@ export function initializeFirebase() {
 }
 
 /**
+ * Get Firebase Auth instance
+ */
+export function getAuthInstance(): Auth {
+  if (!authInstance) {
+    initializeFirebase();
+    authInstance = getAuth(firebaseApp);
+  }
+  return authInstance;
+}
+
+/**
+ * Get Firestore instance
+ */
+export function getFirestoreInstance(): Firestore {
+  if (!firestoreInstance) {
+    initializeFirebase();
+    firestoreInstance = getFirestore(firebaseApp);
+  }
+  return firestoreInstance;
+}
+
+/**
+ * Get Realtime Database instance
+ */
+export function getRealtimeDatabaseInstance(): Database {
+  if (!realtimeDatabaseInstance) {
+    initializeFirebase();
+    realtimeDatabaseInstance = getDatabase(firebaseApp);
+  }
+  return realtimeDatabaseInstance;
+}
+
+// Export instances for backward compatibility
+export const auth = getAuthInstance();
+export const db = getFirestoreInstance();
+export const realtimeDb = getRealtimeDatabaseInstance();
+
+
+// ============ CLOUD MESSAGING SERVICES ============
+
+/**
  * Get Firebase Messaging instance
  */
-export function getMessagingInstance() {
-  if (!firebaseApp) {
-    initializeFirebase();
-  }
-
-  if (!messaging && firebaseApp) {
+export function getMessagingInstance(): Messaging | null {
+  if (!messagingInstance) {
     try {
-      messaging = getMessaging(firebaseApp);
+      initializeFirebase();
+      messagingInstance = getMessaging(firebaseApp);
     } catch (err) {
       console.error('❌ Failed to get messaging instance:', err);
+      return null;
     }
   }
-
-  return messaging;
+  return messagingInstance;
 }
 
 /**
@@ -140,8 +192,9 @@ export async function registerServiceWorker() {
 
 /**
  * Get FCM Token (for sending to backend)
+ * Requires VAPID key to be configured
  */
-export async function getFCMToken() {
+export async function getFCMToken(): Promise<string | null> {
   try {
     const msg = getMessagingInstance();
 
@@ -150,20 +203,25 @@ export async function getFCMToken() {
       return null;
     }
 
-    // This requires firebase-messaging-sw.js to be registered first
+    // Import getToken dynamically to avoid circular dependencies
+    const { getToken } = await import('firebase/messaging');
+    
     const permission = await requestNotificationPermission();
     
     if (!permission) {
-      console.warn('⚠️ Notification permission not granted, cannot get FCM token');
+      console.warn('⚠️ Notification permission not granted');
       return null;
     }
 
-    // In a real app, you would use:
-    // const token = await getToken(msg, { vapidKey: 'YOUR_VAPID_KEY' });
-    // For now, we'll use the token from service worker
-    
-    console.log('ℹ️ FCM token generation requires VAPID key configuration');
-    return null;
+    const vapidKey = import.meta.env.REACT_APP_VAPID_KEY;
+    if (!vapidKey) {
+      console.warn('⚠️ VAPID key not configured in .env');
+      return null;
+    }
+
+    const token = await getToken(msg, { vapidKey });
+    console.log('✅ FCM Token obtained:', token.substring(0, 20) + '...');
+    return token;
   } catch (err) {
     console.error('❌ Error getting FCM token:', err);
     return null;
@@ -189,13 +247,6 @@ export async function initializePushNotifications(onMessageCallback: (payload: a
     // Setup foreground message handler
     setupForegroundMessageHandler(onMessageCallback);
 
-    // Get FCM token (optional)
-    // const token = await getFCMToken();
-    // if (token) {
-    //   console.log('FCM Token:', token);
-    //   // Send token to backend
-    // }
-
     console.log('✅ Push notifications initialized');
     return true;
   } catch (err) {
@@ -206,6 +257,9 @@ export async function initializePushNotifications(onMessageCallback: (payload: a
 
 export default {
   initializeFirebase,
+  getAuthInstance,
+  getFirestoreInstance,
+  getRealtimeDatabaseInstance,
   getMessagingInstance,
   setupForegroundMessageHandler,
   requestNotificationPermission,

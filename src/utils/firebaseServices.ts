@@ -20,6 +20,8 @@ import {
   onAuthStateChanged,
   updateProfile,
   User,
+  sendEmailVerification,
+  sendPasswordResetEmail,
 } from 'firebase/auth';
 import {
   getFirestore,
@@ -54,7 +56,7 @@ import {
   update,
 } from 'firebase/realtime-database';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
-import { db, auth, realtimeDb } from './firebase';
+import { db, auth, realtimeDb, getFCMToken } from './firebase';
 
 /**
  * MESSAGE DELIVERY STATUS TYPES
@@ -73,6 +75,7 @@ export const MESSAGE_STATUS = {
 export const authService = {
   /**
    * Register a new user with email and password
+   * Sends verification email automatically
    */
   async registerUser(email: string, username: string, password: string) {
     try {
@@ -89,6 +92,10 @@ export const authService = {
       // Update profile with username
       await updateProfile(user, { displayName: username });
 
+      // Send verification email
+      await sendEmailVerification(user);
+      console.log(`📧 Verification email sent to ${email}`);
+
       // Create user document in Firestore
       await setDoc(doc(db, 'users', user.uid), {
         uid: user.uid,
@@ -96,16 +103,18 @@ export const authService = {
         email,
         displayName: username,
         photoURL: null,
+        emailVerified: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        publicKey: null, // Optional: for encryption
+        publicKey: null,
         isOnline: false,
         lastSeen: serverTimestamp(),
+        fcmToken: null, // Will be set after email verification
       });
 
       // Initialize user presence in Realtime Database
       await set(ref(realtimeDb, `presence/${user.uid}`), {
-        online: true,
+        online: false, // Set to false until email is verified
         lastSeen: serverValue.TIMESTAMP,
         username,
       });
@@ -119,15 +128,26 @@ export const authService = {
       });
 
       console.log(`✅ User registered: ${username}`);
-      return { success: true, user, uid: user.uid };
+      return { 
+        success: true, 
+        user, 
+        uid: user.uid,
+        message: 'Please check your email to verify your account',
+      };
     } catch (error: any) {
       console.error('❌ Registration error:', error.message);
+      if (error.code === 'auth/email-already-in-use') {
+        throw new Error('Email already in use');
+      } else if (error.code === 'auth/weak-password') {
+        throw new Error('Password is too weak. Use at least 6 characters');
+      }
       throw error;
     }
   },
 
   /**
    * Login user with email and password
+   * Checks if email is verified before allowing login
    */
   async loginUser(email: string, password: string) {
     try {
@@ -138,6 +158,18 @@ export const authService = {
         password
       );
       const user = userCredential.user;
+
+      // Check if email is verified
+      if (!user.emailVerified) {
+        console.warn('⚠️ User email not verified');
+        // Don't set online status if email not verified
+        return {
+          success: false,
+          emailVerified: false,
+          message: 'Please verify your email before logging in',
+          user,
+        };
+      }
 
       // Update online status in Realtime Database
       await set(ref(realtimeDb, `presence/${user.uid}`), {
@@ -150,12 +182,92 @@ export const authService = {
       await updateDoc(doc(db, 'users', user.uid), {
         isOnline: true,
         lastSeen: serverTimestamp(),
+        emailVerified: true,
       });
 
+      // Get and save FCM token if not already saved
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (!userDoc.data()?.fcmToken) {
+          const fcmToken = await getFCMToken();
+          if (fcmToken) {
+            await updateDoc(doc(db, 'users', user.uid), {
+              fcmToken: fcmToken,
+            });
+            console.log('✅ FCM token saved');
+          }
+        }
+      } catch (fcmErr) {
+        console.warn('⚠️ FCM token setup skipped:', fcmErr);
+      }
+
       console.log(`✅ User logged in: ${user.email}`);
-      return { success: true, user, uid: user.uid };
+      return { success: true, user, uid: user.uid, emailVerified: true };
     } catch (error: any) {
       console.error('❌ Login error:', error.message);
+      if (error.code === 'auth/user-not-found') {
+        throw new Error('User not found');
+      } else if (error.code === 'auth/wrong-password') {
+        throw new Error('Incorrect password');
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * Resend email verification
+   */
+  async resendEmailVerification() {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error('No user logged in');
+      }
+
+      if (user.emailVerified) {
+        throw new Error('Email is already verified');
+      }
+
+      await sendEmailVerification(user);
+      console.log(`📧 Verification email resent to ${user.email}`);
+      return { success: true, message: 'Verification email sent' };
+    } catch (error: any) {
+      console.error('❌ Error resending verification email:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Send password reset email
+   */
+  async sendPasswordReset(email: string) {
+    try {
+      await sendPasswordResetEmail(auth, email);
+      console.log(`📧 Password reset email sent to ${email}`);
+      return { success: true, message: 'Password reset email sent' };
+    } catch (error: any) {
+      console.error('❌ Error sending password reset:', error.message);
+      if (error.code === 'auth/user-not-found') {
+        throw new Error('User not found');
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * Reload user auth state to get fresh data
+   */
+  async reloadUser() {
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        await user.reload();
+        console.log('✅ User state reloaded');
+        return user;
+      }
+      return null;
+    } catch (error: any) {
+      console.error('❌ Error reloading user:', error.message);
       throw error;
     }
   },

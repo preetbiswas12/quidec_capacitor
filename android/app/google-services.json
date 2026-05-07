@@ -1,13 +1,14 @@
 {
   "project_info": {
     "project_number": "1016231429284",
+    "firebase_url": "https://octate-wee-default-rtdb.europe-west1.firebasedatabase.app",
     "project_id": "octate-wee",
     "storage_bucket": "octate-wee.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1016231429284:android:d8ec552383e8cff8a9d231",
+        "mobilesdk_app_id": "1:1016231429284:android:2b5d161f56ac82fba9d231",
         "android_client_info": {
           "package_name": "com.quidec.chat"
         }

@@ -5,6 +5,7 @@ import SplashScreen from './components/SplashScreen';
 import Onboarding from './components/Onboarding';
 import MainLayout from './components/MainLayout';
 import LoginScreen from './components/LoginScreen';
+import EmailVerification from './components/EmailVerification';
 import ChatWindow from './components/ChatWindow';
 import VoiceCallScreen from './components/VoiceCallScreen';
 import VideoCallScreen from './components/VideoCallScreen';
@@ -63,6 +64,7 @@ export const router = createBrowserRouter([
         element: <AuthRoute />,
         children: [
           { path: '/login', element: <LoginScreen /> },
+          { path: '/verify-email', element: <EmailVerification /> },
           { path: '/onboarding', element: <Onboarding /> },
           { index: true, element: <Navigate to="/login" replace /> },
         ],
