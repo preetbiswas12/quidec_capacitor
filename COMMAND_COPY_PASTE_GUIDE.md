@@ -21,7 +21,7 @@ Just copy and paste these commands in order. Follow the sections.
 ### ⚠️ MANUAL STEPS (Can't automate - must do in console)
 
 1. Go to: https://console.firebase.google.com
-2. Create a new Firebase project named "free-cluely"
+2. Create a new Firebase project named "octate-wee"
 3. In left sidebar, go to "Build" section and enable:
    - ✅ Authentication (Email/Password)
    - ✅ Firestore Database

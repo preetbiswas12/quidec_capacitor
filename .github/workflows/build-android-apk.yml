@@ -1,7 +1,8 @@
 name: Build Android APK
 
 on:
-  push:   # runs on every commit
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -22,7 +23,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ✅ pnpm (version comes from package.json)
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -34,7 +34,6 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
 
-      # JAVA
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -42,101 +41,71 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      # ANDROID
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Accept licenses & install SDK
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
-          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
-      # GRADLE
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: wrapper
-          cache-disabled: false
 
-      # INSTALL DEPENDENCIES
       - name: Install dependencies
-        id: install_deps
-        run: pnpm install --frozen-lockfile
-        continue-on-error: true
+        run: pnpm install --frozen-lockfile || pnpm install
 
-      - name: Fallback install
-        if: ${{ failure() }}
-        run: |
-          echo "⚠️ Frozen lockfile failed, installing with updates"
-          pnpm install
-
-      # BUILD WEB
       - name: Build web app
         run: pnpm build
         env:
-          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
-          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || '' }}
-          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID || '' }}
-
-      # CAPACITOR
-      - name: Ensure Android project exists
-        run: pnpm exec cap add android || true
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
+          VITE_VAPID_KEY: ${{ secrets.VITE_VAPID_KEY }}
 
       - name: Sync Capacitor
-        run: pnpm exec cap sync android
+        run: |
+          pnpm exec cap add android || true
+          pnpm exec cap sync android
 
       - name: Update Android SDK to 35
         run: |
           sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle || true
           sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle || true
 
-      # BUILD DEBUG APK (no signing needed for CI)
       - name: Build Debug APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean assembleDebug \
-            --no-daemon \
-            --info \
-            -Dorg.gradle.jvmargs="-Xmx4g" \
-            -Dorg.gradle.workers.max=4
+          ./gradlew clean assembleDebug --no-daemon
 
-      # LOCATE APK
       - name: Locate APK
         id: apk
         run: |
           APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" -type f | head -1)
-
           if [ -z "$APK_PATH" ]; then
-            echo "❌ APK not found in default location, searching all outputs..."
-            find android/app/build/outputs -name "*.apk" -type f
             exit 1
           fi
-
-          APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
           echo "apk_name=$(basename $APK_PATH)" >> $GITHUB_OUTPUT
-          echo "apk_size=$APK_SIZE" >> $GITHUB_OUTPUT
-          echo "✅ APK found: $APK_PATH ($APK_SIZE)"
+          echo "apk_size=$(du -h "$APK_PATH" | cut -f1)" >> $GITHUB_OUTPUT
 
-      # UPLOAD APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: android-apk-${{ github.sha }}
           path: ${{ steps.apk.outputs.apk_path }}
           retention-days: 30
-          if-no-files-found: error
 
       - name: Build Report
         if: always()
         run: |
           echo "## 📱 Android APK Build Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Build Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          if [ -n "${{ steps.apk.outputs.apk_name }}" ]; then
-            echo "**APK Name:** ${{ steps.apk.outputs.apk_name }}" >> $GITHUB_STEP_SUMMARY
-            echo "**APK Size:** ${{ steps.apk.outputs.apk_size }}" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "**Build Time:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**APK:** ${{ steps.apk.outputs.apk_name }} (${{ steps.apk.outputs.apk_size }})" >> $GITHUB_STEP_SUMMARY

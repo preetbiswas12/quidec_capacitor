@@ -5,7 +5,7 @@
 ### Step 1: Create Firebase Project
 - [ ] Go to [Firebase Console](https://console.firebase.google.com)
 - [ ] Click "Add Project"
-- [ ] Name: `free-cluely` (or your project name)
+- [ ] Name: `octate-wee` (or your project name)
 - [ ] Select region (e.g., US Central)
 - [ ] Finish project creation
 - [ ] Note: Project ID, API Key for later
@@ -129,7 +129,7 @@ REACT_APP_VAPID_KEY=
 ### Step 13: Initialize Cloud Functions
 - [ ] Navigate to your project folder
 - [ ] Run: `firebase init functions`
-- [ ] Select existing project: `free-cluely`
+- [ ] Select existing project: `octate-wee`
 - [ ] Select language: **TypeScript**
 - [ ] Setup ESLint: **Yes**
 - [ ] ✅ Functions folder created
@@ -245,12 +245,12 @@ REACT_APP_VAPID_KEY=
 
 ### Step 28: Deploy to Firebase Hosting
 - [ ] Run: `firebase init hosting`
-- [ ] Select existing project: `free-cluely`
+- [ ] Select existing project: `octate-wee`
 - [ ] Public directory: `dist`
 - [ ] Configure rewrite for SPA: **Yes**
 - [ ] Overwrite `dist/404.html`: **No**
 - [ ] Run: `firebase deploy --only hosting`
-- [ ] Your app will be deployed to `https://free-cluely.web.app`
+- [ ] Your app will be deployed to `https://octate-wee.web.app`
 - [ ] ✅ App is now live!
 
 ---

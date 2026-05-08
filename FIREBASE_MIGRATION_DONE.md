@@ -128,7 +128,7 @@ After:   Client → Firebase (Firestore + Realtime DB + Cloud Functions)
 ### Step 1: Create Firebase Project (5 min)
 ```bash
 # Go to https://console.firebase.google.com
-# Create project named "free-cluely"
+# Create project named "octate-wee"
 # Copy config values to .env file
 ```
 

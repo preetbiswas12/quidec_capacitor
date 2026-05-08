@@ -32,7 +32,7 @@ This guide is optimized for **Firebase Spark Plan** with these limitations:
 1. Go to **https://console.firebase.google.com**
 2. Click **"Create a project"** (or **"Add project"** if you have existing projects)
 3. Fill in:
-   - **Project name**: `free-cluely` (or your project name)
+   - **Project name**: `octate-wee` (or your project name)
    - **Analytics**: Can skip for now
 4. Click **"Create project"**
 5. Wait for project to be created (1-2 minutes)

@@ -26,7 +26,7 @@ The entire backend has been migrated from Node.js/Express/WebSocket server to **
 
 1. Go to [Firebase Console](https://console.firebase.google.com)
 2. Click "Add Project"
-3. Enter project name: `free-cluely` (or your project name)
+3. Enter project name: `octate-wee` (or your project name)
 4. Select your region
 5. Enable Google Analytics (optional)
 6. Create project

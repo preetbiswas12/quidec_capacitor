@@ -129,7 +129,7 @@ Firebase Services:
 ### 1. Create Firebase Project
 ```bash
 # Go to https://console.firebase.google.com
-# Create new project "free-cluely"
+# Create new project "octate-wee"
 ```
 
 ### 2. Get Firebase Config

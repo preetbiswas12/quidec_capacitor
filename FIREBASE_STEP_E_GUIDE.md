@@ -28,7 +28,7 @@ This guide covers enabling services for **Spark Plan**. The following are availa
 ### STEP E.1: Go to Firebase Console
 
 1. Open **https://console.firebase.google.com**
-2. Click on your project: `free-cluely` (or your project name)
+2. Click on your project: `octate-wee` (or your project name)
 3. You should see the project dashboard
 
 ---
