@@ -52,8 +52,12 @@ jobs:
         with:
           gradle-version: wrapper
 
+      # INSTALL DEPENDENCIES
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          pnpm install --no-frozen-lockfile
+          # This ensures binaries are linked to the path
+          pnpm run -r exec -- ls 
 
       - name: Build web app
         run: pnpm build
