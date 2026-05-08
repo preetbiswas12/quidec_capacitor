@@ -78,8 +78,6 @@ jobs:
 
       - name: Set up pnpm           # ← MUST COME FIRST
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -87,10 +85,6 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
