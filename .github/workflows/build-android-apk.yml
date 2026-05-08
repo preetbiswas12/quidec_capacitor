@@ -53,7 +53,7 @@ jobs:
           gradle-version: wrapper
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile || pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build web app
         run: pnpm build
