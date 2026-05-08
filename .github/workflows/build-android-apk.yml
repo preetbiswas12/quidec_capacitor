@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop, staging ]
   workflow_dispatch:
 
 jobs:
@@ -14,8 +14,8 @@ jobs:
       contents: read
 
     env:
-      GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=4"
-      # REMOVED global NODE_ENV: production to allow devDependencies (Vite) to install
+      GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=4 -Dorg.gradle.vfs.watch=false"
+      NODE_ENV: production
 
     steps:
       - name: Checkout code
@@ -42,25 +42,27 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Accept licenses & install SDK
+      - name: Install Android SDK 35
         run: |
           yes | sdkmanager --licenses
           sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: wrapper
+      - name: Install web dependencies
+        run: |
+          npm install
+          npm install -D typescript
 
-      # INSTALL DEPENDENCIES
+          
+      - name: Install Capacitor CLI
+        run: npm install -g @capacitor/cli
+
+      # INSTALL DEPENDENCIES (Mixed from both)
       - name: Install dependencies
-        # Force install all dependencies (including Vite) needed for the build
         run: pnpm install --no-frozen-lockfile --production=false
 
-      # BUILD WEB
+      # BUILD WEB (With full Firebase Secrets support)
       - name: Build web app
-        # Only set production environment here for the actual build process
-        run: NODE_ENV=production pnpm run build
+        run: pnpm run build
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
@@ -70,39 +72,52 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
           VITE_VAPID_KEY: ${{ secrets.VITE_VAPID_KEY }}
+          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
 
-      # CAPACITOR SYNC
+      # NATIVE SYNC
       - name: Sync Capacitor
         run: |
           pnpm exec cap add android || true
           pnpm exec cap sync android
 
-      - name: Update Android SDK to 35
+      # ✅ STABILITY PATCHES (From your successful past workflow)
+      - name: Force Gradle wrapper to 8.6
+        run: |
+          sed -i 's/gradle-.*-bin.zip/gradle-8.6-bin.zip/g' android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Upgrade Android Gradle Plugin & Patch bcprov
+        run: |
+          sed -i 's/com.android.tools.build:gradle:8.2.0/com.android.tools.build:gradle:8.4.2/g' android/build.gradle || true
+          echo "configurations.all { resolutionStrategy { force 'org.bouncycastle:bcprov-jdk18on:1.78' } }" >> android/build.gradle
+
+      - name: Align Android SDK to 35
         run: |
           sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle || true
           sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle || true
 
-      # NATIVE BUILD
-      - name: Build Debug APK
+      # FINAL NATIVE BUILD (Using stable flags from success file)
+      - name: Build APK with Gradle
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean assembleDebug --no-daemon
+          ./gradlew clean assembleDebug \
+            --no-daemon \
+            --no-build-cache \
+            --refresh-dependencies
+        env:
+          NODE_ENV: production
 
-      # LOCATE AND UPLOAD
+      # LOCATE & UPLOAD
       - name: Locate APK
         id: apk
         run: |
-          APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" -type f | head -1)
-          if [ -z "$APK_PATH" ]; then
-            echo "❌ APK not found!"
-            exit 1
-          fi
+          APK_PATH=$(find android/app/build/outputs/apk -name "*.apk" -type f | head -1)
+          if [ -z "$APK_PATH" ]; then exit 1; fi
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
           echo "apk_name=$(basename $APK_PATH)" >> $GITHUB_OUTPUT
           echo "apk_size=$(du -h "$APK_PATH" | cut -f1)" >> $GITHUB_OUTPUT
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk-${{ github.sha }}
