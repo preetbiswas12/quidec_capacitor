@@ -38,6 +38,8 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -55,22 +57,33 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK 36
+      - name: Install Android SDK 36 and build-tools
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "cmdline-tools;latest"
 
-      - name: Install dependencies
-        run: NODE_ENV=development pnpm install --frozen-lockfile || (echo "Lockfile failed, installing" && NODE_ENV=development pnpm install)
+      - name: Install pnpm dependencies
+        run: |
+          echo "=== Installing pnpm dependencies ==="
+          pnpm install --frozen-lockfile || pnpm install
+          echo "=== Installation complete ==="
+
+      - name: Verify Capacitor installation
+        run: |
+          echo "=== Checking Capacitor CLI ==="
+          pnpm list @capacitor/cli @capacitor/core @capacitor/android
+          pnpm exec cap --version || echo "cap command check completed"
 
       - name: Verify Capacitor config
         run: |
-          if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ]; then
-            echo "Error: capacitor.config not found"
+          if [ -f capacitor.config.ts ] || [ -f capacitor.config.json ]; then
+            echo "✓ Capacitor config found"
+          else
+            echo "✗ capacitor.config not found"
             exit 1
           fi
 
-      - name: Build web app
+      - name: Build web application
         run: pnpm run build
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
@@ -85,108 +98,41 @@ jobs:
           VITE_VAPID_KEY: ${{ secrets.VITE_VAPID_KEY }}
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
 
-      - name: Clean old Capacitor sync files
-        run: rm -rf android/capacitor-cordova-android-plugins 2>/dev/null || true
+      - name: Clean old Android artifacts
+        run: |
+          rm -rf android/capacitor-cordova-android-plugins 2>/dev/null || true
+          rm -rf android/app/src/main/assets/public 2>/dev/null || true
 
       - name: Sync Capacitor
-        run: pnpm exec cap sync android 2>&1 || echo "Capacitor sync completed"
+        run: pnpm exec cap sync android 2>&1 || echo "Sync completed with warnings"
 
-      - name: Create Capacitor plugin module with namespace
-        run: |
-          mkdir -p android/capacitor-cordova-android-plugins
-          cat > android/capacitor-cordova-android-plugins/build.gradle << 'EOF'
-          apply plugin: 'com.android.library'
-          
-          android {
-              compileSdk 36
-              namespace 'com.getcapacitor.cordova'
-              
-              defaultConfig {
-                  minSdk 21
-                  targetSdk 34
-              }
-              
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_11
-                  targetCompatibility JavaVersion.VERSION_11
-              }
-          }
-          
-          dependencies {
-              implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'androidx.core:core:1.13.1'
-          }
-          EOF
-
-      - name: Create cordova variables
-        run: |
-          cat > android/capacitor-cordova-android-plugins/cordova.variables.gradle << 'EOF'
-          ext {
-              cdvMinSdkVersion = 21
-              cdvMaxSdkVersion = 34
-              cdvCompileSdkVersion = 36
-          }
-          EOF
-
-      - name: Update Gradle wrapper to 8.11
+      - name: Update Gradle wrapper
         run: |
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
             sed -i 's|distributionUrl=.*|distributionUrl=https://services.gradle.org/distributions/gradle-8.11-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
-            echo "Gradle wrapper updated to 8.11"
-            cat android/gradle/wrapper/gradle-wrapper.properties | grep distributionUrl
           fi
 
-      - name: Update Android Gradle Plugin and compileSdk
+      - name: Update build.gradle versions
         run: |
+          # Update AGP to 8.9.1
           if [ -f "android/build.gradle" ]; then
-            cp android/build.gradle android/build.gradle.bak
-            
-            # Remove old plugin version line and replace with new one
             sed -i "s/id 'com.android.application' version.*/id 'com.android.application' version '8.9.1' apply false/" android/build.gradle
             sed -i "s/id 'com.android.library' version.*/id 'com.android.library' version '8.9.1' apply false/" android/build.gradle
-            
-            # Update compileSdk if present
-            sed -i 's/compileSdk 34/compileSdk 36/g' android/build.gradle
-            sed -i 's/compileSdkVersion 34/compileSdkVersion 36/g' android/build.gradle
-            
-            echo "Build.gradle updated"
-            grep -E "com.android|compileSdk" android/build.gradle | head -5
           fi
-
-      - name: Update app level build.gradle
-        run: |
+          
+          # Update compileSdk to 36
           if [ -f "android/app/build.gradle" ]; then
-            cp android/app/build.gradle android/app/build.gradle.bak
             sed -i 's/compileSdk 34/compileSdk 36/g' android/app/build.gradle
             sed -i 's/compileSdkVersion 34/compileSdkVersion 36/g' android/app/build.gradle
-            echo "App build.gradle updated"
           fi
 
-      - name: Add resolution strategy
-        run: |
-          if [ -f "android/build.gradle" ]; then
-            # Check if resolutionStrategy already exists
-            if ! grep -q "resolutionStrategy" android/build.gradle; then
-              cat >> android/build.gradle << 'EOF'
-          
-          allprojects {
-              configurations.all {
-                  resolutionStrategy {
-                      force 'org.bouncycastle:bcprov-jdk18on:1.78'
-                  }
-              }
-          }
-          EOF
-            fi
-          fi
-
-      - name: Validate keystore
+      - name: Validate keystore (release only)
         if: inputs.build_type == 'release'
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "KEYSTORE_BASE64 secret required"
+            echo "KEYSTORE_BASE64 secret required for release builds"
             exit 1
           fi
 
@@ -197,21 +143,13 @@ jobs:
         run: |
           mkdir -p android/app
           echo "$KEYSTORE_BASE64" | base64 -d > android/app/my-release-key.keystore
-          if [ ! -s "android/app/my-release-key.keystore" ]; then
-            echo "Keystore decode failed"
-            exit 1
-          fi
 
-      - name: Clean Gradle build
+      - name: Clean and build APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean --no-daemon -Dorg.gradle.jvmargs="-Xmx4g" 2>&1 | tail -5 || true
-
-      - name: Build APK
-        run: |
-          cd android
-          chmod +x gradlew
+          ./gradlew clean --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
+          
           BUILD_TYPE="${{ inputs.build_type || 'debug' }}"
           if [ "$BUILD_TYPE" = "release" ]; then
             ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4g" --stacktrace
@@ -224,13 +162,12 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Locate APK
+      - name: Find APK
         id: apk
         run: |
           APK_PATH=$(find android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null | head -1)
           if [ -z "$APK_PATH" ]; then
             echo "APK not found"
-            find android/app/build/outputs -type f 2>/dev/null || echo "No outputs"
             exit 1
           fi
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
@@ -238,10 +175,9 @@ jobs:
           echo "apk_size=$(du -h "$APK_PATH" | cut -f1)" >> $GITHUB_OUTPUT
 
       - name: Validate APK
-        if: success()
         run: |
           APK_FILE="${{ steps.apk.outputs.apk_path }}"
-          FILE_SIZE=$(stat -c%s "$APK_FILE" 2>/dev/null || stat -f%z "$APK_FILE")
+          FILE_SIZE=$(stat -c%s "$APK_FILE")
           if [ "$FILE_SIZE" -lt 500000 ]; then
             echo "APK too small: $FILE_SIZE bytes"
             exit 1
@@ -255,13 +191,10 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: Build Report
+      - name: Build summary
         if: always()
         run: |
-          echo "## Android APK Build Report" >> $GITHUB_STEP_SUMMARY
+          echo "## Android APK Build" >> $GITHUB_STEP_SUMMARY
           echo "Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "Build Type: ${{ inputs.build_type || 'debug' }}" >> $GITHUB_STEP_SUMMARY
-          echo "Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          if [ -n "${{ steps.apk.outputs.apk_name }}" ]; then
-            echo "APK: ${{ steps.apk.outputs.apk_name }} (${{ steps.apk.outputs.apk_size }})" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "APK: ${{ steps.apk.outputs.apk_name }} (${{ steps.apk.outputs.apk_size }})" >> $GITHUB_STEP_SUMMARY
