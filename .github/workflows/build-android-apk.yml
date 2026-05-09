@@ -91,7 +91,7 @@ jobs:
       - name: Sync Capacitor
         run: pnpm exec cap sync android 2>&1 || echo "Capacitor sync completed"
 
-      - name: Create Capacitor plugin module
+      - name: Create Capacitor plugin module with namespace
         run: |
           mkdir -p android/capacitor-cordova-android-plugins
           cat > android/capacitor-cordova-android-plugins/build.gradle << 'EOF'
@@ -99,6 +99,7 @@ jobs:
           
           android {
               compileSdk 36
+              namespace 'com.getcapacitor.cordova'
               
               defaultConfig {
                   minSdk 21
