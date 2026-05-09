@@ -96,21 +96,15 @@ jobs:
           ./gradlew clean
           BUILD_TYPE="${{ inputs.build_type || 'debug' }}"
           if [ "$BUILD_TYPE" = "release" ]; then
-            ./gradlew assembleRelease --no-daemon --info 2>&1 | tee ../build.log
-            exit ${PIPESTATUS[0]}
+            ./gradlew assembleRelease --no-daemon --stacktrace --info 2>&1
           else
-            ./gradlew assembleDebug --no-daemon --info 2>&1 | tee ../build.log
-            exit ${PIPESTATUS[0]}
+            ./gradlew assembleDebug --no-daemon --stacktrace --info 2>&1
           fi
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/android/app/my-release-key.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Show last 200 lines of build log
-        if: always()
-        run: tail -200 build.log || echo "No build log found"
 
       - name: Find APK
         id: apk
