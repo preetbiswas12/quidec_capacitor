@@ -5,10 +5,10 @@ plugins {
 
 android {
     compileSdk 36
-    namespace "com.yourcompany.app" // Replace with your actual package name
+    namespace "com.quidec.chat" // Replace with your actual package name
 
     defaultConfig {
-        applicationId "com.yourcompany.app" // Replace with your actual package name
+        applicationId "com.quidec.chat" // Replace with your actual package name
         minSdk 21
         targetSdk 34
         versionCode 1

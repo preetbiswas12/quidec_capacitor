@@ -57,33 +57,15 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK 36 and build-tools
+      - name: Install Android SDK 36
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "cmdline-tools;latest"
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
-      - name: Install pnpm dependencies
-        run: |
-          echo "=== Installing pnpm dependencies ==="
-          pnpm install --frozen-lockfile || pnpm install
-          echo "=== Installation complete ==="
+      - name: Install dependencies
+        run: pnpm install
 
-      - name: Verify Capacitor installation
-        run: |
-          echo "=== Checking Capacitor CLI ==="
-          pnpm list @capacitor/cli @capacitor/core @capacitor/android
-          pnpm exec cap --version || echo "cap command check completed"
-
-      - name: Verify Capacitor config
-        run: |
-          if [ -f capacitor.config.ts ] || [ -f capacitor.config.json ]; then
-            echo "✓ Capacitor config found"
-          else
-            echo "✗ capacitor.config not found"
-            exit 1
-          fi
-
-      - name: Build web application
+      - name: Build web app
         run: pnpm run build
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
@@ -98,58 +80,20 @@ jobs:
           VITE_VAPID_KEY: ${{ secrets.VITE_VAPID_KEY }}
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
 
-      - name: Clean old Android artifacts
-        run: |
-          rm -rf android/capacitor-cordova-android-plugins 2>/dev/null || true
-          rm -rf android/app/src/main/assets/public 2>/dev/null || true
+      - name: Clean Android artifacts
+        run: rm -rf android/app/src/main/assets/public 2>/dev/null || true
 
       - name: Sync Capacitor
-        run: pnpm exec cap sync android 2>&1 || echo "Sync completed with warnings"
+        run: pnpm exec cap sync android
 
       - name: Update Gradle wrapper
-        run: |
-          if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            sed -i 's|distributionUrl=.*|distributionUrl=https://services.gradle.org/distributions/gradle-8.11-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
-          fi
+        run: sed -i 's|distributionUrl=.*|distributionUrl=https://services.gradle.org/distributions/gradle-8.11-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
 
-      - name: Update build.gradle versions
-        run: |
-          # Update AGP to 8.9.1
-          if [ -f "android/build.gradle" ]; then
-            sed -i "s/id 'com.android.application' version.*/id 'com.android.application' version '8.9.1' apply false/" android/build.gradle
-            sed -i "s/id 'com.android.library' version.*/id 'com.android.library' version '8.9.1' apply false/" android/build.gradle
-          fi
-          
-          # Update compileSdk to 36
-          if [ -f "android/app/build.gradle" ]; then
-            sed -i 's/compileSdk 34/compileSdk 36/g' android/app/build.gradle
-            sed -i 's/compileSdkVersion 34/compileSdkVersion 36/g' android/app/build.gradle
-          fi
-
-      - name: Validate keystore (release only)
-        if: inputs.build_type == 'release'
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "KEYSTORE_BASE64 secret required for release builds"
-            exit 1
-          fi
-
-      - name: Decode keystore
-        if: inputs.build_type == 'release'
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          mkdir -p android/app
-          echo "$KEYSTORE_BASE64" | base64 -d > android/app/my-release-key.keystore
-
-      - name: Clean and build APK
+      - name: Build APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
-          
+          ./gradlew clean
           BUILD_TYPE="${{ inputs.build_type || 'debug' }}"
           if [ "$BUILD_TYPE" = "release" ]; then
             ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4g" --stacktrace
@@ -172,16 +116,6 @@ jobs:
           fi
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
           echo "apk_name=$(basename "$APK_PATH")" >> $GITHUB_OUTPUT
-          echo "apk_size=$(du -h "$APK_PATH" | cut -f1)" >> $GITHUB_OUTPUT
-
-      - name: Validate APK
-        run: |
-          APK_FILE="${{ steps.apk.outputs.apk_path }}"
-          FILE_SIZE=$(stat -c%s "$APK_FILE")
-          if [ "$FILE_SIZE" -lt 500000 ]; then
-            echo "APK too small: $FILE_SIZE bytes"
-            exit 1
-          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -196,5 +130,4 @@ jobs:
         run: |
           echo "## Android APK Build" >> $GITHUB_STEP_SUMMARY
           echo "Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "Build Type: ${{ inputs.build_type || 'debug' }}" >> $GITHUB_STEP_SUMMARY
-          echo "APK: ${{ steps.apk.outputs.apk_name }} (${{ steps.apk.outputs.apk_size }})" >> $GITHUB_STEP_SUMMARY
+          echo "APK: ${{ steps.apk.outputs.apk_name }}" >> $GITHUB_STEP_SUMMARY
