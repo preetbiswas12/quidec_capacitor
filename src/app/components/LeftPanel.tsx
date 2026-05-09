@@ -41,6 +41,8 @@ export default function LeftPanel() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  if (!currentUser) return null;
+
   const tabs = [
     { id: 'chats', icon: MessageSquare, label: 'Chats' },
     { id: 'calls', icon: Phone, label: 'Calls' },

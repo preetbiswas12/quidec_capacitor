@@ -4,17 +4,24 @@
     <!-- ===== CONNECTIVITY PERMISSIONS ===== -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <!-- CHANGE_NETWORK_STATE removed: app only reads network state, never changes it -->
 
     <!-- ===== FILE & STORAGE PERMISSIONS ===== -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- Legacy storage: only applies on Android 12 (API 32) and below -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- WRITE_EXTERNAL_STORAGE is a no-op on Android 10+ (API 29+); scoped to API 28 and below -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <!-- Modern granular media permissions (Android 13 / API 33+) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
-    <!-- ===== CAMERA & MEDIA PERMISSIONS (For future use - currently disabled) ===== -->
-    <!-- <uses-permission android:name="android.permission.CAMERA" /> -->
+    <!-- ===== CAMERA & MEDIA PERMISSIONS ===== -->
+    <!-- CAMERA enabled: @capacitor/camera is installed and configured in capacitor.config.ts -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- RECORD_AUDIO and MODIFY_AUDIO_SETTINGS reserved for future audio/video recording features -->
     <!-- <uses-permission android:name="android.permission.RECORD_AUDIO" /> -->
     <!-- <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /> -->
 

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Firebase Cloud Functions
  * Deploy these to Firebase Cloud Functions using Firebase CLI

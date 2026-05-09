@@ -14,6 +14,19 @@ import { getFirestore, Firestore } from 'firebase/firestore';
 import { getDatabase, Database } from 'firebase/database';
 import { getMessaging, Messaging, onMessage } from 'firebase/messaging';
 
+const EMBEDDED_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyDRjYVeogF29znhNtSVNm9OvELFalusumc',
+  authDomain: 'octate-wee.firebaseapp.com',
+  projectId: 'octate-wee',
+  storageBucket: 'octate-wee.firebasestorage.app',
+  messagingSenderId: '1016231429284',
+  appId: '1:1016231429284:web:4118fbe8207adfc8a9d231',
+  databaseURL: 'https://octate-wee-default-rtdb.europe-west1.firebasedatabase.app',
+};
+
+export const EMBEDDED_VAPID_KEY =
+  'BFZ6KQgsors1kgcaywsjQeeDrq_OD4PHwnRbmk0VjYV_yTlVBnwKfk7fm0prh-9vaRNyiKqEZOh5O_5Yp7DH9bs';
+
 let firebaseApp: any = null;
 let authInstance: Auth | null = null;
 let firestoreInstance: Firestore | null = null;
@@ -26,13 +39,7 @@ let messagingInstance: Messaging | null = null;
 export function initializeFirebase() {
   try {
     const firebaseConfig = {
-      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-      appId: import.meta.env.VITE_FIREBASE_APP_ID,
-      databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+      ...EMBEDDED_FIREBASE_CONFIG,
     };
 
     if (!firebaseConfig.apiKey) {
@@ -213,9 +220,9 @@ export async function getFCMToken(): Promise<string | null> {
       return null;
     }
 
-    const vapidKey = import.meta.env.REACT_APP_VAPID_KEY;
+    const vapidKey = EMBEDDED_VAPID_KEY;
     if (!vapidKey) {
-      console.warn('⚠️ VAPID key not configured in .env');
+      console.warn('⚠️ VAPID key not configured');
       return null;
     }
 

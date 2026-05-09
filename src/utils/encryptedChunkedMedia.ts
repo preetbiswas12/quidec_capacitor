@@ -5,7 +5,7 @@
  */
 
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
-import { getConversationKey } from './encryption'
+import { getConversationKey } from './encryption.js'
 
 export interface ChunkMetadata {
   fileId: string // Unique identifier for the media file
@@ -32,12 +32,20 @@ const MEDIA_PATHS = {
   TEMP: 'temp',
 }
 
+/** Wrap any Uint8Array into a guaranteed ArrayBuffer-backed one for Web Crypto */
+function toArrayBuffer(src: Uint8Array): Uint8Array<ArrayBuffer> {
+  const buffer = new ArrayBuffer(src.length);
+  const out = new Uint8Array(buffer);
+  out.set(src);
+  return out;
+}
+
 /**
  * Generate SHA-256 hash for data integrity verification
  */
 export async function generateSHA256Hash(data: Uint8Array): Promise<string> {
   try {
-    const hashBuffer = await window.crypto.subtle.digest('SHA-256', data)
+    const hashBuffer = await window.crypto.subtle.digest('SHA-256', toArrayBuffer(data))
     const hashArray = Array.from(new Uint8Array(hashBuffer))
     return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
   } catch (err) {
@@ -94,7 +102,7 @@ export async function saveEncryptedMediaChunks(
       const encryptedChunk = await window.crypto.subtle.encrypt(
         { name: 'AES-GCM', iv },
         encryptionKey,
-        chunkData
+        toArrayBuffer(chunkData)
       )
 
       // Create chunk metadata
@@ -300,7 +308,7 @@ export async function createDisplayableMediaUrl(
     }
 
     // Create blob from decrypted data
-    const blob = new Blob([decryptedData], { type: mimeType })
+    const blob = new Blob([toArrayBuffer(decryptedData)], { type: mimeType })
 
     // Create object URL for display
     const displayUrl = URL.createObjectURL(blob)

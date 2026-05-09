@@ -23,14 +23,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # pnpm MUST be set up before setup-node so node caching works correctly
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Set up Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -41,10 +42,6 @@ jobs:
         run: |
           echo "⚠️ Frozen lockfile failed, installing with updates"
           pnpm install
-          git add pnpm-lock.yaml
-          git config user.email "github-actions@github.com"
-          git config user.name "GitHub Actions"
-          git commit -m "chore: update pnpm-lock.yaml" || true
 
       - name: Type check
         id: typecheck
@@ -64,6 +61,17 @@ jobs:
       - name: Build verification
         id: build
         run: pnpm build
+        env:
+          VITE_SERVER_URL: 'wss://quidec-server.onrender.com'
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
+          VITE_TURN_USERNAME: ${{ secrets.VITE_TURN_USERNAME }}
+          VITE_TURN_CREDENTIAL: ${{ secrets.VITE_TURN_CREDENTIAL }}
 
       - name: Generate quality report
         if: always()

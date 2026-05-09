@@ -16,6 +16,7 @@ const firebaseConfig = {
   storageBucket: 'octate-wee.firebasestorage.app',
   messagingSenderId: '1016231429284',
   appId: '1:1016231429284:web:4118fbe8207adfc8a9d231',
+  databaseURL: 'https://octate-wee-default-rtdb.europe-west1.firebasedatabase.app',
 };
 
 firebase.initializeApp(firebaseConfig);

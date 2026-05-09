@@ -243,7 +243,7 @@ export async function getEncryptionStats(): Promise<{
       totalMediaFiles: stats.totalMedia,
       totalChunks,
       storageUsed,
-      averageChunksPerFile,
+      averageChunksPerFile: avgChunksPerFile,
       cacheStatus: {
         cacheSize: 0, // Would need to access mediaCache
         estimatedMemory: `${(storageUsed / 1024 / 1024).toFixed(2)} MB`,

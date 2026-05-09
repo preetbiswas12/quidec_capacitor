@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <!-- ===== APP IDENTITY ===== -->
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Quidec</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Quidec</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+
+    <!-- ===== SUPPORTED ORIENTATIONS (iPhone) ===== -->
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+
+    <!-- ===== SUPPORTED ORIENTATIONS (iPad) ===== -->
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <!-- ===== MAIN STORYBOARD ===== -->
+    <key>UIMainStoryboardFile</key>
+    <string>Main</string>
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+
+    <!-- ===== STATUS BAR ===== -->
+    <key>UIStatusBarStyle</key>
+    <string>UIStatusBarStyleLightContent</string>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <true/>
+
+    <!-- ===== PERMISSION USAGE DESCRIPTIONS ===== -->
+    <!-- Required by App Store — must accurately describe why each permission is used -->
+
+    <!-- @capacitor/camera — camera capture -->
+    <key>NSCameraUsageDescription</key>
+    <string>Quidec uses your camera to capture and share photos or videos in chats.</string>
+
+    <!-- @capacitor/camera — photo library access -->
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Quidec accesses your photo library so you can share images and videos in chats.</string>
+
+    <!-- @capacitor/camera — saving to photo library -->
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Quidec saves received media to your photo library.</string>
+
+    <!-- @capacitor/push-notifications & @capacitor-firebase/messaging -->
+    <key>NSUserNotificationsUsageDescription</key>
+    <string>Quidec sends you push notifications for new messages and updates.</string>
+
+    <!-- Microphone — reserved for future audio/video messaging features -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Quidec uses your microphone to record and send voice messages.</string>
+
+    <!-- ===== NETWORK & SECURITY ===== -->
+    <!-- Allow only HTTPS — no cleartext HTTP -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <false/>
+    </dict>
+
+    <!-- App-bound domains for WKWebView (matches capacitor.config.ts limitsNavigationsToAppBoundDomains) -->
+    <key>WKAppBoundDomains</key>
+    <array>
+        <string>quidec.chat</string>
+        <string>capacitor-native-bridge</string>
+    </array>
+
+    <!-- ===== BACKGROUND MODES ===== -->
+    <!-- Required for Firebase push notifications to wake the app -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>remote-notification</string>
+        <string>fetch</string>
+    </array>
+
+    <!-- ===== FIREBASE ===== -->
+    <key>FirebaseAppDelegateProxyEnabled</key>
+    <false/>
+
+</dict>
+</plist>

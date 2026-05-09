@@ -5,7 +5,7 @@
  */
 
 import React from 'react'
-import { useEncryptedMedia } from '../hooks/useEncryptedMedia'
+import { useEncryptedMedia } from '../../hooks/useEncryptedMedia'
 
 interface EncryptedMediaDisplayProps {
   fileId: string | null
@@ -13,8 +13,8 @@ interface EncryptedMediaDisplayProps {
   currentUserId: string
   otherUserId: string
   alt?: string
-  maxHeight?: number
-  maxWidth?: number
+  maxHeight?: number | string
+  maxWidth?: number | string
   onError?: (error: Error) => void
 }
 

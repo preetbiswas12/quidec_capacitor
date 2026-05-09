@@ -10,7 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import Avatar from './Avatar';
 import ContactInfo from './ContactInfo';
-import type { Message } from '../data/mockData';
+import type { Message } from '../context/AppContext';
 
 const EMOJI_LIST = [
   '😀','😂','🤣','😊','😍','🥰','😘','😎','🤩','😜',

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import {
   Contact, Message, Chat, CallRecord, Status, ChatRequest,

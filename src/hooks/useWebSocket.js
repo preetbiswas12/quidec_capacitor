@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getFriendRequests, getFriends, saveFriendRequests, saveFriends, saveMessage, getAuth } from '../utils/storage'
 import { syncPendingMessagesWithSocket } from '../utils/network'
-import { getConversationKey, encryptMessage, decryptMessage } from '../utils/encryption'
+import { getConversationKey, encryptMessage, decryptMessage } from '../utils/encryption.js'
 import * as ed from '@noble/ed25519'
 
 function hexToBytes(hex) {

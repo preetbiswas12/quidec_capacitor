@@ -76,7 +76,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up pnpm           # ← MUST COME FIRST
+      # pnpm MUST be set up before setup-node so node caching works correctly
+      - name: Set up pnpm
         uses: pnpm/action-setup@v4
 
       - name: Set up Node.js
@@ -84,7 +85,6 @@ jobs:
         with:
           node-version: '20'
           cache: 'pnpm'
-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -95,10 +95,6 @@ jobs:
         run: |
           echo "⚠️ Frozen lockfile failed, installing with updates"
           pnpm install
-          git add pnpm-lock.yaml
-          git config user.email "github-actions@github.com"
-          git config user.name "GitHub Actions"
-          git commit -m "chore: update pnpm-lock.yaml" || true
 
       - name: Type check
         run: pnpm exec tsc --noEmit
@@ -109,8 +105,6 @@ jobs:
   build-android-apk:
     needs: test
     uses: ./.github/workflows/build-android-apk.yml
-    with:
-      build_type: 'debug'
     secrets: inherit
 
   build-android-aab:

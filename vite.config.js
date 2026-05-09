@@ -10,21 +10,10 @@ export default defineConfig({
   },
   build: {
     target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari13'],
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        passes: 2,
-      },
-      mangle: true,
-    },
+    minify: false,
     cssCodeSplit: false,
     sourcemap: false,
     outDir: 'dist',
-    rollupOptions: {
-      external: (id) => id.startsWith('@capacitor/') || id === '@capacitor/core',
-      output: {
-        manualChunks: undefined,
-      },
-    },
+    chunkSizeWarningLimit: 1000,
   },
 });

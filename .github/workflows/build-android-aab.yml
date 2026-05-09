@@ -37,6 +37,7 @@ jobs:
         with:
           fetch-depth: 0
 
+      # pnpm MUST be set up before setup-node so node caching works correctly
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
 
@@ -56,12 +57,11 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK components
+      # Install SDK 36 to match variables.gradle (compileSdkVersion = 36)
+      - name: Install Android SDK 36
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "platforms;android-35"
-          sdkmanager "build-tools;35.0.0"
-          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -86,17 +86,32 @@ jobs:
       - name: Build web app
         run: pnpm build
         env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
+          VITE_TURN_USERNAME: ${{ secrets.VITE_TURN_USERNAME }}
+          VITE_TURN_CREDENTIAL: ${{ secrets.VITE_TURN_CREDENTIAL }}
+          VITE_VAPID_KEY: ${{ secrets.VITE_VAPID_KEY }}
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
-          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || '' }}
-          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID || '' }}
 
       - name: Sync Capacitor
         run: pnpm exec cap sync android
 
-      - name: Update Android SDK to 35
+      # Upgrade Gradle wrapper to 8.11 — required for AGP 8.4.2 + SDK 36
+      - name: Upgrade Gradle wrapper to 8.11
         run: |
-          sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' android/app/build.gradle || true
-          sed -i 's/compileSdk 34/compileSdk 35/g' android/app/build.gradle || true
+          sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.11-bin.zip|g' \
+            android/gradle/wrapper/gradle-wrapper.properties
+
+      # Upgrade Android Gradle Plugin and patch BouncyCastle conflict
+      - name: Upgrade Android Gradle Plugin
+        run: |
+          sed -i "s|com.android.tools.build:gradle:[0-9.]*|com.android.tools.build:gradle:8.4.2|g" android/build.gradle || true
+          echo "configurations.all { resolutionStrategy { force 'org.bouncycastle:bcprov-jdk18on:1.78' } }" >> android/build.gradle
 
       - name: Validate keystore secret
         env:

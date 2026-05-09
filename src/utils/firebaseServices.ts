@@ -50,13 +50,13 @@ import {
   set,
   onValue,
   off,
-  serverValue,
+  serverTimestamp as rtdbServerTimestamp,
   get,
   remove,
   update,
-} from 'firebase/realtime-database';
+} from 'firebase/database';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
-import { db, auth, realtimeDb, getFCMToken } from './firebase';
+import { db, auth, realtimeDb, getFCMToken, EMBEDDED_VAPID_KEY } from './firebase';
 
 /**
  * MESSAGE DELIVERY STATUS TYPES
@@ -115,7 +115,7 @@ export const authService = {
       // Initialize user presence in Realtime Database
       await set(ref(realtimeDb, `presence/${user.uid}`), {
         online: false, // Set to false until email is verified
-        lastSeen: serverValue.TIMESTAMP,
+        lastSeen: rtdbServerTimestamp(),
         username,
       });
 
@@ -174,7 +174,7 @@ export const authService = {
       // Update online status in Realtime Database
       await set(ref(realtimeDb, `presence/${user.uid}`), {
         online: true,
-        lastSeen: serverValue.TIMESTAMP,
+        lastSeen: rtdbServerTimestamp(),
         username: user.displayName || user.email,
       });
 
@@ -282,7 +282,7 @@ export const authService = {
         // Set offline in Realtime Database
         await set(ref(realtimeDb, `presence/${user.uid}`), {
           online: false,
-          lastSeen: serverValue.TIMESTAMP,
+          lastSeen: rtdbServerTimestamp(),
           username: user.displayName || user.email,
         });
 
@@ -332,7 +332,7 @@ export const presenceService = {
     try {
       await set(ref(realtimeDb, `presence/${uid}`), {
         online: true,
-        lastSeen: serverValue.TIMESTAMP,
+        lastSeen: rtdbServerTimestamp(),
         username,
       });
 
@@ -354,7 +354,7 @@ export const presenceService = {
     try {
       await set(ref(realtimeDb, `presence/${uid}`), {
         online: false,
-        lastSeen: serverValue.TIMESTAMP,
+        lastSeen: rtdbServerTimestamp(),
       });
 
       await updateDoc(doc(db, 'users', uid), {
@@ -376,7 +376,7 @@ export const presenceService = {
     callback: (isOnline: boolean, lastSeen: any) => void
   ) {
     const presenceRef = ref(realtimeDb, `presence/${uid}`);
-    const unsubscribe = onValue(presenceRef, (snapshot) => {
+    const unsubscribe = onValue(presenceRef, (snapshot: any) => {
       const data = snapshot.val();
       if (data) {
         callback(data.online || false, data.lastSeen);
@@ -404,7 +404,7 @@ export const presenceService = {
       // Listen to each friend's presence
       friendsList.forEach((friendUid: string) => {
         const presenceRef = ref(realtimeDb, `presence/${friendUid}`);
-        const unsubPresence = onValue(presenceRef, (snapshot) => {
+        const unsubPresence = onValue(presenceRef, (snapshot: any) => {
           const presenceData = snapshot.val();
           friendsStatus[friendUid] = {
             online: presenceData?.online || false,
@@ -434,7 +434,7 @@ export const presenceService = {
       const snapshot = await get(presenceRef);
 
       const onlineUsers: Record<string, any> = {};
-      snapshot.forEach((child) => {
+      snapshot.forEach((child: any) => {
         const data = child.val();
         if (data.online) {
           onlineUsers[child.key!] = data;
@@ -681,7 +681,7 @@ export const messageService = {
   /**
    * Update conversation metadata (last message, timestamp)
    */
-  private async updateConversationMetadata(
+  async updateConversationMetadata(
     fromUid: string,
     toUid: string,
     conversationId: string,
@@ -713,7 +713,7 @@ export const messageService = {
   /**
    * Generate conversation ID (consistent for both directions)
    */
-  private getConversationId(uid1: string, uid2: string): string {
+  getConversationId(uid1: string, uid2: string): string {
     return [uid1, uid2].sort().join('_');
   },
 
@@ -758,7 +758,7 @@ export const typingService = {
       if (isTyping) {
         await set(typingRef, {
           isTyping: true,
-          timestamp: serverValue.TIMESTAMP,
+          timestamp: rtdbServerTimestamp(),
         });
         console.log(`✅ User ${fromUid} is typing`);
       } else {
@@ -784,7 +784,7 @@ export const typingService = {
     );
     const typingRef = ref(realtimeDb, `typing/${conversationId}`);
 
-    const unsubscribe = onValue(typingRef, (snapshot) => {
+    const unsubscribe = onValue(typingRef, (snapshot: any) => {
       const typingData = snapshot.val() || {};
       const isTyping: Record<string, boolean> = {};
 
@@ -989,7 +989,7 @@ export const friendRequestService = {
   /**
    * Get user info by UID
    */
-  private async getUserInfo(uid: string) {
+  async getUserInfo(uid: string) {
     try {
       const userDoc = await getDoc(doc(db, 'users', uid));
       return userDoc.data();
@@ -1002,7 +1002,7 @@ export const friendRequestService = {
   /**
    * Send notification to user
    */
-  private async sendNotificationToUser(uid: string, notification: any) {
+  async sendNotificationToUser(uid: string, notification: any) {
     try {
       const notificationsRef = collection(
         db,
@@ -1038,7 +1038,7 @@ export const notificationService = {
 
       if (permission === 'granted') {
         const token = await getToken(messaging, {
-          vapidKey: process.env.REACT_APP_VAPID_KEY,
+          vapidKey: EMBEDDED_VAPID_KEY,
         });
 
         // Save FCM token to Firestore

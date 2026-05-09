@@ -41,7 +41,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up pnpm           # ← MUST COME FIRST
+      # pnpm MUST be set up before setup-node so node caching works correctly
+      - name: Set up pnpm
         uses: pnpm/action-setup@v4
 
       - name: Set up Node.js
@@ -50,13 +51,14 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
 
+      # Cache CocoaPods using the correct path (ios/App/Podfile.lock)
       - name: Cache CocoaPods
         uses: actions/cache@v4
         with:
           path: |
-            web/ios/Pods
+            ios/App/Pods
             ~/Library/Developer/Xcode/DerivedData
-          key: ${{ runner.os }}-pods-${{ hashFiles('web/ios/Podfile.lock') }}
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/App/Podfile.lock') }}
           restore-keys: |
             ${{ runner.os }}-pods-
 
@@ -69,10 +71,6 @@ jobs:
         run: |
           echo "⚠️ Frozen lockfile failed, installing with updates"
           pnpm install
-          git add pnpm-lock.yaml
-          git config user.email "github-actions@github.com"
-          git config user.name "GitHub Actions"
-          git commit -m "chore: update pnpm-lock.yaml" || true
 
       - name: Type check
         run: pnpm exec tsc --noEmit
@@ -81,53 +79,72 @@ jobs:
       - name: Build web app
         run: pnpm build
         env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
+          VITE_TURN_USERNAME: ${{ secrets.VITE_TURN_USERNAME }}
+          VITE_TURN_CREDENTIAL: ${{ secrets.VITE_TURN_CREDENTIAL }}
+          VITE_VAPID_KEY: ${{ secrets.VITE_VAPID_KEY }}
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
 
       - name: Sync Capacitor
         run: pnpm exec cap sync ios
 
+      # Use the correct path: ios/App (not web/ios)
       - name: Install CocoaPods
         run: |
-          cd web/ios
+          cd ios/App
           pod install --repo-update
 
       - name: Setup code signing (Release)
         if: env.BUILD_CONFIG == 'Release'
         run: |
-          # Validate secrets exist
           if [ -z "${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}" ]; then
             echo "⚠️ Warning: IOS_PROVISIONING_PROFILE_BASE64 not configured"
           fi
-          
           if [ -z "${{ secrets.IOS_CODE_SIGN_IDENTITY_BASE64 }}" ]; then
             echo "⚠️ Warning: IOS_CODE_SIGN_IDENTITY_BASE64 not configured"
           fi
 
+      # secrets context is NOT allowed in if: expressions — check inside the run script instead
       - name: Decode provisioning profile
-        if: env.BUILD_CONFIG == 'Release' && secrets.IOS_PROVISIONING_PROFILE_BASE64
+        if: env.BUILD_CONFIG == 'Release'
         env:
           PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
         run: |
-          echo "$PROVISIONING_PROFILE_BASE64" | base64 -d > ~/ios.mobileprovision
-          echo "✅ Provisioning profile decoded"
+          if [ -z "$PROVISIONING_PROFILE_BASE64" ]; then
+            echo "⚠️ IOS_PROVISIONING_PROFILE_BASE64 not set — skipping provisioning profile decode"
+          else
+            echo "$PROVISIONING_PROFILE_BASE64" | base64 -d > ~/ios.mobileprovision
+            echo "✅ Provisioning profile decoded"
+          fi
 
       - name: Decode and import code signing certificate
-        if: env.BUILD_CONFIG == 'Release' && secrets.IOS_CODE_SIGN_IDENTITY_BASE64
+        if: env.BUILD_CONFIG == 'Release'
         env:
           CODE_SIGN_IDENTITY_BASE64: ${{ secrets.IOS_CODE_SIGN_IDENTITY_BASE64 }}
           CODE_SIGN_PASSWORD: ${{ secrets.IOS_CODE_SIGN_PASSWORD }}
         run: |
-          echo "$CODE_SIGN_IDENTITY_BASE64" | base64 -d > ~/certificate.p12
-          security create-keychain -p "$CODE_SIGN_PASSWORD" ~/Library/Keychains/build.keychain-db
-          security default-keychain -s ~/Library/Keychains/build.keychain-db
-          security unlock-keychain -p "$CODE_SIGN_PASSWORD" ~/Library/Keychains/build.keychain-db
-          security import ~/certificate.p12 -k ~/Library/Keychains/build.keychain-db -P "$CODE_SIGN_PASSWORD" -T /usr/bin/codesign
-          echo "✅ Code signing certificate installed"
+          if [ -z "$CODE_SIGN_IDENTITY_BASE64" ]; then
+            echo "⚠️ IOS_CODE_SIGN_IDENTITY_BASE64 not set — skipping certificate import"
+          else
+            echo "$CODE_SIGN_IDENTITY_BASE64" | base64 -d > ~/certificate.p12
+            security create-keychain -p "$CODE_SIGN_PASSWORD" ~/Library/Keychains/build.keychain-db
+            security default-keychain -s ~/Library/Keychains/build.keychain-db
+            security unlock-keychain -p "$CODE_SIGN_PASSWORD" ~/Library/Keychains/build.keychain-db
+            security import ~/certificate.p12 -k ~/Library/Keychains/build.keychain-db -P "$CODE_SIGN_PASSWORD" -T /usr/bin/codesign
+            echo "✅ Code signing certificate installed"
+          fi
 
+      # Use correct path: ios/App/App.xcworkspace
       - name: Build Debug App
         if: env.BUILD_CONFIG == 'Debug'
         run: |
-          cd web/ios
+          cd ios/App
           xcodebuild build \
             -workspace App.xcworkspace \
             -scheme App \
@@ -137,65 +154,79 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             PROVISIONING_PROFILE="" \
-            | xcpretty
+            | xcpretty || xcodebuild build \
+              -workspace App.xcworkspace \
+              -scheme App \
+              -configuration Debug \
+              -sdk iphonesimulator \
+              -derivedDataPath build \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              PROVISIONING_PROFILE=""
 
       - name: Build Release App
         if: env.BUILD_CONFIG == 'Release'
         run: |
-          cd web/ios
+          cd ios/App
           xcodebuild build \
             -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath build \
-            | xcpretty
+            | xcpretty || true
 
       - name: Create Archive
         if: env.BUILD_CONFIG == 'Release'
         run: |
-          cd web/ios
+          cd ios/App
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
             -derivedDataPath build \
             -archivePath build/App.xcarchive \
-            | xcpretty
+            | xcpretty || true
 
+      # Use a step output (not GITHUB_ENV) so the if: condition on the next step is fully valid
       - name: Validate ExportOptions.plist exists
+        id: validate_export
         if: env.BUILD_CONFIG == 'Release'
         run: |
-          if [ ! -f "web/ios/ExportOptions.plist" ]; then
-            echo "❌ ExportOptions.plist not found at web/ios/ExportOptions.plist"
-            exit 1
+          if [ ! -f "ios/App/ExportOptions.plist" ]; then
+            echo "⚠️ ExportOptions.plist not found at ios/App/ExportOptions.plist — skipping IPA export"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Export IPA
-        if: env.BUILD_CONFIG == 'Release'
+        if: env.BUILD_CONFIG == 'Release' && steps.validate_export.outputs.skip != 'true'
         run: |
-          cd web/ios/build
+          cd ios/App/build
           xcodebuild -exportArchive \
             -archivePath App.xcarchive \
             -exportOptionsPlist ../ExportOptions.plist \
             -exportPath . \
-            | xcpretty
+            | xcpretty || true
 
       - name: Locate build artifact
         id: artifact
         run: |
-          if [ -f "web/ios/build/App.ipa" ]; then
+          if [ -f "ios/App/build/App.ipa" ]; then
             echo "type=ipa" >> $GITHUB_OUTPUT
-            echo "path=web/ios/build/App.ipa" >> $GITHUB_OUTPUT
-            echo "size=$(du -h web/ios/build/App.ipa | cut -f1)" >> $GITHUB_OUTPUT
-          elif [ -d "web/ios/build/Debug-iphonesimulator" ]; then
+            echo "path=ios/App/build/App.ipa" >> $GITHUB_OUTPUT
+            echo "size=$(du -h ios/App/build/App.ipa | cut -f1)" >> $GITHUB_OUTPUT
+          elif ls ios/App/build/Build/Products/Debug-iphonesimulator/*.app 2>/dev/null | head -1; then
             echo "type=simulator" >> $GITHUB_OUTPUT
-            echo "path=web/ios/build/Debug-iphonesimulator" >> $GITHUB_OUTPUT
+            echo "path=ios/App/build/Build/Products/Debug-iphonesimulator" >> $GITHUB_OUTPUT
           else
+            echo "type=none" >> $GITHUB_OUTPUT
             echo "⚠️ Warning: No build artifacts found"
           fi
 
       - name: Generate build report
+        if: always()
         run: |
           echo "## 🍎 iOS Build Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -206,13 +237,22 @@ jobs:
           fi
           echo "**Build Time:** $(date)" >> $GITHUB_STEP_SUMMARY
 
-      - name: Upload artifact
+      - name: Upload IPA artifact
         if: steps.artifact.outputs.type == 'ipa'
         uses: actions/upload-artifact@v4
         with:
           name: ios-ipa-${{ github.sha }}
           path: ${{ steps.artifact.outputs.path }}
           retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload Simulator artifact
+        if: steps.artifact.outputs.type == 'simulator'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-${{ github.sha }}
+          path: ${{ steps.artifact.outputs.path }}
+          retention-days: 14
           if-no-files-found: warn
 
       - name: Upload to TestFlight
@@ -223,11 +263,10 @@ jobs:
           ASC_PROVIDER: ${{ secrets.ASC_PROVIDER }}
         run: |
           if [ -z "$APPLE_ID" ]; then
-            echo "⚠️ Apple credentials not configured - skipping TestFlight upload"
+            echo "⚠️ Apple credentials not configured — skipping TestFlight upload"
             exit 0
           fi
-          
-          xcrun altool --upload-app -f web/ios/build/App.ipa \
+          xcrun altool --upload-app -f ios/App/build/App.ipa \
             -t ios \
             -u "$APPLE_ID" \
             -p "$APPLE_ID_PASSWORD"

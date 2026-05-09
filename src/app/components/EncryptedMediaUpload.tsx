@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useRef } from 'react'
-import { useMediaUpload, useEncryptedMedia } from '../hooks/useEncryptedMedia'
+import { useMediaUpload, useEncryptedMedia } from '../../hooks/useEncryptedMedia'
 
 interface EncryptedMediaUploadProps {
   mediaType: 'image' | 'video' | 'audio'

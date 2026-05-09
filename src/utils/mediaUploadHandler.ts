@@ -324,7 +324,7 @@ export async function exportMediaAsFile(
       mimeType = 'audio/mp4'
     }
 
-    return new Blob([result.data], { type: mimeType })
+    return new Blob([new Uint8Array(result.data)], { type: mimeType })
   } catch (err) {
     console.error('❌ Failed to export media:', err)
     throw err

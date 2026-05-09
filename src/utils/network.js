@@ -109,6 +109,48 @@ async function syncPendingMessages() {
 }
 
 /**
+ * Sync pending messages via WebSocket
+ */
+export async function syncPendingMessagesWithSocket(websocket) {
+  try {
+    const pendingItems = await getPendingSyncItems()
+    
+    if (pendingItems.length === 0) {
+      console.log('✅ No pending messages to sync via socket')
+      return
+    }
+    
+    console.log(`📤 Syncing ${pendingItems.length} pending messages via socket...`)
+    
+    for (const item of pendingItems) {
+      // Use WebSocket.OPEN constant (value is 1)
+      if (websocket.readyState !== 1) {
+        console.warn('⚠️ Socket closed while syncing')
+        break
+      }
+      
+      try {
+        await updateSyncItemStatus(item.id, 'processing')
+        
+        // Send via WebSocket
+        websocket.send(JSON.stringify({
+          ...item,
+          type: 'message'
+        }))
+        
+        await removeSyncItem(item.id)
+        console.log(`✅ Synced message via socket`)
+      } catch (err) {
+        await updateSyncItemStatus(item.id, 'pending')
+        console.error(`❌ Sync error:`, err)
+      }
+    }
+  } catch (err) {
+    console.error('❌ Sync pending messages via socket failed:', err)
+  }
+}
+
+/**
  * Add message to sync queue if offline
  */
 export async function queueMessageIfOffline(message) {

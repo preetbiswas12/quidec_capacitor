@@ -1,6 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { authService } from '../../utils/firebaseServices';
+import {
+  appendMessage,
+  loadMessages,
+  loadAllChats,
+  updateMessageStatus,
+  clearKeyCache,
+  type StoredMessage,
+} from '../../utils/localMessageStore';
 
 // ─── Types (Matching UI App Expectations) ──────────────────────────────────
 
@@ -24,7 +32,7 @@ export interface Message {
   id: string;
   chatId: string;
   content: string;
-  type: 'text' | 'image' | 'audio' | 'system' | 'document' | 'link';
+  type: 'text' | 'image' | 'audio' | 'video' | 'system' | 'document' | 'link';
   senderId: string;
   timestamp: string;
   status: 'sent' | 'delivered' | 'read';
@@ -33,6 +41,10 @@ export interface Message {
   replyToId?: string;
   replyToContent?: string;
   replyToSender?: string;
+  imageUrl?: string;
+  linkUrl?: string;
+  linkTitle?: string;
+  linkDomain?: string;
 }
 
 export interface Chat {
@@ -152,6 +164,9 @@ interface AppContextType {
   // Settings
   settings: AppSettings;
   updateSettings: (updates: Partial<AppSettings>) => void;
+
+  // Contact discovery
+  searchUsers: (query: string) => void;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -218,7 +233,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [typingContacts, setTypingContacts] = useState<Record<string, boolean>>({});
-  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    try {
+      const saved = localStorage.getItem('quidec_settings');
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+    } catch { return DEFAULT_SETTINGS; }
+  });
 
   // WebSocket ref
   const wsRef = useRef<WebSocket | null>(null);
@@ -234,10 +254,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (!result.success) {
         console.error('Login failed:', result.message);
-        return result; // Return object with emailVerified: false if not verified
+        return result;
       }
 
-      // User verified - set up context
       const user: CurrentUser = {
         name: result.user?.displayName || email.split('@')[0],
         email: email,
@@ -247,6 +266,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       setCurrentUser(user);
       setIsOnboarded(true);
+
+      // ── Load locally stored messages for all known chats ──
+      try {
+        const uid = user.userId;
+        // We load lazily per-chat as chats are opened (see loadChatMessages below)
+        // But pre-load is triggered in the WebSocket open handler after friends-list arrives
+        console.log('📦 Local message store ready for user', uid);
+      } catch (storeErr) {
+        console.warn('⚠️ Could not pre-load local messages:', storeErr);
+      }
+
       return { success: true, emailVerified: true };
     } catch (err) {
       console.error('Login error:', err);
@@ -294,6 +324,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setContacts([]);
       setMessages({});
       setChatRequests([]);
+      clearKeyCache(); // wipe in-memory AES keys
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -399,15 +430,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setIsConnected(true);
         reconnectAttemptsRef.current = 0;
 
+        // Expose WS globally so WebRTC call screens can use it for signaling
+        (window as any).__ws = ws;
+
         // Authenticate user
-        ws.send(JSON.stringify({
-          type: 'auth',
-          userId: currentUser.userId,
-        }));
+        ws.send(JSON.stringify({ type: 'auth', userId: currentUser.userId }));
 
         // Request initial data
         ws.send(JSON.stringify({ type: 'get-friends-list' }));
         ws.send(JSON.stringify({ type: 'get-chat-requests' }));
+        ws.send(JSON.stringify({ type: 'get-chats' }));
+        ws.send(JSON.stringify({ type: 'get-call-history' }));
       };
 
       ws.onmessage = (event) => {
@@ -427,6 +460,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ws.onclose = () => {
         console.log('WebSocket closed');
         setIsConnected(false);
+        (window as any).__ws = null; // clear global ref
 
         // Attempt reconnection with exponential backoff
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
@@ -457,6 +491,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
           normalizeContact(f, i)
         );
         setContacts(normalized);
+
+        // ── Load locally stored messages for every known chat ──
+        if (currentUser) {
+          const chatIds = normalized.map((c: any) => c.id);
+          loadAllChats(currentUser.userId, chatIds)
+            .then(stored => {
+              if (Object.keys(stored).length > 0) {
+                setMessages(prev => {
+                  const merged: Record<string, Message[]> = { ...prev };
+                  for (const [chatId, msgs] of Object.entries(stored)) {
+                    if (msgs.length > 0) {
+                      // Merge: stored as base, live messages on top (deduplicate by id)
+                      const liveIds = new Set((merged[chatId] || []).map(m => m.id));
+                      const newOnes = msgs.filter(m => !liveIds.has(m.id));
+                      merged[chatId] = [...newOnes, ...(merged[chatId] || [])];
+                    }
+                  }
+                  return merged;
+                });
+                console.log(`📦 Loaded local messages for ${Object.keys(stored).length} chats`);
+              }
+            })
+            .catch(err => console.warn('⚠️ Local store load failed:', err));
+        }
         break;
       }
 
@@ -476,21 +534,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       case 'new-message': {
         const msgId = message.id || `msg-${Date.now()}`;
         const chatId = message.from;
+        const incomingMsg: Message = {
+          id: msgId,
+          chatId,
+          senderId: message.from,
+          content: message.content,
+          type: 'text',
+          timestamp: new Date(message.timestamp || Date.now()).toISOString(),
+          status: 'delivered' as const,
+        };
+
         setMessages((prev) => ({
           ...prev,
-          [chatId]: [
-            ...(prev[chatId] || []),
-            {
-              id: msgId,
-              chatId,
-              senderId: message.from,
-              content: message.content,
-              type: 'text',
-              timestamp: new Date(message.timestamp || Date.now()).toISOString(),
-              status: 'delivered' as const,
-            },
-          ],
+          [chatId]: [...(prev[chatId] || []), incomingMsg],
         }));
+
+        // ── Persist to local encrypted chunk file ──
+        if (currentUser) {
+          appendMessage(currentUser.userId, incomingMsg as StoredMessage).catch(
+            err => console.warn('⚠️ Failed to persist incoming message:', err)
+          );
+        }
 
         // Update chat's last message
         setChats((prev) =>
@@ -538,21 +602,94 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setContacts((prev) =>
           prev.map((c) =>
             c.id === message.username
-              ? {
-                  ...c,
-                  isOnline: false,
-                  lastSeen: `last seen ${new Date().toLocaleTimeString()}`,
-                }
+              ? { ...c, isOnline: false, lastSeen: `last seen ${new Date().toLocaleTimeString()}` }
               : c
           )
         );
         break;
       }
 
+      // ── #5: Call history loaded from server ──
+      case 'call-history':
+      case 'calls-list': {
+        const records = (message.calls || message.history || []).map((c: any, i: number): CallRecord => ({
+          id: c.id || `call-${i}`,
+          contactId: c.contactId || c.with || c.username || '',
+          type: c.type === 'video' ? 'video' : 'voice',
+          direction: c.direction || (c.incoming ? 'incoming' : 'outgoing'),
+          duration: c.duration,
+          timestamp: c.timestamp ? new Date(c.timestamp).toISOString() : new Date().toISOString(),
+        }));
+        setCalls(records);
+        break;
+      }
+
+      // ── #5: Chat list loaded from server ──
+      case 'chats-list':
+      case 'chat-list': {
+        const serverChats = (message.chats || []).map((c: any): Chat => ({
+          id: c.id || c.contactId,
+          contactId: c.contactId || c.id,
+          lastMessage: c.lastMessage || '',
+          lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime).toISOString() : '',
+          lastMessageSender: c.lastMessageSender,
+          unreadCount: c.unreadCount || 0,
+          isPinned: c.isPinned,
+          isMuted: c.isMuted,
+          isArchived: c.isArchived,
+        }));
+        if (serverChats.length > 0) {
+          setChats(prev => {
+            // Merge server chats with any locally created ones, server wins on conflict
+            const byId = new Map(prev.map(c => [c.id, c]));
+            serverChats.forEach((c: Chat) => byId.set(c.id, c));
+            return Array.from(byId.values());
+          });
+        }
+        break;
+      }
+
+      // ── #6: Discoverable users from search ──
+      case 'users-list':
+      case 'search-results': {
+        const found = (message.users || message.results || []).map((u: any, i: number) =>
+          normalizeContact(u, i)
+        );
+        setDiscoverableContacts(found);
+        break;
+      }
+
+      // ── #10: Message delivery/read receipts from server ──
+      case 'message-delivered': {
+        const { messageId, chatId } = message;
+        if (messageId && chatId) {
+          setMessages(prev => ({
+            ...prev,
+            [chatId]: (prev[chatId] || []).map(m =>
+              m.id === messageId && m.status === 'sent' ? { ...m, status: 'delivered' as const } : m
+            ),
+          }));
+        }
+        break;
+      }
+
+      case 'message-read': {
+        const { messageId, chatId } = message;
+        if (messageId && chatId) {
+          setMessages(prev => ({
+            ...prev,
+            [chatId]: (prev[chatId] || []).map(m =>
+              m.id === messageId ? { ...m, status: 'read' as const } : m
+            ),
+          }));
+        }
+        break;
+      }
+
       default:
         console.log('Unknown message type:', message.type);
     }
-  }, [normalizeContact]);
+  }, [normalizeContact, currentUser]);
 
   // ─── Chat Methods ─────────────────────────────────────────────────────────
 
@@ -573,7 +710,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })
       );
 
-      // Optimistically add message to local state
+      // Optimistic local message
       const msgId = `msg-${Date.now()}`;
       const msg: Message = {
         id: msgId,
@@ -590,8 +727,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...prev,
         [chatId]: [...(prev[chatId] || []), msg],
       }));
+
+      // ── Persist outgoing message to local encrypted chunk file ──
+      if (currentUser) {
+        appendMessage(currentUser.userId, { ...msg, senderId: currentUser.userId } as StoredMessage).catch(
+          err => console.warn('⚠️ Failed to persist outgoing message:', err)
+        );
+      }
     },
-    []
+    [currentUser]
   );
 
   const markAsRead = useCallback(async (chatId: string) => {
@@ -692,19 +836,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateSettings = useCallback((updates: Partial<AppSettings>) => {
-    setSettings((prev) => ({ ...prev, ...updates }));
+    setSettings((prev) => {
+      const next = { ...prev, ...updates };
+      try { localStorage.setItem('quidec_settings', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
   }, []);
 
-  // Restore auth on mount
-  useEffect(() => {
-    const auth = localStorage.getItem('auth');
-    if (auth) {
-      const { username, password } = JSON.parse(auth);
-      login(username, password);
-    } else {
-      setIsAuthenticating(false);
+  // ─── User Discovery (#6) ──────────────────────────────────────────────────
+
+  const searchUsers = useCallback((query: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      console.warn('WebSocket not connected — cannot search users');
+      return;
     }
-  }, [login]);
+    wsRef.current.send(JSON.stringify({ type: 'search-users', query }));
+  }, []);
+
+  // NOTE: Session restore is handled entirely by Firebase's browserLocalPersistence.
+  // The initializeAuth useEffect above (using authService.getCurrentUser()) is
+  // sufficient — no manual credential storage is needed or safe.
 
   const value: AppContextType = {
     isOnboarded,
@@ -723,6 +874,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     messages,
     calls,
     statuses,
+    searchUsers,
     chatRequests,
     sendChatRequest,
     acceptRequest,

@@ -164,6 +164,17 @@ export async function getUnreadCount(conversationKey) {
   return allMessages.filter((m) => m.unread).length
 }
 
+export async function deleteConversation(conversationKey) {
+  const database = await initializeDB()
+  const tx = database.transaction(STORES.MESSAGES, 'readwrite')
+  const allMessages = await tx.store.index('conversation').getAll(conversationKey)
+  
+  for (const msg of allMessages) {
+    await tx.store.delete(msg.id)
+  }
+  await tx.done
+}
+
 /**
  * Friends operations
  */

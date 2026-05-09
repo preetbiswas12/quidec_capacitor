@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import '../styles/chat-panel.css'
 import { getMessages, saveMessage, markMessagesAsRead, addToSyncQueue, deleteConversation } from '../utils/storage'
-import { getConversationKey, encryptMessage } from '../utils/encryption'
+
 
 // ✅ NEW: Import encrypted media utilities
 import { useEncryptedMedia, useMediaUpload } from '../hooks/useEncryptedMedia'
-import EncryptedMediaDisplay from './EncryptedMediaDisplay'
-import EncryptedMediaUpload from './EncryptedMediaUpload'
+import EncryptedMediaDisplay from '../app/components/EncryptedMediaDisplay'
+import EncryptedMediaUpload from '../app/components/EncryptedMediaUpload'
 import { messageDb, getConversationId, saveEncryptedMessageWithMedia } from '../utils/messageDatabase'
 
 // Format last seen time into human-readable format

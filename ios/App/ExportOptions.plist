@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+		method: how the IPA is distributed.
+		  "ad-hoc"      → install on registered test devices (no App Store)
+		  "app-store"   → App Store / TestFlight submission
+		  "development" → development signing, local testing only
+		  "enterprise"  → in-house enterprise distribution
+		Change to "app-store" before a production App Store release.
+	-->
+	<key>method</key>
+	<string>ad-hoc</string>
+
+	<!-- Must match the bundle ID in Xcode project settings -->
+	<key>bundleID</key>
+	<string>com.quidec.chat</string>
+
+	<!-- Name of the provisioning profile (must be registered in Apple Developer portal) -->
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>com.quidec.chat</key>
+		<string>Quidec AdHoc Distribution</string>
+	</dict>
+
+	<!-- Code signing identity to use (must match the imported certificate) -->
+	<key>signingCertificate</key>
+	<string>Apple Distribution</string>
+
+	<!-- Use manual signing so CI can specify exact profile/cert -->
+	<key>signingStyle</key>
+	<string>manual</string>
+
+	<!-- Team ID from the Apple Developer portal -->
+	<!-- TODO: Replace XXXXXXXXXX with your actual 10-character team ID -->
+	<key>teamID</key>
+	<string>XXXXXXXXXX</string>
+
+	<!-- Strip Swift runtime symbols to reduce IPA size -->
+	<key>stripSwiftSymbols</key>
+	<true/>
+
+	<!-- Upload to App Store Connect (set to true only for app-store method) -->
+	<key>uploadBitcode</key>
+	<false/>
+
+	<!-- Compress PNG resources -->
+	<key>compileBitcode</key>
+	<false/>
+</dict>
+</plist>
