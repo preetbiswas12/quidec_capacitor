@@ -85,7 +85,6 @@ jobs:
 
       - name: Sync Capacitor
         run: |
-          npx cap add android || true
           npx cap sync android
 
       # Upgrade Gradle wrapper to 8.11 — required for AGP 8.4.2 + SDK 36
