@@ -5,7 +5,6 @@ pluginManagement {
         mavenCentral()
     }
 }
-
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
@@ -13,6 +12,9 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-
 rootProject.name = "capacitor-app"
 include ':app'
+include ':capacitor-cordova-android-plugins'
+project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins')
+
+apply from: 'capacitor.settings.gradle'
