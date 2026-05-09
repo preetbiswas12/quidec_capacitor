@@ -61,12 +61,12 @@ jobs:
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
       - name: Install dependencies
-        run: NODE_ENV=development pnpm install --frozen-lockfile || (echo "Lockfile failed, installing with updates" && NODE_ENV=development pnpm install)
+        run: NODE_ENV=development pnpm install --frozen-lockfile || (echo "Lockfile failed, installing" && NODE_ENV=development pnpm install)
 
       - name: Verify Capacitor config
         run: |
           if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ]; then
-            echo "Error: capacitor.config.ts or capacitor.config.json not found!"
+            echo "Error: capacitor.config not found"
             exit 1
           fi
 
@@ -89,12 +89,12 @@ jobs:
         run: rm -rf android/capacitor-cordova-android-plugins 2>/dev/null || true
 
       - name: Sync Capacitor
-        run: pnpm exec cap sync android 2>&1 || echo "Capacitor sync completed with warnings"
+        run: pnpm exec cap sync android 2>&1 || echo "Capacitor sync completed"
 
       - name: Create Capacitor plugin module
         run: |
           mkdir -p android/capacitor-cordova-android-plugins
-          cat > android/capacitor-cordova-android-plugins/build.gradle << 'GRADLE_DELIMITER'
+          cat > android/capacitor-cordova-android-plugins/build.gradle << 'EOF'
           apply plugin: 'com.android.library'
           
           android {
@@ -115,28 +115,31 @@ jobs:
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'androidx.core:core:1.10.1'
           }
-          GRADLE_DELIMITER
+          EOF
 
       - name: Create cordova variables
         run: |
-          cat > android/capacitor-cordova-android-plugins/cordova.variables.gradle << 'VARS_DELIMITER'
+          cat > android/capacitor-cordova-android-plugins/cordova.variables.gradle << 'EOF'
           ext {
               cdvMinSdkVersion = 21
               cdvMaxSdkVersion = 34
               cdvCompileSdkVersion = 36
           }
-          VARS_DELIMITER
+          EOF
 
       - name: Upgrade Gradle wrapper
         run: |
-          sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.11-bin.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+          if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
+            sed -i 's|distributionUrl=.*gradle.*|distributionUrl=https://services.gradle.org/distributions/gradle-8.11-bin.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+          fi
 
-      - name: Update Gradle Plugin
+      - name: Update build.gradle safely
         run: |
-          sed -i "s|com.android.tools.build:gradle:.*|com.android.tools.build:gradle:8.4.2|g" android/build.gradle
-          if ! grep -q "resolutionStrategy" android/build.gradle; then
-            cat >> android/build.gradle << 'CONFIG_DELIMITER'
-
+          if [ -f "android/build.gradle" ]; then
+            cp android/build.gradle android/build.gradle.bak
+            grep -v "resolutionStrategy" android/build.gradle.bak > android/build.gradle || true
+            cat >> android/build.gradle << 'EOF'
+          
           allprojects {
               configurations.all {
                   resolutionStrategy {
@@ -144,7 +147,7 @@ jobs:
                   }
               }
           }
-          CONFIG_DELIMITER
+          EOF
           fi
 
       - name: Validate keystore
@@ -153,7 +156,7 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "KEYSTORE_BASE64 secret required for release builds"
+            echo "KEYSTORE_BASE64 secret required"
             exit 1
           fi
 
