@@ -29,7 +29,7 @@ jobs:
       contents: read
     env:
       GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=4 -Dorg.gradle.vfs.watch=false"
-      
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -96,9 +96,9 @@ jobs:
           ./gradlew clean
           BUILD_TYPE="${{ inputs.build_type || 'debug' }}"
           if [ "$BUILD_TYPE" = "release" ]; then
-            ./gradlew assembleRelease --no-daemon --stacktrace
+            ./gradlew assembleRelease --no-daemon --stacktrace --info 2>&1 | tail -300
           else
-            ./gradlew assembleDebug --no-daemon --stacktrace
+            ./gradlew assembleDebug --no-daemon --stacktrace --info 2>&1 | tail -300
           fi
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/android/app/my-release-key.keystore
