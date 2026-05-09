@@ -29,6 +29,8 @@ jobs:
 
     env:
       GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=4"
+      NODE_ENV: production
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

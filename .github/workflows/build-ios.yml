@@ -31,7 +31,9 @@ jobs:
       contents: read
       checks: write
 
-    env:      BUILD_CONFIG: ${{ inputs.build_config || 'Debug' }}
+    env:
+      NODE_ENV: production
+      BUILD_CONFIG: ${{ inputs.build_config || 'Debug' }}
 
     steps:
       - name: Checkout code
