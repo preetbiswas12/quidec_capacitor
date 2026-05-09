@@ -32,7 +32,6 @@ jobs:
       checks: write
 
     env:
-      NODE_ENV: production
       BUILD_CONFIG: ${{ inputs.build_config || 'Debug' }}
 
     steps:
