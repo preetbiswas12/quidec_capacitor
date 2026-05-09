@@ -21,8 +21,8 @@ importers:
         specifier: ^8.0.0
         version: 8.1.0(@capacitor/core@8.3.1)
       '@capacitor/camera':
-        specifier: ^8.1.2
-        version: 8.2.0(@capacitor/core@8.3.1)
+        specifier: 8.0.2
+        version: 8.0.2(@capacitor/core@8.3.1)
       '@capacitor/core':
         specifier: ^8.3.1
         version: 8.3.1
@@ -30,8 +30,8 @@ importers:
         specifier: ^8.0.0
         version: 8.0.2(@capacitor/core@8.3.1)
       '@capacitor/filesystem':
-        specifier: ^8.0.0
-        version: 8.1.2(@capacitor/core@8.3.1)
+        specifier: 8.1.1
+        version: 8.1.1(@capacitor/core@8.3.1)
       '@capacitor/ios':
         specifier: ^8.3.1
         version: 8.3.1(@capacitor/core@8.3.1)
@@ -383,8 +383,8 @@ packages:
     peerDependencies:
       '@capacitor/core': '>=8.0.0'
 
-  '@capacitor/camera@8.2.0':
-    resolution: {integrity: sha512-hYfrT6xpL936qoEkIpJzSnb0fQCaTkOux1cXzGBfH8QLOGqr6gSLiWZlZz/fqMPmMKJMNRBqlTQkj5fuMhVZog==}
+  '@capacitor/camera@8.0.2':
+    resolution: {integrity: sha512-v2BsKFjJSg0dMl/UO7jEvrAvjChCGrzQG5jx4yN2t8LnC7eFDh0YkSg1t+AMNveSDSKCvAsTk/JUzzr5VAvzmg==}
     peerDependencies:
       '@capacitor/core': '>=8.0.0'
 
@@ -401,8 +401,8 @@ packages:
     peerDependencies:
       '@capacitor/core': '>=8.0.0'
 
-  '@capacitor/filesystem@8.1.2':
-    resolution: {integrity: sha512-doaaMfGoFR2hWU6aV6u83I+5ZsGyJVq+Gz4r9lMpJzUKMm1eMu0hLnFdV1aXZlU9FlK/RndFrVD8oRZfNOqWgQ==}
+  '@capacitor/filesystem@8.1.1':
+    resolution: {integrity: sha512-g8szun+Nj9O/CIWNJ1c4cTsGchJE3B7080X+eh3hQXKf9UdRDllwVJy6reoI5EngwWh9xUgkI7fwkxg5BONrKw==}
     peerDependencies:
       '@capacitor/core': '>=8.0.0'
 
@@ -3575,7 +3575,7 @@ snapshots:
     dependencies:
       '@capacitor/core': 8.3.1
 
-  '@capacitor/camera@8.2.0(@capacitor/core@8.3.1)':
+  '@capacitor/camera@8.0.2(@capacitor/core@8.3.1)':
     dependencies:
       '@capacitor/core': 8.3.1
 
@@ -3609,7 +3609,7 @@ snapshots:
     dependencies:
       '@capacitor/core': 8.3.1
 
-  '@capacitor/filesystem@8.1.2(@capacitor/core@8.3.1)':
+  '@capacitor/filesystem@8.1.1(@capacitor/core@8.3.1)':
     dependencies:
       '@capacitor/core': 8.3.1
       '@capacitor/synapse': 1.0.4

@@ -12,13 +12,13 @@ include ':capacitor-app'
 project(':capacitor-app').projectDir = new File('../node_modules/.pnpm/@capacitor+app@8.1.0_@capacitor+core@8.3.1/node_modules/@capacitor/app/android')
 
 include ':capacitor-camera'
-project(':capacitor-camera').projectDir = new File('../node_modules/.pnpm/@capacitor+camera@8.2.0_@capacitor+core@8.3.1/node_modules/@capacitor/camera/android')
+project(':capacitor-camera').projectDir = new File('../node_modules/.pnpm/@capacitor+camera@8.0.2_@capacitor+core@8.3.1/node_modules/@capacitor/camera/android')
 
 include ':capacitor-device'
 project(':capacitor-device').projectDir = new File('../node_modules/.pnpm/@capacitor+device@8.0.2_@capacitor+core@8.3.1/node_modules/@capacitor/device/android')
 
 include ':capacitor-filesystem'
-project(':capacitor-filesystem').projectDir = new File('../node_modules/.pnpm/@capacitor+filesystem@8.1.2_@capacitor+core@8.3.1/node_modules/@capacitor/filesystem/android')
+project(':capacitor-filesystem').projectDir = new File('../node_modules/.pnpm/@capacitor+filesystem@8.1.1_@capacitor+core@8.3.1/node_modules/@capacitor/filesystem/android')
 
 include ':capacitor-local-notifications'
 project(':capacitor-local-notifications').projectDir = new File('../node_modules/.pnpm/@capacitor+local-notifications@8.0.2_@capacitor+core@8.3.1/node_modules/@capacitor/local-notifications/android')
