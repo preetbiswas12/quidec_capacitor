@@ -96,15 +96,28 @@ jobs:
           ./gradlew clean
           BUILD_TYPE="${{ inputs.build_type || 'debug' }}"
           if [ "$BUILD_TYPE" = "release" ]; then
-            ./gradlew assembleRelease --no-daemon --stacktrace --info 2>&1
+            ./gradlew assembleRelease --no-daemon --stacktrace --info --max-workers 1 2>&1
           else
-            ./gradlew assembleDebug --no-daemon --stacktrace --info 2>&1
+            ./gradlew assembleDebug --no-daemon --stacktrace --info --max-workers 1 2>&1
           fi
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/android/app/my-release-key.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Show Kotlin compiler errors
+        if: failure()
+        run: |
+          echo "=== Searching for Kotlin compiler output files ==="
+          find android -name "*.log" -o -name "kotlin-compiler*.txt" 2>/dev/null | head -20
+          echo "=== Searching build reports ==="
+          find android -path "*/build/reports/*" -type f 2>/dev/null | head -20
+          echo "=== Looking for filesystem compile errors specifically ==="
+          find android -path "*capacitor-filesystem*" -path "*/build/*" -name "*.log" -type f 2>/dev/null | xargs cat 2>/dev/null || true
+          echo "=== Kotlin daemon logs ==="
+          find /tmp -name "kotlin-daemon*" -type f 2>/dev/null | xargs tail -50 2>/dev/null || true
+          find ~/.gradle -name "kotlin-daemon*" -type f 2>/dev/null | xargs tail -50 2>/dev/null || true
 
       - name: Find APK
         id: apk
