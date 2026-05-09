@@ -114,7 +114,7 @@ jobs:
           
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'androidx.core:core:1.10.1'
+              implementation 'androidx.core:core:1.13.1'
           }
           EOF
 
@@ -128,18 +128,46 @@ jobs:
           }
           EOF
 
-      - name: Upgrade Gradle wrapper
+      - name: Update Gradle wrapper to 8.11
         run: |
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            sed -i 's|distributionUrl=.*gradle.*|distributionUrl=https://services.gradle.org/distributions/gradle-8.11-bin.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+            sed -i 's|distributionUrl=.*|distributionUrl=https://services.gradle.org/distributions/gradle-8.11-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+            echo "Gradle wrapper updated to 8.11"
+            cat android/gradle/wrapper/gradle-wrapper.properties | grep distributionUrl
           fi
 
-      - name: Update build.gradle safely
+      - name: Update Android Gradle Plugin and compileSdk
         run: |
           if [ -f "android/build.gradle" ]; then
             cp android/build.gradle android/build.gradle.bak
-            grep -v "resolutionStrategy" android/build.gradle.bak > android/build.gradle || true
-            cat >> android/build.gradle << 'EOF'
+            
+            # Remove old plugin version line and replace with new one
+            sed -i "s/id 'com.android.application' version.*/id 'com.android.application' version '8.9.1' apply false/" android/build.gradle
+            sed -i "s/id 'com.android.library' version.*/id 'com.android.library' version '8.9.1' apply false/" android/build.gradle
+            
+            # Update compileSdk if present
+            sed -i 's/compileSdk 34/compileSdk 36/g' android/build.gradle
+            sed -i 's/compileSdkVersion 34/compileSdkVersion 36/g' android/build.gradle
+            
+            echo "Build.gradle updated"
+            grep -E "com.android|compileSdk" android/build.gradle | head -5
+          fi
+
+      - name: Update app level build.gradle
+        run: |
+          if [ -f "android/app/build.gradle" ]; then
+            cp android/app/build.gradle android/app/build.gradle.bak
+            sed -i 's/compileSdk 34/compileSdk 36/g' android/app/build.gradle
+            sed -i 's/compileSdkVersion 34/compileSdkVersion 36/g' android/app/build.gradle
+            echo "App build.gradle updated"
+          fi
+
+      - name: Add resolution strategy
+        run: |
+          if [ -f "android/build.gradle" ]; then
+            # Check if resolutionStrategy already exists
+            if ! grep -q "resolutionStrategy" android/build.gradle; then
+              cat >> android/build.gradle << 'EOF'
           
           allprojects {
               configurations.all {
@@ -149,6 +177,7 @@ jobs:
               }
           }
           EOF
+            fi
           fi
 
       - name: Validate keystore
@@ -177,7 +206,7 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean --no-daemon -Dorg.gradle.jvmargs="-Xmx4g" 2>&1 | tail -3 || true
+          ./gradlew clean --no-daemon -Dorg.gradle.jvmargs="-Xmx4g" 2>&1 | tail -5 || true
 
       - name: Build APK
         run: |
