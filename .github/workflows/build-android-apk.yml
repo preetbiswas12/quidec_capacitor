@@ -29,7 +29,7 @@ jobs:
       contents: read
     env:
       GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=4 -Dorg.gradle.vfs.watch=false"
-
+      
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -87,7 +87,7 @@ jobs:
         run: pnpm exec cap sync android
 
       - name: Update Gradle wrapper
-        run: sed -i 's|distributionUrl=.*|distributionUrl=https://services.gradle.org/distributions/gradle-8.11-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+        run: sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
 
       - name: Build APK
         run: |
@@ -96,9 +96,9 @@ jobs:
           ./gradlew clean
           BUILD_TYPE="${{ inputs.build_type || 'debug' }}"
           if [ "$BUILD_TYPE" = "release" ]; then
-            ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4g" --stacktrace
+            ./gradlew assembleRelease --no-daemon --stacktrace
           else
-            ./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx4g" --stacktrace
+            ./gradlew assembleDebug --no-daemon --stacktrace
           fi
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/android/app/my-release-key.keystore
