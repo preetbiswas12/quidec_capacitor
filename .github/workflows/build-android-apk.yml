@@ -67,6 +67,16 @@ jobs:
       - name: Install dependencies
         run: NODE_ENV=development pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && NODE_ENV=development pnpm install)
 
+      - name: Ensure Capacitor CLI is available
+        run: |
+          echo "Checking for @capacitor/cli..."
+          if ! pnpm list @capacitor/cli > /dev/null 2>&1; then
+            echo "Installing @capacitor/cli..."
+            pnpm add -D @capacitor/cli
+          fi
+          pnpm exec cap --version || echo "⚠️ Cap version check failed"
+          echo "✅ Capacitor CLI is available"
+
       - name: Verify Capacitor config
         run: |
           if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ]; then
@@ -100,7 +110,7 @@ jobs:
       - name: Sync Capacitor
         run: |
           echo "Running Capacitor sync..."
-          npx cap sync android
+          pnpm exec cap sync android
           echo "✅ Capacitor sync completed"
 
       - name: Verify Capacitor generated files
