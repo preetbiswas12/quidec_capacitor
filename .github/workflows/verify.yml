@@ -34,14 +34,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-        continue-on-error: true
-
-      - name: Install dependencies (fallback)
-        if: failure()
-        run: |
-          echo "⚠️ Frozen lockfile failed, installing with updates"
-          pnpm install
+        run: pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && pnpm install)
 
       - name: Type check
         id: typecheck
