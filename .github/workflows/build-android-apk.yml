@@ -83,9 +83,9 @@ jobs:
           VITE_VAPID_KEY: ${{ secrets.VITE_VAPID_KEY }}
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
 
-      - name: Sync Capacitor
-        run: |
-          pnpm exec cap sync android
+      # - name: Sync Capacitor
+      #   run: |
+      #     pnpm exec cap sync android
 
       # Upgrade Gradle wrapper to 8.11 — required for AGP 8.4.2 + SDK 36
       - name: Upgrade Gradle wrapper to 8.11
