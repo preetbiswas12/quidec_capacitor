@@ -96,9 +96,11 @@ jobs:
           ./gradlew clean
           BUILD_TYPE="${{ inputs.build_type || 'debug' }}"
           if [ "$BUILD_TYPE" = "release" ]; then
-            ./gradlew assembleRelease --no-daemon --stacktrace --info 2>&1 | tail -300
+            ./gradlew assembleRelease --no-daemon --info 2>&1 | tee ../build.log
+            exit ${PIPESTATUS[0]}
           else
-            ./gradlew assembleDebug --no-daemon --stacktrace --info 2>&1 | tail -300
+            ./gradlew assembleDebug --no-daemon --info 2>&1 | tee ../build.log
+            exit ${PIPESTATUS[0]}
           fi
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/android/app/my-release-key.keystore
@@ -106,12 +108,19 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
+      - name: Show last 200 lines of build log
+        if: always()
+        run: tail -200 build.log || echo "No build log found"
+
       - name: Find APK
         id: apk
         run: |
+          echo "=== Searching entire android directory for APKs ==="
+          find android -name "*.apk" -type f 2>/dev/null || echo "No APKs found anywhere in android/"
+          echo "=== Done searching ==="
           APK_PATH=$(find android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null | head -1)
           if [ -z "$APK_PATH" ]; then
-            echo "APK not found"
+            echo "APK not found in expected location"
             exit 1
           fi
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
