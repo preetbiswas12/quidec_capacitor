@@ -34,7 +34,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && pnpm install)
+        run: NODE_ENV=development pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && NODE_ENV=development pnpm install)
 
       - name: Type check
         id: typecheck

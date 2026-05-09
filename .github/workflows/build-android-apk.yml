@@ -31,8 +31,6 @@ jobs:
 
     env:
       GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=4 -Dorg.gradle.vfs.watch=false"
-      NODE_ENV: production
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -66,7 +64,7 @@ jobs:
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && pnpm install)
+        run: NODE_ENV=development pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && NODE_ENV=development pnpm install)
 
       - name: Build web app
         run: pnpm run build
@@ -129,9 +127,7 @@ jobs:
           else
             ./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
           fi
-        env:
-          NODE_ENV: production
-          KEYSTORE_PATH: ${{ github.workspace }}/android/app/my-release-key.keystore
+        env:          KEYSTORE_PATH: ${{ github.workspace }}/android/app/my-release-key.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}

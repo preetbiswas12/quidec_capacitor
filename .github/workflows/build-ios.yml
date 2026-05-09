@@ -31,9 +31,7 @@ jobs:
       contents: read
       checks: write
 
-    env:
-      NODE_ENV: production
-      BUILD_CONFIG: ${{ inputs.build_config || 'Debug' }}
+    env:      BUILD_CONFIG: ${{ inputs.build_config || 'Debug' }}
 
     steps:
       - name: Checkout code
@@ -63,7 +61,7 @@ jobs:
             ${{ runner.os }}-pods-
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && pnpm install)
+        run: NODE_ENV=development pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && NODE_ENV=development pnpm install)
 
       - name: Type check
         run: pnpm exec tsc --noEmit

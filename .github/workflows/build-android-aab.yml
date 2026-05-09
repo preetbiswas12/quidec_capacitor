@@ -29,8 +29,6 @@ jobs:
 
     env:
       GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=4"
-      NODE_ENV: production
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -70,7 +68,7 @@ jobs:
           cache-disabled: false
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && pnpm install)
+        run: NODE_ENV=development pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && NODE_ENV=development pnpm install)
 
       - name: Type check
         run: pnpm exec tsc --noEmit
