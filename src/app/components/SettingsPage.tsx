@@ -29,15 +29,16 @@ interface SettingsPageProps {
 
 export default function SettingsPage({ onSubPageChange, forcedSubPage }: SettingsPageProps = {}) {
   const { currentUser, updateCurrentUser, logout, settings, updateSettings } = useApp();
+
+  if (!currentUser) return null;
+
   const [localSubPage, setLocalSubPage] = useState<SubPage>(null);
-  const [editName, setEditName] = useState(currentUser?.name || '');
-  const [editAbout, setEditAbout] = useState(currentUser?.about || '');
+  const [editName, setEditName] = useState(currentUser.name);
+  const [editAbout, setEditAbout] = useState(currentUser.about);
   const [editingName, setEditingName] = useState(false);
   const [editingAbout, setEditingAbout] = useState(false);
   const [idCopied, setIdCopied] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
-
-  if (!currentUser) return null;
 
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

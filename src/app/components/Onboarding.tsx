@@ -3,7 +3,11 @@ import { useNavigate } from 'react-router';
 import { useApp } from '../context/AppContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronRight, ChevronLeft, Mail, Shield, Camera, Check, Copy, AtSign } from 'lucide-react';
-const generateUserId = (name: string) => `@${name.toLowerCase().replace(/[^a-z0-9]/g, '')}.${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+
+const generateUserId = (name: string) =>
+  `@${name.toLowerCase().replace(/[^a-z0-9]/g, '')}.${Math.floor(Math.random() * 10000)
+    .toString()
+    .padStart(4, '0')}`;
 
 export default function Onboarding() {
   const navigate = useNavigate();

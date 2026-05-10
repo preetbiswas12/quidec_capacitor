@@ -16,9 +16,7 @@
   <meta name="apple-mobile-web-app-title" content="Quidec">
   
   <!-- iOS icons -->
-  <link rel="apple-touch-icon" href="/icon-192x192.png">
-  <link rel="apple-touch-icon" sizes="152x152" href="/icon-152x152.png">
-  <link rel="apple-touch-icon" sizes="180x180" href="/icon-192x192.png">
+    <link rel="apple-touch-icon" href="/icon.svg">
   
   <!-- Android -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -26,7 +24,6 @@
   
   <!-- Icon and manifest -->
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
-  <link rel="icon" href="/icon-192x192.png" type="image/png" sizes="192x192">
   <link rel="manifest" href="/manifest.json">
   
   <!-- Capacitor -->
@@ -43,7 +40,7 @@
   
   <!-- Security headers -->
   <meta http-equiv="X-UA-Compatible" content="ie=edge">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: blob:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:;">
 </head>
 <body>
   <div id="root"></div>

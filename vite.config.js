@@ -10,9 +10,10 @@ export default defineConfig({
   },
   build: {
     target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari13'],
-    minify: false,
+    minify: 'esbuild',
     cssCodeSplit: false,
     sourcemap: false,
+    reportCompressedSize: false,
     outDir: 'dist',
     chunkSizeWarningLimit: 1000,
   },
