@@ -1,14 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import { authService } from '../../utils/firebaseServices';
-import {
-  appendMessage,
-  loadMessages,
-  loadAllChats,
-  updateMessageStatus,
-  clearKeyCache,
-  type StoredMessage,
-} from '../../utils/localMessageStore';
+import { authService, messageService } from '../../utils/firebaseServices';
 
 // ─── Types (Matching UI App Expectations) ──────────────────────────────────
 
@@ -204,6 +196,30 @@ function getAvatarColor(userId: string): string {
   return colors[hash % colors.length];
 }
 
+function normalizeFirestoreTimestamp(value: any): string {
+  if (!value) return new Date().toISOString();
+  if (typeof value === 'string') return value;
+  if (typeof value.toDate === 'function') return value.toDate().toISOString();
+  if (typeof value.seconds === 'number') return new Date(value.seconds * 1000).toISOString();
+  if (value instanceof Date) return value.toISOString();
+  return new Date(value).toISOString();
+}
+
+function mapFirestoreMessage(raw: any, chatId: string): Message {
+  const messageType = raw.messageType || (raw.mediaUrl ? 'image' : 'text');
+
+  return {
+    id: raw.messageId || raw.id || `${chatId}-${Date.now()}`,
+    chatId,
+    content: raw.content || '',
+    type: messageType,
+    senderId: raw.fromUid || raw.senderId || '',
+    timestamp: normalizeFirestoreTimestamp(raw.timestamp),
+    status: raw.status || 'sent',
+    imageUrl: raw.mediaUrl || undefined,
+  };
+}
+
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -324,7 +340,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setContacts([]);
       setMessages({});
       setChatRequests([]);
-      clearKeyCache(); // wipe in-memory AES keys
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -384,6 +399,57 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     initializeAuth();
   }, []);
+
+  useEffect(() => {
+    if (!currentUser || chats.length === 0) {
+      return;
+    }
+
+    const unsubscribers = chats.map((chat) => {
+      if (!chat.contactId) {
+        return () => {};
+      }
+
+      return messageService.listenToMessages(
+        currentUser.userId,
+        chat.contactId,
+        (rawMessages) => {
+          const mappedMessages = rawMessages.map((raw) => mapFirestoreMessage(raw, chat.id));
+
+          setMessages((prev) => ({
+            ...prev,
+            [chat.id]: mappedMessages,
+          }));
+
+          if (mappedMessages.length > 0) {
+            const lastMessage = mappedMessages[mappedMessages.length - 1];
+            setChats((prev) =>
+              prev.map((item) =>
+                item.id === chat.id
+                  ? {
+                      ...item,
+                      lastMessage: lastMessage.content,
+                      lastMessageTime: lastMessage.timestamp,
+                      lastMessageSender: lastMessage.senderId,
+                    }
+                  : item
+              )
+            );
+          }
+        }
+      );
+    });
+
+    return () => {
+      unsubscribers.forEach((unsubscribe) => {
+        try {
+          unsubscribe();
+        } catch {
+          // ignore cleanup errors
+        }
+      });
+    };
+  }, [currentUser, chats]);
 
   const completeOnboarding = useCallback((user: CurrentUser) => {
     setCurrentUser(user);
@@ -491,30 +557,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           normalizeContact(f, i)
         );
         setContacts(normalized);
-
-        // ── Load locally stored messages for every known chat ──
-        if (currentUser) {
-          const chatIds = normalized.map((c: any) => c.id);
-          loadAllChats(currentUser.userId, chatIds)
-            .then(stored => {
-              if (Object.keys(stored).length > 0) {
-                setMessages(prev => {
-                  const merged: Record<string, Message[]> = { ...prev };
-                  for (const [chatId, msgs] of Object.entries(stored)) {
-                    if (msgs.length > 0) {
-                      // Merge: stored as base, live messages on top (deduplicate by id)
-                      const liveIds = new Set((merged[chatId] || []).map(m => m.id));
-                      const newOnes = msgs.filter(m => !liveIds.has(m.id));
-                      merged[chatId] = [...newOnes, ...(merged[chatId] || [])];
-                    }
-                  }
-                  return merged;
-                });
-                console.log(`📦 Loaded local messages for ${Object.keys(stored).length} chats`);
-              }
-            })
-            .catch(err => console.warn('⚠️ Local store load failed:', err));
-        }
         break;
       }
 
@@ -549,11 +591,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           [chatId]: [...(prev[chatId] || []), incomingMsg],
         }));
 
-        // ── Persist to local encrypted chunk file ──
+        // ── Persist to Firestore so the main app database stays Firebase-backed ──
         if (currentUser) {
-          appendMessage(currentUser.userId, incomingMsg as StoredMessage).catch(
-            err => console.warn('⚠️ Failed to persist incoming message:', err)
-          );
+          messageService.recordMessage(message.from, currentUser.userId, message.content, {
+            messageId: msgId,
+            messageType: message.messageType || 'text',
+            timestamp: new Date(message.timestamp || Date.now()),
+            status: 'delivered',
+          }).catch(err => console.warn('⚠️ Failed to persist incoming message:', err));
         }
 
         // Update chat's last message
@@ -695,21 +740,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const sendMessage = useCallback(
     async (chatId: string, content: string, type: Message['type'] = 'text', extra?: Partial<Message>) => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-        console.error('WebSocket not connected');
-        return;
-      }
-
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'send-message',
-          to: chatId,
-          content,
-          messageType: type,
-          timestamp: Date.now(),
-        })
-      );
-
       // Optimistic local message
       const msgId = `msg-${Date.now()}`;
       const msg: Message = {
@@ -728,9 +758,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         [chatId]: [...(prev[chatId] || []), msg],
       }));
 
-      // ── Persist outgoing message to local encrypted chunk file ──
+      // ── Persist outgoing message to Firestore ──
       if (currentUser) {
-        appendMessage(currentUser.userId, { ...msg, senderId: currentUser.userId } as StoredMessage).catch(
+        messageService.sendMessage(currentUser.userId, chatId, content, undefined, type).catch(
           err => console.warn('⚠️ Failed to persist outgoing message:', err)
         );
       }

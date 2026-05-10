@@ -453,48 +453,69 @@ export const presenceService = {
 
 export const messageService = {
   /**
+   * Persist a message record in Firestore without transport side-effects.
+   * Used by both outgoing sends and any legacy inbound message bridges.
+   */
+  async recordMessage(
+    fromUid: string,
+    toUid: string,
+    content: string,
+    options: {
+      mediaUrl?: string | null;
+      messageType?: string;
+      messageId?: string;
+      timestamp?: any;
+      status?: string;
+    } = {}
+  ) {
+    const conversationId = this.getConversationId(fromUid, toUid);
+    const messageId = options.messageId || `${Date.now()}_${Math.random()}`;
+
+    const messageData = {
+      messageId,
+      fromUid,
+      toUid,
+      content,
+      mediaUrl: options.mediaUrl || null,
+      messageType: options.messageType || 'text',
+      timestamp: options.timestamp || serverTimestamp(),
+      status: options.status || MESSAGE_STATUS.SENT,
+      deliveredAt: null,
+      readAt: null,
+      typing: false,
+    };
+
+    await setDoc(
+      doc(db, 'conversations', conversationId, 'messages', messageId),
+      messageData
+    );
+
+    await this.updateConversationMetadata(
+      fromUid,
+      toUid,
+      conversationId,
+      content
+    );
+
+    return { success: true, messageId, conversationId, status: messageData.status };
+  },
+
+  /**
    * Send a message with delivery tracking
    */
   async sendMessage(
     fromUid: string,
     toUid: string,
     content: string,
-    mediaUrl?: string
+    mediaUrl?: string,
+    messageType: string = 'text'
   ) {
     try {
-      const conversationId = this.getConversationId(fromUid, toUid);
-      const messageId = `${Date.now()}_${Math.random()}`;
-
-      const messageData = {
-        messageId,
-        fromUid,
-        toUid,
-        content,
+      const result = await this.recordMessage(fromUid, toUid, content, {
         mediaUrl: mediaUrl || null,
-        timestamp: serverTimestamp(),
-        status: MESSAGE_STATUS.SENT, // 📤 Single tick
-        deliveredAt: null,
-        readAt: null,
-        typing: false,
-      };
-
-      // Save message to Firestore
-      const messageRef = doc(
-        db,
-        'conversations',
-        conversationId,
-        'messages',
-        messageId
-      );
-      await setDoc(messageRef, messageData);
-
-      // Update conversation metadata
-      await this.updateConversationMetadata(
-        fromUid,
-        toUid,
-        conversationId,
-        content
-      );
+        messageType,
+        status: MESSAGE_STATUS.SENT,
+      });
 
       // Check if recipient is online, if so mark as delivered
       const recipientPresence = await presenceService.listenToUserPresence(
@@ -510,7 +531,7 @@ export const messageService = {
       );
 
       console.log(`✅ Message sent: ${fromUid} → ${toUid} (📤 Single tick)`);
-      return { success: true, messageId, status: MESSAGE_STATUS.SENT };
+      return { ...result, status: MESSAGE_STATUS.SENT };
     } catch (error: any) {
       console.error('❌ Error sending message:', error.message);
       throw error;
