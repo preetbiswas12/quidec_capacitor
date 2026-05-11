@@ -129,31 +129,37 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
             </div>
 
             {/* User ID card - Slimmed down and premium */}
-            <div className="mx-5 mt-5 mb-3 bg-[#1F2C34]/40 border border-wa-border rounded-2xl p-4 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[#00A884]" style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>
-                  QUIDEC ID
-                </p>
+            <div className="mx-4 mt-4 mb-3 bg-gradient-to-br from-[#1F2C34]/60 to-[#1F2C34]/30 border border-wa-border/50 rounded-2xl p-5 shadow-lg backdrop-blur-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-[#00A884] animate-pulse" />
+                  <p className="text-[#00A884]" style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1.2px' }}>
+                    QUIDEC IDENTITY
+                  </p>
+                </div>
                 <button
                   onClick={() => {
                     const newId = generateUserId(currentUser.name);
                     updateCurrentUser({ userId: newId });
                   }}
-                  className="text-[#00A884] bg-[#00A884]/10 px-2.5 py-1 rounded-md hover:bg-[#00A884]/20 transition-all active:scale-95"
-                  style={{ fontSize: '0.7rem', fontWeight: 700 }}
+                  className="text-white bg-[#00A884] px-3 py-1 rounded-full hover:bg-[#06cf9c] transition-all active:scale-95 shadow-md"
+                  style={{ fontSize: '0.65rem', fontWeight: 700 }}
                 >
-                  RECALCULATE
+                  REGENERATE
                 </button>
               </div>
               
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-[#00A884]/10 flex items-center justify-center">
-                    <AtSign size={15} className="text-[#00A884]" />
+              <div className="flex items-center justify-between gap-4 overflow-hidden bg-black/20 rounded-xl p-3 border border-white/5">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-[#00A884]/20 flex items-center justify-center flex-shrink-0 border border-[#00A884]/30">
+                    <AtSign size={18} className="text-[#00A884]" />
                   </div>
-                  <span className="text-wa-primary" style={{ fontSize: '0.98rem', fontWeight: 700, letterSpacing: '0.3px' }}>
-                    {currentUser.userId || '@user.0000'}
-                  </span>
+                  <div className="min-w-0">
+                    <p className="text-wa-text-muted" style={{ fontSize: '0.6rem', fontWeight: 600, textTransform: 'uppercase' }}>Unique ID</p>
+                    <p className="text-wa-primary truncate" style={{ fontSize: '1.05rem', fontWeight: 700, letterSpacing: '0.5px' }}>
+                      {currentUser.userId || '@user.0000'}
+                    </p>
+                  </div>
                 </div>
                 <button
                   onClick={() => {
@@ -161,15 +167,15 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                     setIdCopied(true);
                     setTimeout(() => setIdCopied(false), 2000);
                   }}
-                  className="flex items-center gap-1 text-[#00A884] hover:text-[#06cf9c] transition-colors"
-                  style={{ fontSize: '0.78rem', fontWeight: 600 }}
+                  className="flex items-center justify-center w-10 h-10 bg-wa-secondary rounded-full text-[#00A884] hover:bg-wa-header transition-colors flex-shrink-0 border border-wa-border shadow-sm"
+                  title="Copy ID"
                 >
-                  {idCopied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
+                  {idCopied ? <Check size={18} /> : <Copy size={18} />}
                 </button>
               </div>
               
-              <p className="text-wa-text-muted mt-3 pt-3 border-t border-wa-border/50" style={{ fontSize: '0.72rem', lineHeight: '1.4' }}>
-                Your unique ID is recalculated based on your name. Use it to find friends securely.
+              <p className="text-wa-text-muted mt-4 text-center italic" style={{ fontSize: '0.7rem', opacity: 0.8 }}>
+                Encrypted identity based on your display name.
               </p>
             </div>
 
@@ -232,13 +238,22 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               )}
             </Section>
             <Section>
-              <button
-                onClick={logout}
-                className="w-full flex items-center gap-4 px-4 py-3.5 text-red-400 hover:bg-wa-secondary/50 rounded-xl transition-colors"
-              >
-                <AlertTriangle size={18} />
-                <span style={{ fontSize: '0.95rem' }}>Delete my account</span>
-              </button>
+              <div className="px-6 py-8 flex flex-col items-center gap-4 border-t border-wa-border/20 mt-4">
+                <button
+                  onClick={logout}
+                  className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-all active:scale-95 border border-red-500/20 shadow-sm"
+                  style={{ fontWeight: 700, fontSize: '0.95rem' }}
+                >
+                  <AlertTriangle size={20} />
+                  <span>Delete my account</span>
+                </button>
+                <p className="text-wa-text-muted text-center italic" style={{ fontSize: '0.72rem', maxWidth: '80%' }}>
+                  This action is permanent and will wipe all your messages and identity from Quidec.
+                </p>
+                <div className="mt-4 opacity-30">
+                  <p style={{ fontSize: '0.65rem', fontWeight: 600 }}>QUIDEC STABLE v1.0.0</p>
+                </div>
+              </div>
             </Section>
           </SubPageShell>
         );
@@ -501,50 +516,47 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
   }
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto relative bg-wa-main text-wa-primary transition-colors duration-200">
+    <div className="flex flex-col h-full overflow-y-auto relative bg-gradient-to-b from-wa-main to-[#0B141A] text-wa-primary transition-colors duration-200 no-scrollbar pb-10">
       {/* Hidden avatar input */}
       <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarSelect} />
 
-      {/* Profile section */}
-      <div className="px-4 py-2 border-b border-wa-border">
-        {/* Use div instead of button to avoid nested-button DOM violation */}
-        <div
-          onClick={() => go('account')}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => e.key === 'Enter' && go('account')}
-          className="w-full flex items-center gap-4 py-4 px-2 hover:bg-wa-secondary/50 rounded-xl cursor-pointer transition-colors group text-left"
-        >
-          {/* Avatar with camera overlay */}
-          <div className="relative flex-shrink-0">
-            <div className="w-16 h-16 rounded-full overflow-hidden">
+      {/* Profile section - Premium Glow */}
+      <div className="flex flex-col items-center pt-10 pb-8 bg-gradient-to-b from-wa-header/40 to-transparent flex-shrink-0 border-b border-wa-border/20">
+        <div className="relative group cursor-pointer" onClick={() => go('account')}>
+          <div className="w-32 h-32 rounded-full p-1 bg-gradient-to-tr from-[#00A884] to-[#06cf9c] shadow-[0_0_20px_rgba(0,168,132,0.2)]">
+            <div className="w-full h-full rounded-full overflow-hidden border-4 border-wa-main group-hover:scale-[1.02] transition-transform duration-500 relative bg-[#1F2C34]">
               {currentUser.avatar ? (
                 <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
               ) : (
-                <div className="w-full h-full bg-[#00A884]/20 flex items-center justify-center">
-                  <span className="text-[#00A884]" style={{ fontSize: '1.5rem', fontWeight: 700 }}>
+                <div className="w-full h-full flex items-center justify-center">
+                  <span className="text-white/20" style={{ fontSize: '3rem', fontWeight: 800 }}>
                     {currentUser.name ? currentUser.name[0].toUpperCase() : '?'}
                   </span>
                 </div>
               )}
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white backdrop-blur-[2px]">
+                <Camera size={28} />
+                <span style={{ fontSize: '0.6rem', fontWeight: 700, marginTop: '4px' }}>EDIT PROFILE</span>
+              </div>
             </div>
-            <button
-              onClick={e => { e.stopPropagation(); avatarInputRef.current?.click(); }}
-              className="absolute bottom-0 right-0 w-6 h-6 bg-[#00A884] rounded-full flex items-center justify-center border-2 border-[#111B21] hover:bg-[#06cf9c] transition-colors active:scale-95"
-            >
-              <Camera size={11} className="text-white" />
-            </button>
           </div>
+          <button
+            onClick={e => { e.stopPropagation(); avatarInputRef.current?.click(); }}
+            className="absolute bottom-1 right-1 w-10 h-10 bg-[#00A884] rounded-full flex items-center justify-center border-4 border-wa-main hover:bg-[#06cf9c] transition-all shadow-xl active:scale-90 text-white"
+          >
+            <Camera size={18} />
+          </button>
+        </div>
 
-          <div className="flex-1 min-w-0 text-left">
-            <p className="text-wa-primary" style={{ fontSize: '1.05rem', fontWeight: 600 }}>{currentUser.name || 'Your Name'}</p>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <AtSign size={12} className="text-[#00A884] flex-shrink-0" />
-              <p className="text-[#00A884]" style={{ fontSize: '0.78rem', fontWeight: 600 }}>{currentUser.userId || 'user.0000'}</p>
-            </div>
-            <p className="text-wa-text-muted" style={{ fontSize: '0.82rem' }}>{currentUser.about}</p>
+        <div className="mt-5 text-center px-6">
+          <h2 className="text-wa-primary" style={{ fontSize: '1.4rem', fontWeight: 800, letterSpacing: '-0.5px' }}>{currentUser.name || 'Set Name'}</h2>
+          <div className="flex items-center justify-center gap-2 mt-1.5 bg-[#00A884]/10 px-3 py-1 rounded-full border border-[#00A884]/20">
+            <AtSign size={13} className="text-[#00A884]" />
+            <span className="text-[#00A884] truncate max-w-[180px]" style={{ fontSize: '0.8rem', fontWeight: 700 }}>
+              {currentUser.userId || 'user.0000'}
+            </span>
           </div>
-          <ChevronRight size={18} className="text-wa-text-muted group-hover:text-[#00A884] transition-colors flex-shrink-0" />
+          <p className="text-wa-text-muted mt-3 italic" style={{ fontSize: '0.85rem' }}>"{currentUser.about || 'Available'}"</p>
         </div>
       </div>
 
@@ -615,12 +627,12 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
 
 function SubPageShell({ title, onBack, children }: { title: string; onBack: () => void; children: ReactNode }) {
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-4 py-4 bg-wa-header flex-shrink-0">
-        <button onClick={onBack} className="text-[#aebac1] hover:text-wa-primary p-1 rounded-full hover:bg-white/5 transition-colors">
+    <div className="flex flex-col h-full bg-wa-main">
+      <div className="flex items-center gap-3 px-4 py-3 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border/50">
+        <button onClick={onBack} className="text-wa-header-icon hover:text-wa-primary p-2 -ml-2 rounded-full hover:bg-white/5 transition-colors">
           <ArrowLeft size={20} />
         </button>
-        <span className="text-wa-primary" style={{ fontWeight: 600, fontSize: '1.05rem' }}>{title}</span>
+        <h1 className="text-wa-primary" style={{ fontWeight: 700, fontSize: '1.15rem' }}>{title}</h1>
       </div>
       <div className="flex-1 overflow-y-auto">{children}</div>
     </div>

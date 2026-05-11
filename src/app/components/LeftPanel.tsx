@@ -100,17 +100,18 @@ export default function LeftPanel() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-wa-main text-wa-primary transition-colors duration-200">
+    <div className="flex flex-col h-full bg-wa-main text-wa-primary transition-colors duration-200 relative">
       {/* Header */}
-      <div className="flex-shrink-0 bg-wa-header">
-        {activeTab === 'settings' ? (
-          <div className="flex items-center gap-3 px-4 py-4">
-            <button onClick={() => setActiveTab('chats')} className="text-[#aebac1] hover:text-wa-primary p-1 rounded-full hover:bg-white/5 transition-colors">
-              <ArrowLeft size={20} />
-            </button>
-            <span className="text-wa-primary flex-1" style={{ fontSize: '1.1rem', fontWeight: 600 }}>Settings</span>
-          </div>
-        ) : (
+      {!settingsSubPage && (
+        <div className="flex-shrink-0 bg-wa-header pt-10">
+          {activeTab === 'settings' ? (
+            <div className="flex items-center px-4 py-3">
+              <button onClick={() => setActiveTab('chats')} className="text-[#aebac1] hover:text-wa-primary p-2 -ml-2 rounded-full hover:bg-white/5 transition-colors flex-shrink-0">
+                <ArrowLeft size={20} />
+              </button>
+              <h1 className="text-wa-primary ml-2" style={{ fontSize: '1.15rem', fontWeight: 700 }}>Settings</h1>
+            </div>
+          ) : (
           <div className="flex items-center justify-between px-4 py-3">
             <button onClick={() => setActiveTab('settings')} className="hover:opacity-80 transition-opacity">
               <div className="w-9 h-9 rounded-full bg-[#DFE5E7]/20 flex items-center justify-center overflow-hidden">
@@ -164,6 +165,7 @@ export default function LeftPanel() {
           </div>
         )}
       </div>
+    )}
 
       {/* Content */}
       <div className="flex-1 overflow-hidden relative">
@@ -174,28 +176,30 @@ export default function LeftPanel() {
       </div>
 
       {/* Bottom Nav */}
-      <div className="flex-shrink-0 bg-wa-header border-t border-wa-border">
-        <div className="flex">
-          {tabs.map(tab => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => { setActiveTab(tab.id); setShowRequests(false); }}
-                className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors relative ${
-                  isActive ? 'text-[#00A884]' : 'text-wa-text-muted hover:text-[#aebac1]'
-                }`}
-              >
-                <tab.icon size={22} />
-                <span style={{ fontSize: '0.65rem', fontWeight: isActive ? 600 : 400 }}>{tab.label}</span>
-                {isActive && (
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-0.5 bg-[#00A884] rounded-full" />
-                )}
-              </button>
-            );
-          })}
+      {!settingsSubPage && (
+        <div className="flex-shrink-0 bg-wa-header border-t border-wa-border pb-6">
+          <div className="flex">
+            {tabs.map(tab => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => { setActiveTab(tab.id); setShowRequests(false); }}
+                  className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors relative ${
+                    isActive ? 'text-[#00A884]' : 'text-wa-text-muted hover:text-[#aebac1]'
+                  }`}
+                >
+                  <tab.icon size={22} />
+                  <span style={{ fontSize: '0.65rem', fontWeight: isActive ? 600 : 400 }}>{tab.label}</span>
+                  {isActive && (
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-0.5 bg-[#00A884] rounded-full" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Settings subpage full-panel overlay */}
       <AnimatePresence>
@@ -227,7 +231,7 @@ export default function LeftPanel() {
             className="absolute inset-0 bg-wa-main flex flex-col z-40 transition-colors duration-200"
           >
             {/* Header */}
-            <div className="flex items-center gap-3 px-4 py-4 bg-wa-header flex-shrink-0">
+            <div className="flex items-center gap-3 px-4 py-4 pt-10 bg-wa-header flex-shrink-0">
               <button onClick={resetNewChat} className="text-[#aebac1] hover:text-wa-primary p-1">
                 <ArrowLeft size={20} />
               </button>

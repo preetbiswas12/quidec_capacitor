@@ -332,7 +332,7 @@ export default function ChatWindow() {
           {showSearch && (
             <motion.div
               initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-              className="bg-wa-header border-b border-wa-border flex-shrink-0 overflow-hidden"
+              className="bg-wa-header border-b border-wa-border flex-shrink-0 overflow-hidden pt-10"
             >
               <div className="flex items-center gap-2 px-3 py-2.5">
                 <button onClick={closeSearch} className="text-[#aebac1] p-1 flex-shrink-0"><ArrowLeft size={20} /></button>
@@ -348,7 +348,7 @@ export default function ChatWindow() {
           )}
         </AnimatePresence>
 
-        <div className="flex items-center gap-3 px-3 py-2.5 bg-wa-header flex-shrink-0 border-b border-wa-border">
+        <div className="flex items-center gap-3 px-3 py-2.5 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border">
           <button onClick={handleBack} className="text-[#aebac1] hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5"><ArrowLeft size={20} /></button>
           <button onClick={() => setContactInfoOpen(!contactInfoOpen)} className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity">
             <div className="relative">
@@ -448,7 +448,7 @@ export default function ChatWindow() {
           )}
         </AnimatePresence>
 
-        <div className="flex items-end gap-2 px-3 py-3 bg-wa-header flex-shrink-0">
+        <div className="flex items-end gap-2 px-3 py-3 pb-8 bg-wa-header flex-shrink-0">
           <div className="flex items-end gap-2 flex-1 bg-[#2A3942] rounded-2xl px-3 py-2">
             <button onClick={() => { setShowEmojiPicker(v => !v); setShowAttachSheet(false); }} className={`transition-colors flex-shrink-0 mb-0.5 ${showEmojiPicker ? 'text-[#00A884]' : 'text-wa-text-muted hover:text-wa-primary'}`}><Smile size={22} /></button>
             <textarea ref={inputRef} value={text} onChange={e => setText(e.target.value)} onKeyDown={handleKeyDown} placeholder="Message" rows={1} className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0] resize-none py-0.5 max-h-32 overflow-y-auto" style={{ fontSize: '0.95rem', lineHeight: '1.4' }} />

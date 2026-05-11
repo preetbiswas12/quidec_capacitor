@@ -15,11 +15,11 @@ export default function MobileFrame({ children }: { children: ReactNode }) {
       >
         {/* Dynamic Island — only on desktop frame */}
         <div
-          className="hidden sm:flex absolute top-3 left-1/2 -translate-x-1/2 bg-black rounded-full z-[200] items-center justify-end px-3 pointer-events-none border border-[#1c1c1c]"
-          style={{ width: 126, height: 37 }}
+          className="hidden sm:flex absolute top-2 left-1/2 -translate-x-1/2 bg-black rounded-full z-[200] items-center justify-end px-3 pointer-events-none border border-[#1c1c1c]"
+          style={{ width: 110, height: 32 }}
         >
           {/* Front camera dot */}
-          <div className="w-[13px] h-[13px] rounded-full bg-[#111] border border-[#2c2c2c] shadow-inner" />
+          <div className="w-[10px] h-[10px] rounded-full bg-[#111] border border-[#2c2c2c] shadow-inner" />
         </div>
 
         {/* Side buttons — purely cosmetic on desktop */}

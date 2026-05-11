@@ -692,7 +692,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.log('📞 Incoming call detected from:', data.fromUid);
         // Automatically navigate to the call screen as the receiver
         // We'll pass a 'received' flag so the screen knows to accept the offer
-        window.location.hash = `#/call/${data.callType || 'video'}/${data.fromUid}?received=true`;
+        navigate(`/call/${data.callType || 'video'}/${data.fromUid}?received=true`);
       }
     });
 
@@ -705,7 +705,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       conversationsUnsubscribeRef.current?.();
       unsubscribeSignaling();
     };
-  }, [currentUser, isOnboarded]);
+  }, [currentUser, isOnboarded, navigate]);
 
   // ─── Helper: Convert raw contact to UI Contact ────────────────────────────
 
