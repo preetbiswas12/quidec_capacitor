@@ -6,6 +6,19 @@
 
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
 import { getConversationKey } from './encryption.js'
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  getDocs, 
+  query, 
+  where, 
+  orderBy, 
+  deleteDoc, 
+  serverTimestamp 
+} from 'firebase/firestore'
+import { db } from './firebase'
 
 export interface ChunkMetadata {
   fileId: string // Unique identifier for the media file
@@ -23,8 +36,8 @@ export interface ChunkMetadata {
   }
 }
 
-// Chunk size: 256KB for balanced performance
-const CHUNK_SIZE = 256 * 1024
+// Chunk size: 512KB (Optimized for Firestore document limit)
+const CHUNK_SIZE = 512 * 1024
 
 const MEDIA_PATHS = {
   CHUNKS: 'media/chunks',
@@ -122,9 +135,6 @@ export async function saveEncryptedMediaChunks(
         },
       }
 
-      // Save encrypted chunk to filesystem
-      const chunkPath = `${MEDIA_PATHS.CHUNKS}/${fileId}_chunk_${i}`
-      
       // Robust Base64 conversion to avoid "Maximum call stack size exceeded"
       const chunkUint8 = new Uint8Array(encryptedChunk)
       let binary = ''
@@ -133,6 +143,24 @@ export async function saveEncryptedMediaChunks(
       }
       const encryptedChunkBase64 = btoa(binary)
 
+      // 1. Save encrypted chunk to Firestore (for the recipient)
+      const chunkDocRef = doc(db, 'mediaChunks', `${fileId}_chunk_${i}`);
+      await setDoc(chunkDocRef, {
+        fileId,
+        chunkIndex: i,
+        data: encryptedChunkBase64, // Base64 string
+        uploadedAt: serverTimestamp(),
+        // We include metadata in the chunk for self-contained reassembly
+        metadata: {
+          ...metadata,
+          uploadedBy: user1,
+          intendedFor: user2
+        }
+      });
+
+      // 2. Save encrypted chunk to local filesystem (for local cache)
+      const chunkPath = `${MEDIA_PATHS.CHUNKS}/${fileId}_chunk_${i}`
+      
       await Filesystem.writeFile({
         path: chunkPath,
         data: encryptedChunkBase64,
@@ -141,7 +169,7 @@ export async function saveEncryptedMediaChunks(
         encoding: Encoding.UTF8,
       })
 
-      // Save chunk metadata
+      // 3. Save chunk metadata locally
       const metadataPath = `${MEDIA_PATHS.METADATA}/${fileId}_chunk_${i}.json`
       await Filesystem.writeFile({
         path: metadataPath,
@@ -205,23 +233,67 @@ export async function retrieveDecryptedMedia(
       const chunkPath = `${MEDIA_PATHS.CHUNKS}/${fileId}_chunk_${i}`
       const metadataPath = `${MEDIA_PATHS.METADATA}/${fileId}_chunk_${i}.json`
 
-      // Read metadata
-      const metadataFile = await Filesystem.readFile({
-        path: metadataPath,
-        directory: Directory.Documents,
-        encoding: Encoding.UTF8,
-      })
-      const metadata: ChunkMetadata = JSON.parse(metadataFile.data as string)
+      // 1. Get Metadata (Local or Firestore)
+      let metadata: ChunkMetadata;
+      try {
+        const metadataFile = await Filesystem.readFile({
+          path: metadataPath,
+          directory: Directory.Documents,
+          encoding: Encoding.UTF8,
+        });
+        metadata = JSON.parse(metadataFile.data as string);
+      } catch (err) {
+        // Metadata missing locally - it's fine, we'll get it from Firestore with the chunk
+        const chunkDoc = await getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`));
+        if (!chunkDoc.exists()) throw new Error(`Metadata for chunk ${i} not found!`);
+        metadata = chunkDoc.data().metadata;
+      }
 
-      // Read encrypted chunk
-      const chunkFile = await Filesystem.readFile({
-        path: chunkPath,
-        directory: Directory.Documents,
-        encoding: Encoding.UTF8,
-      })
+      // 2. Read encrypted chunk
+      let chunkData: string;
+      try {
+        const chunkFile = await Filesystem.readFile({
+          path: chunkPath,
+          directory: Directory.Documents,
+          encoding: Encoding.UTF8,
+        });
+        chunkData = chunkFile.data as string;
+      } catch (err) {
+        // Local file missing - try Firestore (recipient path)
+        console.log(`📡 Chunk ${i} missing locally, fetching from Firestore...`);
+        const chunkDoc = await getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`));
+        if (!chunkDoc.exists()) {
+          throw new Error(`Chunk ${i} not found anywhere!`);
+        }
+        chunkData = chunkDoc.data().data;
+
+        // Cache it locally for next time
+        try {
+          await Filesystem.writeFile({
+            path: chunkPath,
+            data: chunkData,
+            directory: Directory.Documents,
+            recursive: true,
+            encoding: Encoding.UTF8,
+          });
+          
+          // Also fetch and cache metadata if it's the first chunk
+          if (i === 0) {
+            await Filesystem.writeFile({
+              path: metadataPath,
+              data: JSON.stringify(chunkDoc.data().metadata),
+              directory: Directory.Documents,
+              recursive: true,
+              encoding: Encoding.UTF8,
+            });
+          }
+        } catch (cacheErr) {
+          console.warn('⚠️ Failed to cache chunk locally:', cacheErr);
+        }
+      }
 
       // Decode from base64 robustly
-      const binaryChunk = atob(chunkFile.data as string)
+      const binaryChunk = atob(chunkData)
       const encryptedChunkArray = new Uint8Array(binaryChunk.length)
       for (let j = 0; j < binaryChunk.length; j++) {
         encryptedChunkArray[j] = binaryChunk.charCodeAt(j)
@@ -409,6 +481,12 @@ export async function deleteEncryptedMedia(fileId: string, totalChunks: number):
     for (let i = 0; i < totalChunks; i++) {
       const chunkPath = `${MEDIA_PATHS.CHUNKS}/${fileId}_chunk_${i}`
       const metadataPath = `${MEDIA_PATHS.METADATA}/${fileId}_chunk_${i}.json`
+
+      try {
+        await deleteDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`));
+      } catch (err) {
+        console.warn(`⚠️ Failed to delete Firestore chunk ${i}:`, err);
+      }
 
       try {
         await Filesystem.deleteFile({

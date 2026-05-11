@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import { messageService, authService, presenceService, friendRequestService } from '../../utils/firebaseServices';
+import { messageService, authService, presenceService, friendRequestService, typingService, userService } from '../../utils/firebaseServices';
 import { getDoc, doc } from 'firebase/firestore';
 import { db } from '../../utils/firebase';
 import { initializePushNotifications } from '../../utils/fcm';
@@ -830,7 +830,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const markAsRead = useCallback(async (chatId: string) => {
     if (!currentUser) return;
-    await messageService.markAllMessagesRead(currentUser.userId, chatId);
+    await messageService.markAllMessagesAsRead(currentUser.userId, chatId);
 
     setChats((prev) =>
       prev.map((c) =>
@@ -891,7 +891,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const searchUsers = useCallback(async (query: string) => {
     if (!currentUser) return;
     const results = await userService.searchUsers(query, currentUser.userId);
-    const normalized = results.map((u, i) => normalizeContact(u, i));
+    const normalized = results.map((u: any, i: number) => normalizeContact(u, i));
     setDiscoverableContacts(normalized);
   }, [currentUser, normalizeContact]);
 

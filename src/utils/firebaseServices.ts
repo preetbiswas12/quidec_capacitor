@@ -54,6 +54,9 @@ import {
   get,
   remove,
   update,
+  onChildAdded,
+  onChildChanged,
+  onChildRemoved,
 } from 'firebase/database';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { db, auth, realtimeDb, getFCMToken, EMBEDDED_VAPID_KEY } from './firebase';
@@ -315,6 +318,10 @@ export const authService = {
         unsubscribe();
       });
     });
+  },
+
+  getCurrentUserSync(): User | null {
+    return auth.currentUser;
   },
 
   /**

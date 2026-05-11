@@ -82,6 +82,7 @@
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.6.0",
     "firebase": "^12.12.1",
+    "firebase-tools": "^15.17.0",
     "idb": "^8.0.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.487.0",

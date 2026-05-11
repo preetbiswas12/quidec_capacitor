@@ -24,8 +24,18 @@ const EMBEDDED_FIREBASE_CONFIG = {
   databaseURL: 'https://octate-wee-default-rtdb.europe-west1.firebasedatabase.app',
 };
 
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || EMBEDDED_FIREBASE_CONFIG.apiKey,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || EMBEDDED_FIREBASE_CONFIG.authDomain,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || EMBEDDED_FIREBASE_CONFIG.projectId,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || EMBEDDED_FIREBASE_CONFIG.storageBucket,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || EMBEDDED_FIREBASE_CONFIG.messagingSenderId,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || EMBEDDED_FIREBASE_CONFIG.appId,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || EMBEDDED_FIREBASE_CONFIG.databaseURL,
+};
+
 export const EMBEDDED_VAPID_KEY =
-  'BFZ6KQgsors1kgcaywsjQeeDrq_OD4PHwnRbmk0VjYV_yTlVBnwKfk7fm0prh-9vaRNyiKqEZOh5O_5Yp7DH9bs';
+  import.meta.env.VITE_VAPID_KEY || 'BFZ6KQgsors1kgcaywsjQeeDrq_OD4PHwnRbmk0VjYV_yTlVBnwKfk7fm0prh-9vaRNyiKqEZOh5O_5Yp7DH9bs';
 
 let firebaseApp: any = null;
 let authInstance: Auth | null = null;
@@ -38,18 +48,14 @@ let messagingInstance: Messaging | null = null;
  */
 export function initializeFirebase() {
   try {
-    const firebaseConfig = {
-      ...EMBEDDED_FIREBASE_CONFIG,
-    };
-
-    if (!firebaseConfig.apiKey) {
-      console.warn('⚠️ Firebase credentials not configured in .env');
+    if (!firebaseConfig.apiKey || firebaseConfig.apiKey === 'YOUR_API_KEY') {
+      console.warn('⚠️ Firebase credentials not configured correctly. Please check your .env file.');
       return null;
     }
 
     if (!firebaseApp) {
       firebaseApp = initializeApp(firebaseConfig);
-      console.log('✅ Firebase initialized successfully');
+      console.log(`✅ Firebase initialized for project: ${firebaseConfig.projectId}`);
     }
 
     return firebaseApp;

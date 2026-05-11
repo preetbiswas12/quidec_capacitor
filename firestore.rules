@@ -61,5 +61,13 @@ service cloud.firestore {
     match /conversations/system_meta {
       allow read: if isAuthenticated();
     }
+    // Media Chunks: Ephemeral storage for large files (Spark plan fallback)
+    // Only the intended recipient or the sender can read/delete
+    match /mediaChunks/{chunkId} {
+      allow create: if isAuthenticated();
+      allow read, delete: if isAuthenticated() && (
+        isOwner(resource.data.metadata.uploadedBy) || isOwner(resource.data.metadata.intendedFor)
+      );
+    }
   }
 }
