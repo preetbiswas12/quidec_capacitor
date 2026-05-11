@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    // Profiles: Everyone can see names/avatars to find friends, but only owner can edit
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+    
+    // Friendships: Strictly private - only the user can see their own friend list
+    match /friendships/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Friend Requests: Only sender or recipient can read/write
+    match /friendRequests/{requestId} {
+      allow read, write: if isAuthenticated() && (
+        isOwner(resource.data.fromUid) || isOwner(resource.data.toUid) ||
+        isOwner(request.resource.data.fromUid) || isOwner(request.resource.data.toUid)
+      );
+    }
+    
+    // Conversations: Only participants can read or write
+    match /conversations/{conversationId} {
+      // Robust check: split the ID and check if auth.uid is one of the parts
+      allow read, write: if isAuthenticated() && (
+        request.auth.uid in conversationId.split('_')
+      );
+      
+      match /messages/{messageId} {
+        allow read, write: if isAuthenticated() && (
+          request.auth.uid in conversationId.split('_')
+        );
+      }
+      
+      // Allow participants to see the metadata
+      match /system_meta {
+        allow read: if isAuthenticated();
+      }
+    }
+    
+    // Global system config
+    match /users/system_config {
+      allow read: if isAuthenticated();
+    }
+    
+    // Allow reading system_meta in friendships for stats
+    match /friendships/system_meta {
+      allow read: if isAuthenticated();
+    }
+
+    // Allow reading system_meta in conversations for stats
+    match /conversations/system_meta {
+      allow read: if isAuthenticated();
+    }
+  }
+}

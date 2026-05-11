@@ -412,3 +412,30 @@ export async function updateMessageStatus(
 export function clearKeyCache(): void {
   keyCache.clear();
 }
+
+/**
+ * Update the reactions of a specific message in a chat file.
+ */
+export async function updateMessageReactions(
+  userUid: string,
+  chatId: string,
+  messageId: string,
+  reactions: { emoji: string; count: number }[]
+): Promise<void> {
+  const messages = await loadMessages(userUid, chatId);
+  const updated = messages.map(m => m.id === messageId ? { ...m, reactions } : m);
+
+  // Rewrite file
+  const { key1, key2 } = await getKeys(userUid, chatId);
+  const filename = chatFilename(chatId);
+
+  let combined = new Uint8Array(0);
+  for (const msg of updated) {
+    const payload = new TextEncoder().encode(JSON.stringify(msg));
+    const { iv1, iv2, ciphertext } = await doubleEncrypt(payload, key1, key2);
+    const chunk = encodeChunk(iv1, iv2, ciphertext);
+    combined = concat(combined, chunk);
+  }
+
+  await writeFileBytes(filename, combined);
+}

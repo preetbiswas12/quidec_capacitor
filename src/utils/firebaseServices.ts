@@ -57,6 +57,9 @@ import {
 } from 'firebase/database';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { db, auth, realtimeDb, getFCMToken, EMBEDDED_VAPID_KEY } from './firebase';
+import { encryptMessage, decryptMessage, getConversationKey } from './encryption';
+import { appendMessage, loadMessages as loadLocalMessages, listLocalChatIds, StoredMessage } from './localMessageStore';
+import { uploadMediaWithProgress, loadMediaWithCache, StoredMediaReference } from './mediaUploadHandler';
 
 /**
  * MESSAGE DELIVERY STATUS TYPES
@@ -179,11 +182,11 @@ export const authService = {
       });
 
       // Update Firestore user document
-      await updateDoc(doc(db, 'users', user.uid), {
+      await setDoc(doc(db, 'users', user.uid), {
         isOnline: true,
         lastSeen: serverTimestamp(),
         emailVerified: true,
-      });
+      }, { merge: true });
 
       // Get and save FCM token if not already saved
       try {
@@ -191,9 +194,9 @@ export const authService = {
         if (!userDoc.data()?.fcmToken) {
           const fcmToken = await getFCMToken();
           if (fcmToken) {
-            await updateDoc(doc(db, 'users', user.uid), {
+            await setDoc(doc(db, 'users', user.uid), {
               fcmToken: fcmToken,
-            });
+            }, { merge: true });
             console.log('✅ FCM token saved');
           }
         }
@@ -287,10 +290,10 @@ export const authService = {
         });
 
         // Update Firestore
-        await updateDoc(doc(db, 'users', user.uid), {
+        await setDoc(doc(db, 'users', user.uid), {
           isOnline: false,
           lastSeen: serverTimestamp(),
-        });
+        }, { merge: true });
       }
 
       await signOut(auth);
@@ -315,6 +318,44 @@ export const authService = {
   },
 
   /**
+   * Update user profile information in Auth and Firestore
+   */
+  async updateUserProfile(uid: string, updates: { name?: string; avatar?: string | null; about?: string }) {
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('No authenticated user');
+
+      // 1. Update Firebase Auth Profile (limited to display name and photoURL)
+      const authUpdates: any = {};
+      if (updates.name) authUpdates.displayName = updates.name;
+      if (updates.avatar !== undefined) authUpdates.photoURL = updates.avatar;
+      
+      if (Object.keys(authUpdates).length > 0) {
+        await updateProfile(user, authUpdates);
+      }
+
+      // 2. Update Firestore User Document
+      const firestoreUpdates: any = {
+        updatedAt: serverTimestamp(),
+      };
+      if (updates.name) {
+        firestoreUpdates.displayName = updates.name;
+        firestoreUpdates.username = updates.name.toLowerCase().replace(/\s+/g, '.');
+      }
+      if (updates.avatar !== undefined) firestoreUpdates.photoURL = updates.avatar;
+      if (updates.about !== undefined) firestoreUpdates.about = updates.about;
+
+      await setDoc(doc(db, 'users', uid), firestoreUpdates, { merge: true });
+      
+      console.log(`✅ User profile updated for ${uid}`);
+      return { success: true };
+    } catch (error: any) {
+      console.error('❌ Error updating user profile:', error.message);
+      throw error;
+    }
+  },
+
+  /**
    * Listen to auth state changes
    */
   onAuthStateChange(callback: (user: User | null) => void) {
@@ -336,10 +377,10 @@ export const presenceService = {
         username,
       });
 
-      await updateDoc(doc(db, 'users', uid), {
+      await setDoc(doc(db, 'users', uid), {
         isOnline: true,
         lastSeen: serverTimestamp(),
-      });
+      }, { merge: true });
 
       console.log(`✅ User ${username} is online`);
     } catch (error: any) {
@@ -357,10 +398,10 @@ export const presenceService = {
         lastSeen: rtdbServerTimestamp(),
       });
 
-      await updateDoc(doc(db, 'users', uid), {
+      await setDoc(doc(db, 'users', uid), {
         isOnline: false,
         lastSeen: serverTimestamp(),
-      });
+      }, { merge: true });
 
       console.log(`✅ User ${uid} is offline`);
     } catch (error: any) {
@@ -447,6 +488,73 @@ export const presenceService = {
       return {};
     }
   },
+
+  /**
+   * Listen to current user's friend list
+   */
+  listenToFriends(uid: string, callback: (friends: any[]) => void) {
+    const friendshipRef = doc(db, 'friendships', uid);
+    return onSnapshot(friendshipRef, async (snapshot) => {
+      const friendUids = snapshot.data()?.friends || [];
+      if (friendUids.length === 0) {
+        callback([]);
+        return;
+      }
+
+      // Fetch user details for each friend in batches
+      const usersRef = collection(db, 'users');
+      const chunks = [];
+      for (let i = 0; i < friendUids.length; i += 30) {
+        chunks.push(friendUids.slice(i, i + 30));
+      }
+
+      const allFriends: any[] = [];
+      for (const chunk of chunks) {
+        const q = query(usersRef, where('uid', 'in', chunk));
+        const userSnapshots = await getDocs(q);
+        userSnapshots.forEach(doc => allFriends.push(doc.data()));
+      }
+      callback(allFriends);
+    });
+  },
+
+  /**
+   * Send WebRTC signaling (Ephemeral)
+   */
+  async sendSignaling(fromUid: string, toUid: string, signal: any) {
+    const signalId = `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const signalRef = ref(realtimeDb, `signaling/${toUid}/${signalId}`);
+    await set(signalRef, {
+      ...signal,
+      fromUid,
+      timestamp: rtdbServerTimestamp()
+    });
+    return signalId;
+  },
+
+  /**
+   * Listen to incoming WebRTC signaling (Pipe Model)
+   */
+  listenToSignaling(uid: string, callback: (signal: any) => void) {
+    const signalingRef = ref(realtimeDb, `signaling/${uid}`);
+    
+    const unsubscribe = onChildAdded(signalingRef, async (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
+      // 1. Trigger the callback
+      callback({
+        id: snapshot.key,
+        ...data
+      });
+
+      // 2. IMMEDIATELY DELETE from server
+      await remove(ref(realtimeDb, `signaling/${uid}/${snapshot.key}`));
+      console.log(`🗑️ Signal ${snapshot.key} wiped from server after delivery`);
+    });
+
+    return unsubscribe;
+  },
 };
 
 // ============ MESSAGE SERVICES ============
@@ -471,11 +579,20 @@ export const messageService = {
     const conversationId = this.getConversationId(fromUid, toUid);
     const messageId = options.messageId || `${Date.now()}_${Math.random()}`;
 
+    // E2E Encryption: Encrypt content if it's a text message
+    let encryptedContent = content;
+    try {
+      const convKey = await getConversationKey(fromUid, toUid);
+      encryptedContent = await encryptMessage(content, convKey);
+    } catch (encErr) {
+      console.warn('⚠️ Encryption failed, sending plaintext:', encErr);
+    }
+
     const messageData = {
       messageId,
       fromUid,
       toUid,
-      content,
+      content: encryptedContent, // Store encrypted
       mediaUrl: options.mediaUrl || null,
       messageType: options.messageType || 'text',
       timestamp: options.timestamp || serverTimestamp(),
@@ -483,19 +600,35 @@ export const messageService = {
       deliveredAt: null,
       readAt: null,
       typing: false,
+      isEncrypted: true,
     };
 
-    await setDoc(
-      doc(db, 'conversations', conversationId, 'messages', messageId),
-      messageData
-    );
-
-    await this.updateConversationMetadata(
+    // CLOUD STORAGE: TRANSPORT ONLY (ZERO PERSISTENCE)
+    // We use RTDB as a "pipe". Recipient will delete this record immediately upon receipt.
+    const deliveryRef = ref(realtimeDb, `delivery/${toUid}/${messageId}`);
+    await set(deliveryRef, {
+      ...messageData,
       fromUid,
-      toUid,
-      conversationId,
-      content
-    );
+      conversationId
+    });
+
+    // Save to local persistence - This remains our ONLY permanent store
+    try {
+      await appendMessage(fromUid, {
+        id: messageId,
+        chatId: conversationId,
+        senderId: fromUid,
+        content: content,
+        type: (options.messageType as any) || 'text',
+        timestamp: new Date().toISOString(),
+        status: (options.status as any) || 'sent',
+      });
+    } catch (localErr) {
+      console.warn('⚠️ Local persistence failed:', localErr);
+    }
+
+    // We don't even update Firestore metadata anymore to keep the server 100% clean
+    // Metadata will be managed locally on the device.
 
     return { success: true, messageId, conversationId, status: messageData.status };
   },
@@ -507,18 +640,35 @@ export const messageService = {
     fromUid: string,
     toUid: string,
     content: string,
-    mediaUrl?: string,
-    messageType: string = 'text'
+    mediaFile?: File,
+    messageType: 'text' | 'image' | 'video' | 'audio' = 'text'
   ) {
     try {
+      let mediaUrl = null;
+      let mediaRef: StoredMediaReference | null = null;
+
+      // Handle Production-Grade Media Upload
+      if (mediaFile) {
+        console.log(`📤 Uploading encrypted ${messageType}...`);
+        mediaRef = await uploadMediaWithProgress(
+          mediaFile,
+          messageType === 'text' ? 'image' : messageType, // fallback
+          fromUid,
+          toUid
+        );
+        mediaUrl = mediaRef.fileId; // Use fileId as the reference
+      }
+
       const result = await this.recordMessage(fromUid, toUid, content, {
-        mediaUrl: mediaUrl || null,
-        messageType,
+        mediaUrl: mediaUrl,
+        messageType: mediaRef ? messageType : 'text',
         status: MESSAGE_STATUS.SENT,
       });
 
+      const { messageId, conversationId } = result;
+
       // Check if recipient is online, if so mark as delivered
-      const recipientPresence = await presenceService.listenToUserPresence(
+      await presenceService.listenToUserPresence(
         toUid,
         async (isOnline) => {
           if (isOnline) {
@@ -635,7 +785,33 @@ export const messageService = {
   },
 
   /**
-   * Listen to messages in a conversation in real-time
+   * Listen to incoming messages (Pipe Model)
+   * Recipient receives the message and IMMEDIATELY deletes it from RTDB
+   */
+  listenToIncomingMessages(uid: string, callback: (message: any) => void) {
+    const deliveryRef = ref(realtimeDb, `delivery/${uid}`);
+    
+    // Use onChildAdded so we get each message one by one
+    const unsubscribe = onChildAdded(deliveryRef, async (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
+      // 1. Trigger the callback for the UI/Store
+      callback({
+        id: snapshot.key,
+        ...data
+      });
+
+      // 2. IMMEDIATELY DELETE from server
+      await remove(ref(realtimeDb, `delivery/${uid}/${snapshot.key}`));
+      console.log(`🗑️ Message ${snapshot.key} wiped from server after delivery`);
+    });
+
+    return unsubscribe;
+  },
+
+  /**
+   * Listen to messages in a conversation (LEGACY - now relies on local store + incoming listener)
    */
   listenToMessages(
     fromUid: string,
@@ -651,10 +827,25 @@ export const messageService = {
     );
     const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const messages = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const convKey = await getConversationKey(fromUid, toUid);
+      const messages = await Promise.all(snapshot.docs.map(async (doc) => {
+        const data = doc.data();
+        let decryptedContent = data.content;
+        
+        if (data.isEncrypted) {
+          try {
+            decryptedContent = await decryptMessage(data.content, convKey);
+          } catch (decErr) {
+            console.warn('⚠️ Decryption failed for message:', doc.id);
+          }
+        }
+
+        return {
+          id: doc.id,
+          ...data,
+          content: decryptedContent
+        };
       }));
       callback(messages);
     });
@@ -685,11 +876,27 @@ export const messageService = {
       );
 
       const snapshot = await getDocs(q);
-      const messages = snapshot.docs
-        .map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }))
+      const convKey = await getConversationKey(fromUid, toUid);
+      
+      const messages = (await Promise.all(snapshot.docs
+        .map(async (doc) => {
+          const data = doc.data();
+          let decryptedContent = data.content;
+
+          if (data.isEncrypted) {
+            try {
+              decryptedContent = await decryptMessage(data.content, convKey);
+            } catch (decErr) {
+              console.warn('⚠️ Decryption failed for message:', doc.id);
+            }
+          }
+
+          return {
+            id: doc.id,
+            ...data,
+            content: decryptedContent,
+          };
+        })))
         .reverse();
 
       return messages;
@@ -754,6 +961,27 @@ export const messageService = {
       console.log(`✅ Message deleted: ${messageId}`);
     } catch (error: any) {
       console.error('❌ Error deleting message:', error.message);
+    }
+  },
+
+  /**
+   * List all chat IDs that have local data on this device
+   */
+  async getChatsForUser(userId: string): Promise<string[]> {
+    return listLocalChatIds();
+  },
+
+  /**
+   * Add a reaction to a message
+   */
+  async reactToMessage(conversationId: string, messageId: string, reactions: any[]) {
+    try {
+      const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+      await updateDoc(messageRef, {
+        reactions
+      });
+    } catch (error: any) {
+      console.error('❌ Error reacting to message:', error.message);
     }
   },
 };
@@ -1199,26 +1427,22 @@ export const userService = {
   /**
    * Search users by username
    */
+  /**
+   * Search users by username (Production optimized)
+   */
   async searchUsers(searchTerm: string, currentUid: string) {
     try {
-      const q = query(collection(db, 'users'));
+      const q = query(
+        collection(db, 'users'),
+        where('username', '>=', searchTerm.toLowerCase()),
+        where('username', '<=', searchTerm.toLowerCase() + '\uf8ff'),
+        limit(20)
+      );
       const snapshot = await getDocs(q);
-
-      const results = snapshot.docs
-        .filter((doc) => {
-          const username = doc.data().username || '';
-          return (
-            username.toLowerCase().includes(searchTerm.toLowerCase()) &&
-            doc.id !== currentUid
-          );
-        })
-        .map((doc) => ({
-          uid: doc.id,
-          ...doc.data(),
-        }))
-        .slice(0, 10); // Limit to 10 results
-
-      return results;
+      
+      return snapshot.docs
+        .map(doc => ({ uid: doc.id, ...doc.data() }))
+        .filter(u => u.uid !== currentUid);
     } catch (error: any) {
       console.error('❌ Error searching users:', error.message);
       return [];

@@ -8,6 +8,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import Avatar from './Avatar';
+import services from '../../utils/firebaseServices';
 
 export default function VideoCallScreen() {
   const { id: contactId } = useParams<{ id: string }>();
@@ -43,6 +44,10 @@ export default function VideoCallScreen() {
   useEffect(() => {
     if (!contact || !currentUser) return;
 
+    // Check if we are the caller or the receiver
+    const params = new URLSearchParams(window.location.search || window.location.hash.split('?')[1]);
+    const isReceiver = params.get('received') === 'true';
+
     const initializeVideoCall = async () => {
       try {
         // Get user media (audio + video)
@@ -66,25 +71,14 @@ export default function VideoCallScreen() {
           localVideoRef.current.srcObject = stream;
         }
 
-        // Create peer connection with STUN + TURN
+        // Create peer connection
         const peerConnection = new RTCPeerConnection({
           iceServers: [
+            { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
             {
-              urls: [
-                'stun:stun.l.google.com:19302',
-                'stun:stun1.l.google.com:19302',
-                'stun:stun2.l.google.com:19302',
-              ],
-            },
-            // TURN servers for relay across different networks
-            // Express TURN - FREE tier, reliable and fast
-            // https://expressturn.com/
-            {
-              urls: [
-                'turn:free.expressturn.com:3478',
-              ],
+              urls: ['turn:free.expressturn.com:3478'],
               username: '0000000020932600049',
-              credential: 'K8KMvixuaPZkje9gjLJojFTM0+Y=',
+              credential: 'K6KMvixuaPZkje9gjLJojFTM0+Y=',
             },
           ],
         });
@@ -110,13 +104,11 @@ export default function VideoCallScreen() {
 
         // Handle ICE candidates
         peerConnection.onicecandidate = (event) => {
-          if (event.candidate && wsRef.current) {
-            wsRef.current.send(JSON.stringify({
+          if (event.candidate) {
+            services.presenceService.sendSignaling(currentUser.userId, contact.id, {
               type: 'webrtc-candidate',
-              from: currentUser?.userId,
-              to: contact.id,
               candidate: event.candidate,
-            }));
+            });
           }
         };
 
@@ -127,17 +119,19 @@ export default function VideoCallScreen() {
           }
         };
 
-        // Create and send offer
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
+        // ONLY CREATE OFFER IF WE ARE THE CALLER
+        if (!isReceiver) {
+          console.log('📱 Creating WebRTC offer as caller...');
+          const offer = await peerConnection.createOffer();
+          await peerConnection.setLocalDescription(offer);
 
-        if (wsRef.current) {
-          wsRef.current.send(JSON.stringify({
+          await services.presenceService.sendSignaling(currentUser.userId, contact.id, {
             type: 'webrtc-offer',
-            from: currentUser?.userId,
-            to: contact.id,
             offer: offer,
-          }));
+            callType: 'video'
+          });
+        } else {
+          console.log('📞 Waiting for incoming WebRTC offer as receiver...');
         }
       } catch (err) {
         console.error('❌ Failed to initialize video call:', err);
@@ -147,26 +141,22 @@ export default function VideoCallScreen() {
 
     initializeVideoCall();
 
-    return () => {
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-      }
-      if (peerConnectionRef.current) {
-        peerConnectionRef.current.close();
-      }
-    };
-  }, [contact, currentUser, isFrontCamera]);
+    // Listen to incoming signaling signals
+    const unsubscribeSignaling = presenceService.listenToSignaling(currentUser.userId, async (data) => {
+      if (data.fromUid !== contact.id) return; // Only accept signals from this contact
 
-  // Handle WebRTC messages
-  useEffect(() => {
-    if (!wsRef.current) return;
-
-    const handleMessage = async (event: Event) => {
       try {
-        const data = JSON.parse((event as MessageEvent).data);
-
         if (data.type === 'webrtc-answer' && peerConnectionRef.current) {
           await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } else if (data.type === 'webrtc-offer' && peerConnectionRef.current) {
+          // Handle incoming offer (if this screen was opened as recipient)
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+          const answer = await peerConnectionRef.current.createAnswer();
+          await peerConnectionRef.current.setLocalDescription(answer);
+          await presenceService.sendSignaling(currentUser.userId, contact.id, {
+            type: 'webrtc-answer',
+            answer: answer
+          });
         } else if (data.type === 'webrtc-candidate' && peerConnectionRef.current && data.candidate) {
           try {
             await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
@@ -175,13 +165,20 @@ export default function VideoCallScreen() {
           }
         }
       } catch (err) {
-        console.error('Error handling WebRTC message:', err);
+        console.error('Error handling WebRTC signaling:', err);
+      }
+    });
+
+    return () => {
+      unsubscribeSignaling();
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
       }
     };
-
-    wsRef.current.addEventListener('message', handleMessage);
-    return () => wsRef.current?.removeEventListener('message', handleMessage);
-  }, []);
+  }, [contact, currentUser, isFrontCamera]);
 
   useEffect(() => {
     if (callState === 'connected') {

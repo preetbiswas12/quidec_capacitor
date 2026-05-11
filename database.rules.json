@@ -1,0 +1,39 @@
+{
+  "rules": {
+    "presence": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "$uid === auth.uid"
+      }
+    },
+    "typing": {
+      "$conversationId": {
+        ".read": "auth != null && (auth.uid === $conversationId.split('_')[0] || auth.uid === $conversationId.split('_')[1])",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    },
+    "delivery": {
+      "$uid": {
+        // Only the recipient can read and delete their mailbox
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null", // Anyone can write to someone's mailbox
+        "$messageId": {
+          // But once written, only the recipient can delete it
+          ".write": "auth != null && (data.exists() ? auth.uid === $uid : true)"
+        }
+      }
+    },
+    "signaling": {
+      "$uid": {
+        // Signaling for WebRTC (ephemeral)
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null",
+        "$signalId": {
+          ".write": "auth != null && (data.exists() ? auth.uid === $uid : true)"
+        }
+      }
+    }
+  }
+}

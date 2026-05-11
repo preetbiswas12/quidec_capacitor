@@ -55,19 +55,19 @@ export default function ChatList() {
     <div className="flex flex-col h-full">
       {/* Search Bar */}
       <div className="px-3 py-2 flex-shrink-0">
-        <div className="flex items-center gap-2 bg-[#202C33] rounded-xl px-4 py-2">
-          <Search size={16} className="text-[#8696A0] flex-shrink-0" />
+        <div className="flex items-center gap-2 bg-wa-header rounded-xl px-4 py-2">
+          <Search size={16} className="text-wa-text-muted flex-shrink-0" />
           <input
             type="text"
             placeholder="Search"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="flex-1 bg-transparent outline-none text-[#E9EDEF] placeholder-[#8696A0]"
+            className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]"
             style={{ fontSize: '0.9rem' }}
           />
           {searchQuery && (
             <button onClick={() => setSearchQuery('')}>
-              <X size={16} className="text-[#8696A0]" />
+              <X size={16} className="text-wa-text-muted" />
             </button>
           )}
         </div>
@@ -85,13 +85,13 @@ export default function ChatList() {
                 className={`flex items-center gap-1 rounded-full px-3 py-1.5 transition-colors ${
                   isActive
                     ? 'bg-[#00A884]/15 text-[#00A884]'
-                    : 'bg-[#202C33] text-[#8696A0] hover:bg-[#2A3942]'
+                    : 'bg-wa-header text-wa-text-muted hover:bg-wa-secondary/50'
                 }`}
               >
                 <span style={{ fontSize: '0.8rem', fontWeight: isActive ? 500 : 400 }}>{tab.label}</span>
                 {tab.badge != null && tab.badge > 0 && (
                   <span
-                    className={`rounded-full px-1.5 py-0.5 ${isActive ? 'bg-[#00A884] text-white' : 'bg-[#2A3942] text-[#8696A0]'}`}
+                    className={`rounded-full px-1.5 py-0.5 ${isActive ? 'bg-[#00A884] text-white' : 'bg-[#2A3942] text-wa-text-muted'}`}
                     style={{ fontSize: '0.65rem', fontWeight: 700, minWidth: 18, textAlign: 'center' }}
                   >
                     {tab.badge}
@@ -109,14 +109,14 @@ export default function ChatList() {
         {!searchQuery && pendingIncomingCount > 0 && (
           <button
             onClick={() => setShowRequests(true)}
-            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#2A3942] transition-colors border-b border-[#2A3942]/50"
+            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-wa-secondary/50 transition-colors border-b border-wa-border/50"
           >
             <div className="w-12 h-12 rounded-full bg-[#00A884]/20 flex items-center justify-center">
               <MessageSquare size={20} className="text-[#00A884]" />
             </div>
             <div className="flex-1 text-left">
               <span className="text-[#00A884]" style={{ fontWeight: 500 }}>Message Requests</span>
-              <p className="text-[#8696A0]" style={{ fontSize: '0.78rem' }}>
+              <p className="text-wa-text-muted" style={{ fontSize: '0.78rem' }}>
                 {pendingIncomingCount} pending request{pendingIncomingCount !== 1 ? 's' : ''}
               </p>
             </div>
@@ -131,14 +131,14 @@ export default function ChatList() {
 
         {/* Archive row — only show in "all" filter and no search */}
         {!searchQuery && chatFilter === 'all' && (
-          <div className="flex items-center gap-3 px-4 py-3 hover:bg-[#2A3942] cursor-pointer transition-colors border-b border-[#2A3942]/50">
+          <div className="flex items-center gap-3 px-4 py-3 hover:bg-wa-secondary/50 cursor-pointer transition-colors border-b border-wa-border/50">
             <div className="w-12 h-12 rounded-full bg-[#2A3942] flex items-center justify-center">
               <Archive size={20} className="text-[#00A884]" />
             </div>
             <div className="flex-1">
               <span className="text-[#00A884]" style={{ fontWeight: 500 }}>Archived</span>
             </div>
-            <span className="text-[#8696A0]" style={{ fontSize: '0.75rem' }}>0</span>
+            <span className="text-wa-text-muted" style={{ fontSize: '0.75rem' }}>0</span>
           </div>
         )}
 
@@ -170,7 +170,7 @@ export default function ChatList() {
         ))}
 
         {applyFilter([...pinnedChats, ...regularChats]).length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 text-[#8696A0] gap-3">
+          <div className="flex flex-col items-center justify-center py-16 text-wa-text-muted gap-3">
             <Search size={40} className="opacity-30" />
             <p style={{ fontSize: '0.95rem' }}>
               {searchQuery ? `No results for "${searchQuery}"` : `No ${chatFilter} chats`}
@@ -197,14 +197,14 @@ function ChatRow({ chat, contact, isActive, isTyping, onOpen, isPinned }: {
   return (
     <div
       onClick={onOpen}
-      className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors border-b border-[#2A3942]/30 ${isActive ? 'bg-[#2A3942]' : 'hover:bg-[#2A3942]'}`}
+      className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors border-b border-wa-border/30 ${isActive ? 'bg-wa-secondary' : 'hover:bg-wa-secondary/50'}`}
     >
       <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={52} isOnline={contact.isOnline} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1">
-          <span className="text-[#E9EDEF] truncate flex-1 min-w-0" style={{ fontWeight: 500, fontSize: '0.95rem' }}>{contact.name}</span>
+          <span className="text-wa-primary truncate flex-1 min-w-0" style={{ fontWeight: 500, fontSize: '0.95rem' }}>{contact.name}</span>
           <span
-            className={`flex-shrink-0 ${chat.unreadCount > 0 ? 'text-[#00A884]' : 'text-[#8696A0]'}`}
+            className={`flex-shrink-0 ${chat.unreadCount > 0 ? 'text-[#00A884]' : 'text-wa-text-muted'}`}
             style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}
           >
             {chat.lastMessageTime}
@@ -221,7 +221,7 @@ function ChatRow({ chat, contact, isActive, isTyping, onOpen, isPinned }: {
             {isTyping ? (
               <span className="text-[#00A884]" style={{ fontSize: '0.82rem' }}>typing...</span>
             ) : (
-              <span className="text-[#8696A0] truncate" style={{ fontSize: '0.82rem' }}>
+              <span className="text-wa-text-muted truncate" style={{ fontSize: '0.82rem' }}>
                 {chat.lastMessageSender && <span>{chat.lastMessageSender}: </span>}
                 {lastMsg}
               </span>

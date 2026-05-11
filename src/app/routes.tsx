@@ -1,45 +1,114 @@
 import { createBrowserRouter, Outlet, Navigate } from 'react-router';
+import { motion, AnimatePresence } from 'motion/react';
 import { AppProvider, useApp } from './context/AppContext';
 import MobileFrame from './components/MobileFrame';
 import SplashScreen from './components/SplashScreen';
 import Onboarding from './components/Onboarding';
 import MainLayout from './components/MainLayout';
-import LoginScreen from './components/LoginScreen';
-import EmailVerification from './components/EmailVerification';
 import ChatWindow from './components/ChatWindow';
 import VoiceCallScreen from './components/VoiceCallScreen';
 import VideoCallScreen from './components/VideoCallScreen';
+import EmailVerification from './components/EmailVerification';
 
 // ─── Protected Route ─────────────────────────────────────────────────────────
 
 function ProtectedRoute() {
-  const { isOnboarded, isAuthenticating } = useApp();
+  const { isOnboarded, isAuthenticating, needsVerification } = useApp();
 
-  if (isAuthenticating) {
-    return <div className="flex items-center justify-center h-screen bg-[#111B21]">Loading...</div>;
-  }
-
-  if (!isOnboarded) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <Outlet />;
+  return (
+    <AnimatePresence mode="wait">
+      {isAuthenticating ? (
+        <motion.div
+          key="splash-protected"
+          initial={{ opacity: 1 }}
+          exit={{ opacity: 0, scale: 1.1 }}
+          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+          className="fixed inset-0 z-[9999]"
+        >
+          <SplashScreen />
+        </motion.div>
+      ) : needsVerification ? (
+        <motion.div
+          key="verify-protected"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="h-full w-full"
+        >
+          <Navigate to="/verify-email" replace />
+        </motion.div>
+      ) : !isOnboarded ? (
+        <motion.div
+          key="onboarding-redirect"
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="h-full w-full"
+        >
+          <Navigate to="/onboarding" replace />
+        </motion.div>
+      ) : (
+        <motion.div
+          key="protected-content"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5 }}
+          className="h-full w-full"
+        >
+          <Outlet />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }
 
 // ─── Auth Route ──────────────────────────────────────────────────────────────
 
 function AuthRoute() {
-  const { isOnboarded, isAuthenticating } = useApp();
+  const { isOnboarded, isAuthenticating, needsVerification } = useApp();
 
-  if (isAuthenticating) {
-    return <div className="flex items-center justify-center h-screen bg-[#111B21]">Loading...</div>;
-  }
-
-  if (isOnboarded) {
-    return <Navigate to="/app" replace />;
-  }
-
-  return <Outlet />;
+  return (
+    <AnimatePresence mode="wait">
+      {isAuthenticating ? (
+        <motion.div
+          key="splash"
+          initial={{ opacity: 1 }}
+          exit={{ opacity: 0, scale: 1.1 }}
+          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+          className="fixed inset-0 z-[9999]"
+        >
+          <SplashScreen />
+        </motion.div>
+      ) : needsVerification ? (
+        <motion.div
+          key="verify"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          className="h-full w-full"
+        >
+          <Navigate to="/verify-email" replace />
+        </motion.div>
+      ) : isOnboarded ? (
+        <motion.div
+          key="app-redirect"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="h-full w-full"
+        >
+          <Navigate to="/app" replace />
+        </motion.div>
+      ) : (
+        <motion.div
+          key="onboarding"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5 }}
+          className="h-full w-full"
+        >
+          <Outlet />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }
 
 // ─── Root Layout ─────────────────────────────────────────────────────────────
@@ -63,11 +132,13 @@ export const router = createBrowserRouter([
       {
         element: <AuthRoute />,
         children: [
-          { path: '/login', element: <LoginScreen /> },
-          { path: '/verify-email', element: <EmailVerification /> },
           { path: '/onboarding', element: <Onboarding /> },
-          { index: true, element: <Navigate to="/login" replace /> },
+          { index: true, element: <Navigate to="/onboarding" replace /> },
         ],
+      },
+      {
+        path: '/verify-email',
+        element: <EmailVerification />,
       },
       {
         element: <ProtectedRoute />,
@@ -84,7 +155,7 @@ export const router = createBrowserRouter([
           { path: '/call/video/:id', element: <VideoCallScreen /> },
         ],
       },
-      { path: '*', element: <Navigate to="/login" replace /> },
+      { path: '*', element: <Navigate to="/onboarding" replace /> },
     ],
   },
 ]);

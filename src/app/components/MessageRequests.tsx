@@ -23,8 +23,8 @@ export default function MessageRequests() {
   const pending = chatRequests.filter(r => r.direction === 'incoming' && r.status === 'pending');
   const handled = chatRequests.filter(r => r.direction === 'incoming' && r.status !== 'pending');
 
-  const handleAccept = async (requestId: string, contactId: string) => {
-    const newChatId = await acceptRequest(requestId);
+  const handleAccept = (requestId: string, contactId: string) => {
+    const newChatId = acceptRequest(requestId);
 
     setShowRequests(false);
 

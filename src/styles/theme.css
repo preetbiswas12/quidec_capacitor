@@ -1,29 +1,37 @@
-@custom-variant dark (&:is(.dark *));
-
 :root {
-  --font-size: 16px;
-  --background: #ffffff;
+  /* WhatsApp Light Theme */
+  --wa-bg-main: #FFFFFF;
+  --wa-bg-secondary: #F0F2F5;
+  --wa-bg-header: #F0F2F5;
+  --wa-bg-chat: #EFEAE2;
+  --wa-bg-bubble-self: #D9FDD3;
+  --wa-bg-bubble-other: #FFFFFF;
+  --wa-text-primary: #111B21;
+  --wa-text-secondary: #667781;
+  --wa-text-muted: #8696A0;
+  --wa-border: #E9EDEF;
+  --wa-accent: #00A884;
+  --wa-header-icon: #54656F;
+  --wa-input-bg: #FFFFFF;
+
+  --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
-  --card: #ffffff;
+  --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: #030213;
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.0058 264.53);
-  --secondary-foreground: #030213;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #e9ebef;
-  --accent-foreground: #030213;
-  --destructive: #d4183d;
-  --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
-  --input: transparent;
-  --input-background: #f3f3f5;
-  --switch-background: #cbced4;
-  --font-weight-medium: 500;
-  --font-weight-normal: 400;
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
@@ -32,8 +40,8 @@
   --chart-5: oklch(0.769 0.188 70.08);
   --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: #030213;
+  --sidebar-foreground: oklch(0.371 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
@@ -42,6 +50,21 @@
 }
 
 .dark {
+  /* WhatsApp Dark Theme */
+  --wa-bg-main: #0B141A;
+  --wa-bg-secondary: #111B21;
+  --wa-bg-header: #202C33;
+  --wa-bg-chat: #0B141A;
+  --wa-bg-bubble-self: #005C4B;
+  --wa-bg-bubble-other: #202C33;
+  --wa-text-primary: #E9EDEF;
+  --wa-text-secondary: #AEBAC1;
+  --wa-text-muted: #8696A0;
+  --wa-border: #2A3942;
+  --wa-accent: #00A884;
+  --wa-header-icon: #AEBAC1;
+  --wa-input-bg: #2A3942;
+
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.145 0 0);
@@ -61,15 +84,13 @@
   --border: oklch(0.269 0 0);
   --input: oklch(0.269 0 0);
   --ring: oklch(0.439 0 0);
-  --font-weight-medium: 500;
-  --font-weight-normal: 400;
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-4: oklch(0.627 0.265 303.899);
   --chart-5: oklch(0.645 0.246 16.439);
   --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.708 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.269 0 0);
@@ -78,7 +99,7 @@
   --sidebar-ring: oklch(0.439 0 0);
 }
 
-@theme inline {
+@theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -97,18 +118,15 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
-  --color-input-background: var(--input-background);
-  --color-switch-background: var(--switch-background);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -117,65 +135,30 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-wa-main: var(--wa-bg-main);
+  --color-wa-secondary: var(--wa-bg-secondary);
+  --color-wa-header: var(--wa-bg-header);
+  --color-wa-chat: var(--wa-bg-chat);
+  --color-wa-bubble-self: var(--wa-bg-bubble-self);
+  --color-wa-bubble-other: var(--wa-bg-bubble-other);
+  --color-wa-text-primary: var(--wa-text-primary);
+  --color-wa-text-secondary: var(--wa-text-secondary);
+  --color-wa-text-muted: var(--wa-text-muted);
+  --color-wa-border: var(--wa-border);
+  --color-wa-accent: var(--wa-accent);
+  --color-wa-header-icon: var(--wa-header-icon);
+  --color-wa-input: var(--wa-input-bg);
+  --width-97.5: 24.375rem;
+  --spacing-97.5: 24.375rem;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
-
   body {
-    @apply bg-background text-foreground;
-  }
-
-  /**
-  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
-  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
-  */
-
-  html {
-    font-size: var(--font-size);
-  }
-
-  h1 {
-    font-size: var(--text-2xl);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  h2 {
-    font-size: var(--text-xl);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  h3 {
-    font-size: var(--text-lg);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  h4 {
-    font-size: var(--text-base);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  label {
-    font-size: var(--text-base);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  button {
-    font-size: var(--text-base);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  input {
-    font-size: var(--text-base);
-    font-weight: var(--font-weight-normal);
-    line-height: 1.5;
+    @apply bg-background text-foreground transition-colors duration-200;
+    background-color: var(--wa-bg-main);
+    color: var(--wa-text-primary);
   }
 }

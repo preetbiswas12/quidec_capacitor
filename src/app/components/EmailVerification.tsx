@@ -1,211 +1,196 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router';
+import { useNavigate } from 'react-router';
+import { useApp } from '../context/AppContext';
 import { authService } from '../../utils/firebaseServices';
-import { motion } from 'motion/react';
-import { Loader2, Mail, CheckCircle, ArrowLeft } from 'lucide-react';
-import { User } from 'firebase/auth';
+import { motion, AnimatePresence } from 'motion/react';
+import { Mail, Shield, Check, Loader2, ArrowLeft, RefreshCw, LogOut } from 'lucide-react';
 
 export default function EmailVerification() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const { email, isNewUser } = (location.state as any) || {};
-
-  const [loading, setLoading] = useState(false);
+  const { currentUser, needsVerification, logout } = useApp();
+  
   const [verifying, setVerifying] = useState(false);
   const [verified, setVerified] = useState(false);
   const [resendSent, setResendSent] = useState(false);
   const [error, setError] = useState('');
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-  // Auto-check verification status
+  // Auto-refresh when verified
   useEffect(() => {
-    const checkVerification = async () => {
-      if (!currentUser) return;
-
-      const updatedUser = await authService.reloadUser();
-      if (updatedUser?.emailVerified) {
-        setVerified(true);
-        setTimeout(() => {
-          navigate('/app');
-        }, 2000);
-      }
-    };
-
-    // Check every 3 seconds
-    const interval = setInterval(checkVerification, 3000);
-    return () => clearInterval(interval);
-  }, [currentUser, navigate]);
-
-  // Get current user on mount
-  useEffect(() => {
-    authService.getCurrentUser().then((user) => {
-      if (!user) {
-        navigate('/login');
-        return;
-      }
-      setCurrentUser(user);
-      if (user.emailVerified) {
-        setVerified(true);
-        setTimeout(() => navigate('/app'), 2000);
-      }
-    });
-  }, [navigate]);
-
-  const handleResendEmail = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const result = await authService.resendEmailVerification();
-      setResendSent(true);
-      setTimeout(() => setResendSent(false), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to resend email');
-    } finally {
-      setLoading(false);
+    let interval: any;
+    if (needsVerification && !verified) {
+      interval = setInterval(async () => {
+        const user = await authService.reloadUser();
+        if (user?.emailVerified) {
+          setVerified(true);
+          clearInterval(interval);
+          // Small delay before redirecting to allow user to see success
+          setTimeout(() => {
+             // In a real app, we might need to refresh the page or context state
+             window.location.reload(); 
+          }, 2000);
+        }
+      }, 5000);
     }
-  };
+    return () => clearInterval(interval);
+  }, [needsVerification, verified]);
 
-  const handleManualVerification = async () => {
+  const handleManualVerify = async () => {
     setVerifying(true);
     setError('');
     try {
-      const updatedUser = await authService.reloadUser();
-      if (updatedUser?.emailVerified) {
+      const user = await authService.reloadUser();
+      if (user?.emailVerified) {
         setVerified(true);
-        setTimeout(() => navigate('/app'), 1500);
+        setTimeout(() => window.location.reload(), 1500);
       } else {
-        setError('Email not verified yet. Please check your inbox.');
+        setError('Email not verified yet. Please check your inbox and click the link.');
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to verify email');
+    } catch (err) {
+      setError('Verification check failed. Please try again.');
     } finally {
       setVerifying(false);
     }
   };
 
-  const handleBackToLogin = () => {
-    navigate('/login');
+  const handleResend = async () => {
+    setResendSent(true);
+    setError('');
+    try {
+      await authService.resendEmailVerification();
+      setTimeout(() => setResendSent(false), 5000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to resend. Please wait a minute and try again.');
+      setResendSent(false);
+    }
   };
 
-  if (verified) {
-    return (
-      <div className="h-full w-full bg-linear-to-b from-[#0a0e27] to-[#111B21] flex flex-col items-center justify-center p-4">
-        <motion.div
-          className="w-full max-w-sm space-y-6"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-        >
-          <div className="text-center space-y-4">
-            <motion.div
-              className="w-20 h-20 mx-auto bg-green-500/20 rounded-full flex items-center justify-center"
-              animate={{ scale: [1, 1.1, 1] }}
-              transition={{ duration: 0.5 }}
-            >
-              <CheckCircle className="w-12 h-12 text-green-400" />
-            </motion.div>
-            <h1 className="text-3xl font-bold text-white">Email Verified!</h1>
-            <p className="text-[#8696A0]">Redirecting to app...</p>
-          </div>
-        </motion.div>
-      </div>
-    );
+  if (!currentUser && !needsVerification) {
+    return null;
   }
 
   return (
-    <div className="h-full w-full bg-linear-to-b from-[#0a0e27] to-[#111B21] flex flex-col items-center justify-center p-4">
-      <motion.div
-        className="w-full max-w-sm space-y-6"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        {/* Header */}
-        <button
-          onClick={handleBackToLogin}
-          className="flex items-center gap-2 text-[#00A884] hover:text-[#008C6E] transition"
+    <div className="h-full w-full bg-white flex flex-col overflow-hidden max-w-md mx-auto shadow-2xl relative">
+      {/* Header */}
+      <div className="px-6 py-8 flex items-center gap-4">
+        <button 
+          onClick={logout}
+          className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400"
         >
-          <ArrowLeft size={20} />
-          Back to Login
+          <ArrowLeft size={24} />
         </button>
+        <h1 className="text-xl font-bold text-[#111B21]">Email Verification</h1>
+      </div>
 
-        <div className="text-center space-y-2">
-          <motion.div
-            className="w-20 h-20 mx-auto bg-linear-to-br from-[#00A884] to-[#008C6E] rounded-full flex items-center justify-center shadow-lg"
-            animate={{ y: [0, -12, 0] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          >
-            <Mail className="w-10 h-10 text-white" />
-          </motion.div>
-          <h1 className="text-2xl font-bold text-white">Verify Your Email</h1>
-          <p className="text-[#8696A0] text-sm">
-            We sent a verification link to <strong>{currentUser?.email || email}</strong>
-          </p>
-        </div>
+      <div className="flex-1 px-8 pb-12 flex flex-col items-center justify-center text-center">
+        <motion.div 
+          className={`w-28 h-28 rounded-full flex items-center justify-center mb-8 transition-all duration-700 ${verified ? 'bg-green-500 shadow-[0_0_40px_rgba(34,197,94,0.4)]' : 'bg-[#00A884]/10'}`}
+          initial={{ scale: 0.5, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+        >
+          <AnimatePresence mode="wait">
+            {verified ? (
+              <motion.div key="check" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}>
+                <Check size={56} className="text-white" />
+              </motion.div>
+            ) : (
+              <motion.div key="mail" animate={{ y: [0, -10, 0] }} transition={{ duration: 3, repeat: Infinity }}>
+                <Mail size={48} className="text-[#00A884]" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
 
-        {/* Info Box */}
-        <div className="bg-[#1F2937]/50 border border-[#00A884]/20 rounded-lg p-4 space-y-2">
-          <p className="text-[#E9EDEF] text-sm">📧 Steps:</p>
-          <ol className="text-[#8696A0] text-xs space-y-1 list-decimal list-inside">
-            <li>Check your email inbox</li>
-            <li>Click the verification link</li>
-            <li>Return here and click "I've Verified"</li>
-          </ol>
-        </div>
+        <h2 className="text-2xl font-extrabold text-[#111B21] mb-4">
+          {verified ? 'Success!' : 'Confirm your email'}
+        </h2>
+        
+        <p className="text-[#667781] leading-relaxed mb-8">
+          {verified ? (
+            "Your email has been verified. We're getting things ready for you..."
+          ) : (
+            <>
+              We've sent a verification link to:<br/>
+              <span className="text-[#111B21] font-bold text-lg break-all">{currentUser?.email}</span>
+            </>
+          )}
+        </p>
 
-        {/* Error Message */}
-        {error && (
-          <motion.div
-            className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-red-400 text-sm text-center"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-          >
-            {error}
-          </motion.div>
-        )}
+        {!verified && (
+          <div className="w-full space-y-6">
+            <div className="bg-[#f0faf7] border border-[#00A884]/20 rounded-2xl p-6 text-left space-y-4">
+              <h3 className="text-[#111B21] font-bold flex items-center gap-2">
+                <Shield size={18} className="text-[#00A884]" />
+                Next Steps
+              </h3>
+              <ul className="text-sm text-[#667781] space-y-3">
+                <li className="flex gap-3">
+                  <span className="w-6 h-6 rounded-full bg-[#00A884] text-white text-xs flex items-center justify-center flex-shrink-0">1</span>
+                  <span>Check your <b>Inbox</b> or <b>Spam</b> folder.</span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="w-6 h-6 rounded-full bg-[#00A884] text-white text-xs flex items-center justify-center flex-shrink-0">2</span>
+                  <span>Click the verification button in the email.</span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="w-6 h-6 rounded-full bg-[#00A884] text-white text-xs flex items-center justify-center flex-shrink-0">3</span>
+                  <span>Come back here to start chatting!</span>
+                </li>
+              </ul>
+            </div>
 
-        {/* Resend Success Message */}
-        {resendSent && (
-          <motion.div
-            className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-green-400 text-sm text-center"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-          >
-            ✅ Verification email resent! Check your inbox.
-          </motion.div>
-        )}
+            {error && (
+              <motion.p 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-red-500 text-sm font-semibold"
+              >
+                {error}
+              </motion.p>
+            )}
 
-        {/* Action Buttons */}
-        <div className="space-y-3">
-          <button
-            onClick={handleManualVerification}
-            disabled={verifying}
-            className="w-full px-4 py-3 bg-[#00A884] hover:bg-[#008C6E] disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition flex items-center justify-center gap-2"
-          >
-            {verifying && <Loader2 className="w-4 h-4 animate-spin" />}
-            {verifying ? 'Checking...' : "I've Verified My Email"}
-          </button>
+            {resendSent && (
+              <motion.p 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="text-[#00A884] text-sm font-bold bg-[#00A884]/5 py-2 rounded-lg"
+              >
+                ✅ A new verification link is on its way!
+              </motion.p>
+            )}
 
-          <button
-            onClick={handleResendEmail}
-            disabled={loading}
-            className="w-full px-4 py-3 bg-[#374151] hover:bg-[#4B5563] disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition flex items-center justify-center gap-2"
-          >
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {loading ? 'Sending...' : 'Resend Verification Email'}
-          </button>
-        </div>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={handleManualVerify}
+                disabled={verifying}
+                className="w-full bg-[#00A884] text-white rounded-full py-4 flex items-center justify-center gap-2 font-bold shadow-xl active:scale-95 transition-all disabled:opacity-50"
+              >
+                {verifying ? <Loader2 size={24} className="animate-spin" /> : "I've verified my email"}
+              </button>
 
-        {/* Spam Info */}
-        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 text-yellow-400 text-xs text-center">
-          💡 Didn't receive the email? Check your spam folder or resend it.
-        </div>
-
-        {/* New User Info */}
-        {isNewUser && (
-          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-blue-400 text-xs text-center">
-            🎉 Welcome to Quidec! Verify your email to get started with secure messaging.
+              <button
+                onClick={handleResend}
+                disabled={resendSent}
+                className="w-full py-3 text-[#00A884] font-bold flex items-center justify-center gap-2 hover:bg-[#00A884]/5 rounded-xl transition-colors disabled:text-gray-400"
+              >
+                <RefreshCw size={18} className={resendSent ? "animate-spin" : ""} />
+                Resend verification link
+              </button>
+            </div>
           </div>
         )}
-      </motion.div>
+      </div>
+
+      {/* Footer Branding */}
+      <div className="pb-8 flex flex-col items-center gap-2 opacity-50">
+        <button 
+          onClick={logout}
+          className="flex items-center gap-2 text-gray-500 font-bold text-sm mb-4 hover:text-red-500 transition-colors"
+        >
+          <LogOut size={16} />
+          Use a different account
+        </button>
+        <p className="text-[10px] uppercase tracking-widest font-black text-gray-400">Quidec Secure Messaging</p>
+      </div>
     </div>
   );
 }

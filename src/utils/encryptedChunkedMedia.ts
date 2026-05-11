@@ -124,9 +124,14 @@ export async function saveEncryptedMediaChunks(
 
       // Save encrypted chunk to filesystem
       const chunkPath = `${MEDIA_PATHS.CHUNKS}/${fileId}_chunk_${i}`
-      const encryptedChunkBase64 = btoa(
-        String.fromCharCode.apply(null, Array.from(new Uint8Array(encryptedChunk)))
-      )
+      
+      // Robust Base64 conversion to avoid "Maximum call stack size exceeded"
+      const chunkUint8 = new Uint8Array(encryptedChunk)
+      let binary = ''
+      for (let j = 0; j < chunkUint8.byteLength; j++) {
+        binary += String.fromCharCode(chunkUint8[j])
+      }
+      const encryptedChunkBase64 = btoa(binary)
 
       await Filesystem.writeFile({
         path: chunkPath,
@@ -215,19 +220,19 @@ export async function retrieveDecryptedMedia(
         encoding: Encoding.UTF8,
       })
 
-      // Decode from base64
-      const encryptedChunkArray = new Uint8Array(
-        atob(chunkFile.data as string)
-          .split('')
-          .map((c) => c.charCodeAt(0))
-      )
+      // Decode from base64 robustly
+      const binaryChunk = atob(chunkFile.data as string)
+      const encryptedChunkArray = new Uint8Array(binaryChunk.length)
+      for (let j = 0; j < binaryChunk.length; j++) {
+        encryptedChunkArray[j] = binaryChunk.charCodeAt(j)
+      }
 
       // Decode IV and salt
-      const iv = new Uint8Array(
-        atob(metadata.encryption.iv)
-          .split('')
-          .map((c) => c.charCodeAt(0))
-      )
+      const binaryIv = atob(metadata.encryption.iv)
+      const iv = new Uint8Array(binaryIv.length)
+      for (let j = 0; j < binaryIv.length; j++) {
+        iv[j] = binaryIv.charCodeAt(j)
+      }
 
       // Decrypt chunk
       const decryptedChunk = await window.crypto.subtle.decrypt(

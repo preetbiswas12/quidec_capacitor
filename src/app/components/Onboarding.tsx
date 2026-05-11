@@ -1,63 +1,145 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { useApp } from '../context/AppContext';
+import { authService } from '../../utils/firebaseServices';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronRight, ChevronLeft, Mail, Shield, Camera, Check, Copy, AtSign } from 'lucide-react';
-
-const generateUserId = (name: string) =>
-  `@${name.toLowerCase().replace(/[^a-z0-9]/g, '')}.${Math.floor(Math.random() * 10000)
-    .toString()
-    .padStart(4, '0')}`;
+import { ChevronRight, ChevronLeft, Mail, Shield, Camera, Check, Copy, AtSign, Loader2, Lock, User as UserIcon } from 'lucide-react';
+import { generateUserId } from '../data/mockData';
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { completeOnboarding } = useApp();
-  const [step, setStep] = useState(0);
+  const { login, register, updateCurrentUser } = useApp();
+  
+  // State
+  const [step, setStep] = useState(0); // 0: Welcome, 1: Auth (Login/Reg), 2: Verify, 3: Profile
+  const [isLogin, setIsLogin] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  
+  // Form Data
   const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [generatedId, setGeneratedId] = useState('');
   const [idCopied, setIdCopied] = useState(false);
-  const [isVerified, setIsVerified] = useState(false);
-  const [emailSent, setEmailSent] = useState(false);
+  
+  // Verification State
+  const [verifying, setVerifying] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [resendSent, setResendSent] = useState(false);
 
   const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
-  const handleSendCode = () => {
-    if (!isValidEmail(email)) return;
-    setEmailSent(true);
-    setStep(2);
+  // ─── Verification Polling ──────────────────────────────────────────────────
+  
+  useEffect(() => {
+    let interval: any;
+    if (step === 2 && !verified) {
+      interval = setInterval(async () => {
+        const user = await authService.reloadUser();
+        if (user?.emailVerified) {
+          setVerified(true);
+          clearInterval(interval);
+          setTimeout(() => setStep(3), 1500);
+        }
+      }, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [step, verified]);
+
+  // ─── Handlers ──────────────────────────────────────────────────────────────
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isValidEmail(email) || password.length < 6) return;
+    
+    setError('');
+    setLoading(true);
+    try {
+      if (isLogin) {
+        const result = await login(email, password);
+        if (result?.emailVerified === false) {
+          setStep(2);
+        } else if (result) {
+          navigate('/app');
+        }
+      } else {
+        const result = await register(email, username, password);
+        if (result?.success) {
+          setStep(2);
+        }
+      }
+    } catch (err: any) {
+      // User-friendly error mapping
+      switch (err.code) {
+        case 'auth/invalid-credential':
+          setError('Incorrect email or password. Please try again or register.');
+          break;
+        case 'auth/user-not-found':
+          setError('No account found with this email. Please register first.');
+          break;
+        case 'auth/wrong-password':
+          setError('Incorrect password. Please try again.');
+          break;
+        case 'auth/email-already-in-use':
+          setError('An account already exists with this email.');
+          break;
+        case 'auth/weak-password':
+          setError('Password is too weak (min 6 characters).');
+          break;
+        default:
+          setError('Authentication failed. Please check your credentials.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleOtpChange = (value: string, index: number) => {
-    if (!/^\d*$/.test(value)) return;
-    const newOtp = [...otp];
-    newOtp[index] = value.slice(-1);
-    setOtp(newOtp);
-    if (value && index < 5) {
-      document.getElementById(`otp-${index + 1}`)?.focus();
-    }
-    if (newOtp.every(d => d !== '') && newOtp.join('').length === 6) {
-      setTimeout(() => setIsVerified(true), 300);
-      setTimeout(() => setStep(3), 1000);
-    }
-  };
-
-  const handleOtpKeyDown = (e: React.KeyboardEvent, index: number) => {
-    if (e.key === 'Backspace' && !otp[index] && index > 0) {
-      document.getElementById(`otp-${index - 1}`)?.focus();
+  const handleManualVerify = async () => {
+    setVerifying(true);
+    setError('');
+    try {
+      const user = await authService.reloadUser();
+      if (user?.emailVerified) {
+        setVerified(true);
+        setTimeout(() => setStep(3), 1000);
+      } else {
+        setError('Email not verified yet. Please click the link in your inbox.');
+      }
+    } catch (err) {
+      setError('Verification check failed. Please try again.');
+    } finally {
+      setVerifying(false);
     }
   };
 
-  const handleFinish = () => {
+  const handleResend = async () => {
+    setResendSent(true);
+    try {
+      await authService.resendEmailVerification();
+      setTimeout(() => setResendSent(false), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to resend');
+    }
+  };
+
+  const handleFinish = async () => {
     if (!name.trim()) return;
-    const userId = generatedId || generateUserId(name);
-    completeOnboarding({ name: name.trim(), email, userId, avatar: null, about: 'Hey there! I am using WhatsApp.' });
-    navigate('/app');
+    setLoading(true);
+    try {
+      const userId = generatedId || generateUserId(name);
+      await updateCurrentUser({ name: name.trim(), userId, about: 'Available' });
+      navigate('/app');
+    } catch (err) {
+      setError('Failed to save profile. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const steps = [
-    // Step 0: Welcome / Terms
+    // Step 0: Welcome
     <motion.div
       key="welcome"
       className="flex flex-col items-center justify-between h-full px-8 py-12"
@@ -75,25 +157,24 @@ export default function Onboarding() {
           </svg>
         </div>
         <div className="text-center">
-          <h1 className="text-[#111B21] mb-3" style={{ fontSize: '1.75rem', fontWeight: 700 }}>Welcome to WhatsApp</h1>
+          <h1 className="text-[#111B21] mb-3" style={{ fontSize: '1.75rem', fontWeight: 700 }}>Welcome to Quidec</h1>
           <p className="text-[#667781] leading-relaxed" style={{ fontSize: '0.9rem' }}>
-            Read our <span className="text-[#00A884]">Privacy Policy</span>. Tap "Agree and continue" to accept the{' '}
-            <span className="text-[#00A884]">Terms of Service</span>.
+            Secure messaging powered by Firebase. Tap "Get Started" to create your account or login.
           </p>
         </div>
       </div>
       <button
         onClick={() => setStep(1)}
-        className="w-full bg-[#00A884] text-white rounded-full py-3.5 flex items-center justify-center gap-2 active:bg-[#008f72] transition-colors"
+        className="w-full bg-[#00A884] text-white rounded-full py-3.5 flex items-center justify-center gap-2 active:bg-[#008f72] transition-colors shadow-lg"
         style={{ fontWeight: 600, fontSize: '0.95rem' }}
       >
-        Agree and continue <ChevronRight size={18} />
+        Get Started <ChevronRight size={18} />
       </button>
     </motion.div>,
 
-    // Step 1: Email Address
+    // Step 1: Auth (Login/Register)
     <motion.div
-      key="email"
+      key="auth"
       className="flex flex-col h-full px-6 py-12"
       initial={{ opacity: 0, x: 40 }}
       animate={{ opacity: 1, x: 0 }}
@@ -105,119 +186,216 @@ export default function Onboarding() {
       </button>
       <div className="flex flex-col items-center gap-6 flex-1">
         <div className="w-20 h-20 bg-[#00A884]/10 rounded-full flex items-center justify-center">
-          <Mail size={32} className="text-[#00A884]" />
+          {isLogin ? <Lock size={32} className="text-[#00A884]" /> : <UserIcon size={32} className="text-[#00A884]" />}
         </div>
         <div className="text-center">
-          <h2 className="text-[#111B21] mb-2" style={{ fontSize: '1.4rem', fontWeight: 700 }}>Enter your email</h2>
+          <h2 className="text-[#111B21] mb-2" style={{ fontSize: '1.4rem', fontWeight: 700 }}>
+            {isLogin ? 'Welcome back' : 'Create account'}
+          </h2>
           <p className="text-[#667781]" style={{ fontSize: '0.875rem' }}>
-            WhatsApp will send a verification code to your email address.
+            {isLogin ? 'Login to your Quidec account' : 'Sign up for secure messaging'}
           </p>
         </div>
-        <div className="w-full">
-          <div className="border-b-2 border-[#00A884] flex items-center gap-3 py-2">
-            <Mail size={18} className="text-[#8696A0]" />
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="your@email.com"
-              className="flex-1 outline-none text-[#111B21] bg-transparent"
-              style={{ fontSize: '1.05rem' }}
-              autoComplete="email"
-            />
-          </div>
-          {email && !isValidEmail(email) && (
-            <p className="text-red-500 mt-2" style={{ fontSize: '0.78rem' }}>
-              Please enter a valid email address
-            </p>
-          )}
+
+        {/* Mode Toggle */}
+        <div className="w-full bg-gray-100 p-1 rounded-full flex">
+          <button 
+            onClick={() => { setIsLogin(true); setError(''); }}
+            className={`flex-1 py-2 rounded-full text-sm font-semibold transition-all ${isLogin ? 'bg-white text-[#00A884] shadow-sm' : 'text-gray-500'}`}
+          >
+            Login
+          </button>
+          <button 
+            onClick={() => { setIsLogin(false); setError(''); }}
+            className={`flex-1 py-2 rounded-full text-sm font-semibold transition-all ${!isLogin ? 'bg-white text-[#00A884] shadow-sm' : 'text-gray-500'}`}
+          >
+            Register
+          </button>
         </div>
-        <p className="text-[#667781] text-xs text-center px-4">
-          A 6-digit verification code will be sent to this address. Standard data rates may apply.
+
+        {error && (
+          <div className="w-full bg-red-50 text-red-600 px-4 py-3 rounded-xl text-xs text-center border border-red-100">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleAuthSubmit} className="w-full space-y-4">
+          <div className="space-y-3">
+            <div className="border-b-2 border-gray-100 focus-within:border-[#00A884] flex items-center gap-3 py-2 transition-colors">
+              <Mail size={18} className="text-[#8696A0]" />
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="Email address"
+                className="flex-1 outline-none text-[#111B21] bg-transparent"
+                style={{ fontSize: '1rem' }}
+                required
+              />
+            </div>
+
+            {!isLogin && (
+              <div className="border-b-2 border-gray-100 focus-within:border-[#00A884] flex items-center gap-3 py-2 transition-colors">
+                <AtSign size={18} className="text-[#8696A0]" />
+                <input
+                  type="text"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  placeholder="Username"
+                  className="flex-1 outline-none text-[#111B21] bg-transparent"
+                  style={{ fontSize: '1rem' }}
+                  required={!isLogin}
+                />
+              </div>
+            )}
+
+            <div className="border-b-2 border-gray-100 focus-within:border-[#00A884] flex items-center gap-3 py-2 transition-colors">
+              <Shield size={18} className="text-[#8696A0]" />
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Password"
+                className="flex-1 outline-none text-[#111B21] bg-transparent"
+                style={{ fontSize: '1rem' }}
+                required
+                minLength={6}
+              />
+            </div>
+          </div>
+
+          {isLogin && (
+            <div className="flex justify-end">
+              <button 
+                type="button"
+                onClick={async () => {
+                  if (!isValidEmail(email)) {
+                    setError('Please enter your email first to reset password');
+                    return;
+                  }
+                  try {
+                    await authService.sendPasswordReset(email);
+                    setError('Password reset link sent to your email!');
+                  } catch (e) {
+                    setError('Failed to send reset link');
+                  }
+                }}
+                className="text-xs text-[#00A884] font-medium"
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading || !isValidEmail(email) || password.length < 6}
+            className={`w-full rounded-full py-3.5 flex items-center justify-center gap-2 transition-all mt-2 ${loading ? 'bg-gray-100' : 'bg-[#00A884] text-white shadow-md'}`}
+            style={{ fontWeight: 600 }}
+          >
+            {loading ? <Loader2 size={20} className="animate-spin text-[#00A884]" /> : (isLogin ? 'Login' : 'Sign Up')}
+            {!loading && <ChevronRight size={18} />}
+          </button>
+        </form>
+
+        <p className="text-[#667781] text-sm pt-2">
+          {isLogin ? "New to Quidec?" : "Have an account?"}{' '}
+          <span 
+            className="text-[#00A884] font-semibold cursor-pointer" 
+            onClick={() => setIsLogin(!isLogin)}
+          >
+            {isLogin ? 'Create one' : 'Login here'}
+          </span>
         </p>
       </div>
-      <button
-        onClick={handleSendCode}
-        disabled={!isValidEmail(email)}
-        className={`w-full rounded-full py-3.5 flex items-center justify-center gap-2 transition-colors ${isValidEmail(email) ? 'bg-[#00A884] text-white' : 'bg-gray-200 text-gray-400'}`}
-        style={{ fontWeight: 600 }}
-      >
-        Send verification code <ChevronRight size={18} />
-      </button>
     </motion.div>,
 
-    // Step 2: OTP Verification
+    // Step 2: Email Verification
     <motion.div
-      key="otp"
+      key="verify"
       className="flex flex-col h-full px-6 py-12"
       initial={{ opacity: 0, x: 40 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -40 }}
     >
-      <button onClick={() => { setStep(1); setOtp(['', '', '', '', '', '']); setIsVerified(false); }} className="self-start mb-6 text-[#00A884] flex items-center gap-1">
-        <ChevronLeft size={20} />
-        <span style={{ fontSize: '0.95rem' }}>Back</span>
-      </button>
-      <div className="flex flex-col items-center gap-6 flex-1">
-        <div className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-500 ${isVerified ? 'bg-[#00A884]' : 'bg-[#00A884]/10'}`}>
+      <div className="flex flex-col items-center gap-6 flex-1 text-center">
+        <div className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-700 ${verified ? 'bg-green-500 shadow-[0_0_30px_rgba(34,197,94,0.3)]' : 'bg-[#00A884]/10 animate-pulse'}`}>
           <AnimatePresence mode="wait">
-            {isVerified
-              ? <motion.div key="check" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}>
-                  <Check size={36} className="text-white" />
+            {verified
+              ? <motion.div key="check" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 12 }}>
+                  <Check size={48} className="text-white" />
                 </motion.div>
-              : <motion.div key="shield" initial={{ scale: 1 }} exit={{ scale: 0 }}>
-                  <Shield size={32} className="text-[#00A884]" />
+              : <motion.div key="mail" initial={{ scale: 0.8 }} animate={{ scale: 1 }}>
+                  <Mail size={40} className="text-[#00A884]" />
                 </motion.div>
             }
           </AnimatePresence>
         </div>
-        <div className="text-center">
-          <h2 className="text-[#111B21] mb-2" style={{ fontSize: '1.4rem', fontWeight: 700 }}>Verify your email</h2>
-          <p className="text-[#667781]" style={{ fontSize: '0.875rem' }}>
-            Enter the 6-digit code sent to<br />
-            <span className="text-[#111B21]" style={{ fontWeight: 600 }}>{email}</span>
+        
+        <div className="space-y-3">
+          <h2 className="text-[#111B21]" style={{ fontSize: '1.6rem', fontWeight: 800 }}>
+            {verified ? 'Email Verified!' : 'Verify your email'}
+          </h2>
+          <p className="text-[#667781] leading-relaxed" style={{ fontSize: '0.95rem' }}>
+            {verified 
+              ? "Great! Your account is now active. Let's finish setting up your profile."
+              : <>A verification link has been sent to:<br/><span className="text-[#111B21] font-bold">{email}</span></>
+            }
           </p>
         </div>
 
-        {/* Simulated email preview */}
-        {emailSent && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="w-full bg-[#f0faf7] border border-[#00A884]/30 rounded-xl p-3 flex items-start gap-3"
-          >
-            <div className="w-8 h-8 bg-[#00A884] rounded-full flex items-center justify-center flex-shrink-0">
-              <Mail size={14} className="text-white" />
-            </div>
-            <div>
-              <p className="text-[#111B21]" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Verification email sent!</p>
-              <p className="text-[#667781] mt-0.5" style={{ fontSize: '0.75rem' }}>
-                Check your inbox at <strong>{email}</strong>. Use any 6-digit code for demo.
+        {!verified && (
+          <div className="w-full space-y-4 pt-4">
+            <div className="bg-[#f0faf7] border border-[#00A884]/20 rounded-2xl p-5 text-left space-y-3">
+              <p className="text-[#111B21] text-sm font-bold flex items-center gap-2">
+                <Shield size={16} className="text-[#00A884]" />
+                How to verify:
               </p>
+              <ul className="text-[#667781] text-sm space-y-2.5">
+                <li className="flex gap-2">
+                  <span className="w-5 h-5 rounded-full bg-[#00A884] text-white text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+                  <span>Open your email app and find the mail from <b>Quidec</b>.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="w-5 h-5 rounded-full bg-[#00A884] text-white text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+                  <span>Click the <b>verification link</b> inside the email.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="w-5 h-5 rounded-full bg-[#00A884] text-white text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+                  <span>Return here to automatically continue.</span>
+                </li>
+              </ul>
             </div>
-          </motion.div>
-        )}
 
-        <div className="flex gap-3">
-          {otp.map((digit, i) => (
-            <input
-              key={i}
-              id={`otp-${i}`}
-              type="text"
-              inputMode="numeric"
-              maxLength={1}
-              value={digit}
-              onChange={e => handleOtpChange(e.target.value, i)}
-              onKeyDown={e => handleOtpKeyDown(e, i)}
-              className={`w-11 h-14 text-center rounded-xl border-2 outline-none text-[#111B21] bg-white transition-all ${digit ? 'border-[#00A884]' : 'border-gray-200'}`}
-              style={{ fontSize: '1.4rem', fontWeight: 700 }}
-            />
-          ))}
-        </div>
-        <p className="text-[#667781] text-sm">
-          Didn't receive the code?{' '}
-          <span className="text-[#00A884] cursor-pointer" onClick={() => setEmailSent(true)}>Resend email</span>
-        </p>
+            {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
+            {resendSent && <p className="text-[#00A884] text-sm font-medium animate-bounce">✅ New link sent to your inbox!</p>}
+
+            <div className="space-y-3 pt-2">
+              <button
+                onClick={handleManualVerify}
+                disabled={verifying}
+                className="w-full bg-[#00A884] text-white rounded-full py-4 flex items-center justify-center gap-2 font-bold shadow-lg active:scale-95 transition-transform disabled:opacity-70"
+              >
+                {verifying ? <Loader2 size={20} className="animate-spin" /> : "I've Verified My Email"}
+              </button>
+              
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={handleResend}
+                  className="text-[#00A884] py-2 text-sm font-bold hover:underline"
+                >
+                  Resend verification email
+                </button>
+                <button
+                  onClick={() => { setStep(1); setIsLogin(true); setError(''); }}
+                  className="text-gray-400 py-2 text-sm font-medium flex items-center justify-center gap-1"
+                >
+                  <ChevronLeft size={16} /> Back to login
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </motion.div>,
 
@@ -234,9 +412,9 @@ export default function Onboarding() {
           <Camera size={32} className="text-[#00A884]" />
         </div>
         <div className="text-center">
-          <h2 className="text-[#111B21] mb-2" style={{ fontSize: '1.4rem', fontWeight: 700 }}>Profile info</h2>
+          <h2 className="text-[#111B21] mb-2" style={{ fontSize: '1.4rem', fontWeight: 700 }}>Almost there</h2>
           <p className="text-[#667781]" style={{ fontSize: '0.875rem' }}>
-            Please provide your name. Your unique WhatsApp ID will be generated automatically.
+            Set your display name and your unique Quidec ID will be ready.
           </p>
         </div>
         <div className="w-full space-y-5">
@@ -245,7 +423,7 @@ export default function Onboarding() {
               <div className="w-24 h-24 rounded-full bg-[#DFE5E7] flex items-center justify-center overflow-hidden">
                 <Camera size={32} className="text-[#8696A0]" />
               </div>
-              <button className="absolute bottom-0 right-0 w-8 h-8 bg-[#00A884] rounded-full flex items-center justify-center">
+              <button className="absolute bottom-0 right-0 w-8 h-8 bg-[#00A884] rounded-full flex items-center justify-center shadow-md">
                 <Camera size={14} className="text-white" />
               </button>
             </div>
@@ -258,7 +436,7 @@ export default function Onboarding() {
                 setName(e.target.value);
                 setGeneratedId(e.target.value.trim() ? generateUserId(e.target.value) : '');
               }}
-              placeholder="Your name"
+              placeholder="Display Name"
               className="flex-1 outline-none py-3 text-[#111B21] bg-transparent"
               style={{ fontSize: '1.1rem' }}
               maxLength={25}
@@ -266,14 +444,13 @@ export default function Onboarding() {
             <span className="text-[#8696A0] text-xs">{25 - name.length}</span>
           </div>
 
-          {/* Generated ID preview */}
           {generatedId && (
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               className="bg-[#f0faf7] border border-[#00A884]/30 rounded-xl px-4 py-3"
             >
-              <p className="text-[#667781] mb-1" style={{ fontSize: '0.75rem' }}>Your WhatsApp ID</p>
+              <p className="text-[#667781] mb-1" style={{ fontSize: '0.75rem' }}>Your Unique ID</p>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <AtSign size={16} className="text-[#00A884]" />
@@ -293,21 +470,14 @@ export default function Onboarding() {
                   {idCopied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
                 </button>
               </div>
-              <p className="text-[#8696A0] mt-2" style={{ fontSize: '0.72rem' }}>
-                Share this ID so others can find and message you.
-              </p>
             </motion.div>
           )}
-
-          <p className="text-[#667781] text-xs text-center">
-            This name will be visible to your WhatsApp contacts.
-          </p>
         </div>
       </div>
       <button
         onClick={handleFinish}
         disabled={!name.trim()}
-        className={`w-full rounded-full py-3.5 flex items-center justify-center gap-2 transition-colors ${name.trim() ? 'bg-[#00A884] text-white' : 'bg-gray-200 text-gray-400'}`}
+        className={`w-full rounded-full py-3.5 flex items-center justify-center gap-2 transition-all ${name.trim() ? 'bg-[#00A884] text-white shadow-lg' : 'bg-gray-200 text-gray-400'}`}
         style={{ fontWeight: 600 }}
       >
         Done <Check size={18} />
@@ -316,9 +486,9 @@ export default function Onboarding() {
   ];
 
   return (
-    <div className="h-full w-full bg-white flex flex-col overflow-hidden max-w-md mx-auto">
+    <div className="h-full w-full bg-white flex flex-col overflow-hidden max-w-md mx-auto shadow-2xl">
       {/* Progress bar */}
-      <div className="h-1 bg-gray-100 flex-shrink-0">
+      <div className="h-1.5 bg-gray-100 flex-shrink-0">
         <motion.div
           className="h-full bg-[#00A884]"
           animate={{ width: `${(step / 3) * 100}%` }}

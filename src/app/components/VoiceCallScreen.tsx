@@ -7,6 +7,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import Avatar from './Avatar';
+import services from '../../utils/firebaseServices';
 
 export default function VoiceCallScreen() {
   const { id: contactId } = useParams<{ id: string }>();
@@ -21,18 +22,13 @@ export default function VoiceCallScreen() {
   const timerRef = useRef<ReturnType<typeof setInterval>>();
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-
-  // Get WebSocket from window or context
-  useEffect(() => {
-    // Try to get active WebSocket - this is a placeholder, real implementation needs proper context
-    const ws = (window as any).__ws;
-    if (ws) wsRef.current = ws;
-  }, []);
 
   // Initialize call with WebRTC
   useEffect(() => {
     if (!contact || !currentUser) return;
+
+    const params = new URLSearchParams(window.location.search || window.location.hash.split('?')[1]);
+    const isReceiver = params.get('received') === 'true';
 
     const initializeCall = async () => {
       try {
@@ -48,45 +44,32 @@ export default function VoiceCallScreen() {
         
         localStreamRef.current = stream;
 
-        // Create peer connection with STUN + TURN
+        // Create peer connection
         const peerConnection = new RTCPeerConnection({
           iceServers: [
+            { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
             {
-              urls: [
-                'stun:stun.l.google.com:19302',
-                'stun:stun1.l.google.com:19302',
-                'stun:stun2.l.google.com:19302',
-              ],
-            },
-            // TURN servers for relay across different networks
-            // Express TURN - FREE tier, reliable and fast
-            // https://expressturn.com/
-            {
-              urls: [
-                'turn:free.expressturn.com:3478',
-              ],
+              urls: ['turn:free.expressturn.com:3478'],
               username: '0000000020932600049',
-              credential: 'K8KMvixuaPZkje9gjLJojFTM0+Y=',
+              credential: 'K6KMvixuaPZkje9gjLJojFTM0+Y=',
             },
           ],
         });
 
         peerConnectionRef.current = peerConnection;
 
-        // Add local stream to peer connection
+        // Add local stream tracks
         stream.getTracks().forEach(track => {
           peerConnection.addTrack(track, stream);
         });
 
         // Handle ICE candidates
         peerConnection.onicecandidate = (event) => {
-          if (event.candidate && wsRef.current) {
-            wsRef.current.send(JSON.stringify({
+          if (event.candidate) {
+            services.presenceService.sendSignaling(currentUser.userId, contact.id, {
               type: 'webrtc-candidate',
-              from: currentUser?.userId,
-              to: contact.id,
               candidate: event.candidate,
-            }));
+            });
           }
         };
 
@@ -97,17 +80,19 @@ export default function VoiceCallScreen() {
           }
         };
 
-        // Create and send offer
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
+        // ONLY CREATE OFFER IF WE ARE THE CALLER
+        if (!isReceiver) {
+          console.log('📱 Creating WebRTC offer as caller...');
+          const offer = await peerConnection.createOffer();
+          await peerConnection.setLocalDescription(offer);
 
-        if (wsRef.current) {
-          wsRef.current.send(JSON.stringify({
+          await services.presenceService.sendSignaling(currentUser.userId, contact.id, {
             type: 'webrtc-offer',
-            from: currentUser?.userId,
-            to: contact.id,
             offer: offer,
-          }));
+            callType: 'voice'
+          });
+        } else {
+          console.log('📞 Waiting for incoming WebRTC offer as receiver...');
         }
       } catch (err) {
         console.error('❌ Failed to initialize call:', err);
@@ -117,27 +102,21 @@ export default function VoiceCallScreen() {
 
     initializeCall();
 
-    return () => {
-      // Cleanup
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-      }
-      if (peerConnectionRef.current) {
-        peerConnectionRef.current.close();
-      }
-    };
-  }, [contact, currentUser]);
+    // Listen to incoming signaling signals
+    const unsubscribeSignaling = services.presenceService.listenToSignaling(currentUser.userId, async (data) => {
+      if (data.fromUid !== contact.id) return;
 
-  // Handle incoming WebRTC messages
-  useEffect(() => {
-    if (!wsRef.current) return;
-
-    const handleMessage = async (event: Event) => {
       try {
-        const data = JSON.parse((event as MessageEvent).data);
-
         if (data.type === 'webrtc-answer' && peerConnectionRef.current) {
           await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } else if (data.type === 'webrtc-offer' && peerConnectionRef.current) {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+          const answer = await peerConnectionRef.current.createAnswer();
+          await peerConnectionRef.current.setLocalDescription(answer);
+          await services.presenceService.sendSignaling(currentUser.userId, contact.id, {
+            type: 'webrtc-answer',
+            answer: answer
+          });
         } else if (data.type === 'webrtc-candidate' && peerConnectionRef.current && data.candidate) {
           try {
             await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
@@ -146,13 +125,20 @@ export default function VoiceCallScreen() {
           }
         }
       } catch (err) {
-        console.error('Error handling WebRTC message:', err);
+        console.error('Error handling WebRTC signaling:', err);
+      }
+    });
+
+    return () => {
+      unsubscribeSignaling();
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
       }
     };
-
-    wsRef.current.addEventListener('message', handleMessage);
-    return () => wsRef.current?.removeEventListener('message', handleMessage);
-  }, []);
+  }, [contact, currentUser]);
 
   useEffect(() => {
     if (callState === 'connected') {

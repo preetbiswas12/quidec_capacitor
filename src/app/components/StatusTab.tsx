@@ -5,8 +5,6 @@ import Avatar from './Avatar';
 export default function StatusTab() {
   const { contacts, statuses, currentUser } = useApp();
 
-  if (!currentUser) return null;
-
   const unviewed = statuses.filter(s => !s.viewed);
   const viewed = statuses.filter(s => s.viewed);
 

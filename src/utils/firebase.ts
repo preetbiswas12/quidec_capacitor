@@ -10,7 +10,7 @@
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, Auth } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, Firestore } from 'firebase/firestore';
 import { getDatabase, Database } from 'firebase/database';
 import { getMessaging, Messaging, onMessage } from 'firebase/messaging';
 
@@ -76,7 +76,11 @@ export function getAuthInstance(): Auth {
 export function getFirestoreInstance(): Firestore {
   if (!firestoreInstance) {
     initializeFirebase();
-    firestoreInstance = getFirestore(firebaseApp);
+    // Using initializeFirestore with experimentalForceLongPolling to resolve QUIC protocol errors 
+    // and connection closed issues frequently seen in browser/web environments.
+    firestoreInstance = initializeFirestore(firebaseApp, {
+      experimentalForceLongPolling: true,
+    });
   }
   return firestoreInstance;
 }

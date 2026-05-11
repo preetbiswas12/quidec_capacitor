@@ -1,6 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import { authService, messageService } from '../../utils/firebaseServices';
+import { messageService, authService, presenceService, friendRequestService } from '../../utils/firebaseServices';
+import { getDoc, doc } from 'firebase/firestore';
+import { db } from '../../utils/firebase';
+import { initializePushNotifications } from '../../utils/fcm';
+import { loadMessages as loadLocalMessages, clearKeyCache, updateMessageReactions } from '../../utils/localMessageStore';
+import { getEncryptionKey } from '../../utils/encryption';
+import { uploadMediaWithProgress, loadMediaWithCache } from '../../utils/mediaUploadHandler';
+import { permissionManager } from '../../utils/permissionManager';
+import { initializeProductionCollections } from '../../scripts/initCollections';
 
 // ─── Types (Matching UI App Expectations) ──────────────────────────────────
 
@@ -97,7 +105,7 @@ export interface AppSettings {
   mediaAutoDownload: boolean;
   fontSize: 'small' | 'medium' | 'large';
   enterSendsMessage: boolean;
-  theme: 'dark';
+  theme: 'dark' | 'light';
 }
 
 interface AppContextType {
@@ -105,6 +113,7 @@ interface AppContextType {
   isOnboarded: boolean;
   currentUser: CurrentUser | null;
   isAuthenticating: boolean;
+  needsVerification: boolean;
   completeOnboarding: (user: CurrentUser) => void;
   updateCurrentUser: (updates: Partial<CurrentUser>) => void;
   login: (email: string, password: string) => Promise<{ success: boolean; emailVerified?: boolean; message?: string }>;
@@ -137,7 +146,8 @@ interface AppContextType {
   setShowRequests: (v: boolean) => void;
 
   // Messaging
-  sendMessage: (chatId: string, content: string, type?: Message['type'], extra?: Partial<Message>) => Promise<void>;
+  sendMessage: (chatId: string, content: string, type?: Message['type'], extra?: Partial<Message>, mediaFile?: File) => Promise<void>;
+  reactToMessage: (chatId: string, messageId: string, emoji: string) => Promise<void>;
   markAsRead: (chatId: string) => Promise<void>;
   typingContacts: Record<string, boolean>;
 
@@ -226,8 +236,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [isOnboarded, setIsOnboarded] = useState(false);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [isConnected, setIsConnected] = useState(true); // Always true for Firebase as it manages its own connection
 
   // WebSocket & Real Data
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -255,11 +267,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
     } catch { return DEFAULT_SETTINGS; }
   });
+  
+  // Apply theme to document
+  useEffect(() => {
+    if (settings.theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [settings.theme]);
 
-  // WebSocket ref
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectAttemptsRef = useRef(0);
-  const maxReconnectAttempts = 10;
+  // ─── Presence & Typing Refs ──────────────────────────────────────────────
+  const presenceUnsubscribeRef = useRef<(() => void) | null>(null);
+  const typingUnsubscribeRef = useRef<(() => void) | null>(null);
+  const friendsUnsubscribeRef = useRef<(() => void) | null>(null);
+  const requestsUnsubscribeRef = useRef<(() => void) | null>(null);
+  const conversationsUnsubscribeRef = useRef<(() => void) | null>(null);
 
   // ─── Auth Methods ─────────────────────────────────────────────────────────
 
@@ -281,7 +304,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         about: '',
       };
       setCurrentUser(user);
-      setIsOnboarded(true);
+      setNeedsVerification(!result.emailVerified);
+      setIsOnboarded(!!result.emailVerified);
+
+      // Initialize production collections
+      if (result.emailVerified) {
+        initializeProductionCollections().catch(err => console.warn('⚠️ Collection init skipped:', err));
+      }
 
       // ── Load locally stored messages for all known chats ──
       try {
@@ -321,7 +350,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         about: '',
       };
       setCurrentUser(user);
-      // Don't set isOnboarded yet - user must verify email first
+      setNeedsVerification(true);
+      setIsOnboarded(false); 
       return { success: true, emailVerified: false, user: result.user };
     } catch (err) {
       console.error('Registration error:', err);
@@ -340,10 +370,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setContacts([]);
       setMessages({});
       setChatRequests([]);
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      
+      // Cleanup all Firebase listeners
+      presenceUnsubscribeRef.current?.();
+      typingUnsubscribeRef.current?.();
+      friendsUnsubscribeRef.current?.();
+      requestsUnsubscribeRef.current?.();
+      conversationsUnsubscribeRef.current?.();
+
+      clearKeyCache(); // Clear encryption keys on logout
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
@@ -352,53 +387,122 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [navigate]);
 
-  // ─── Initialize Auth State on Mount ───────────────────────────────────────
+  const initialAuthChecked = useRef(false);
 
+  // ─── Initialize Auth State on Mount ───────────────────────────────────────
   useEffect(() => {
-    const initializeAuth = async () => {
+    const splashDelay = new Promise(resolve => setTimeout(resolve, 3000));
+    
+    const authUnsubscribe = authService.onAuthStateChange(async (currentFirebaseUser) => {
+      // If we already finished the initial check, don't do it again
+      if (initialAuthChecked.current) return;
+
+      console.log('🔍 Initial Auth Check:', currentFirebaseUser ? `User ${currentFirebaseUser.email}` : 'No user detected');
+      
       try {
-        const currentFirebaseUser = await authService.getCurrentUser();
         if (currentFirebaseUser) {
-          // User is already logged in
+          console.log('📧 Email verified:', currentFirebaseUser.emailVerified);
           if (currentFirebaseUser.emailVerified) {
-            // User verified - set up context
+            // Fetch profile
+            let about = 'Available';
+            let avatar = currentFirebaseUser.photoURL || null;
+            let name = currentFirebaseUser.displayName || currentFirebaseUser.email?.split('@')[0] || 'User';
+
+            try {
+              console.log('📥 Fetching Firestore profile...');
+              // Use a timeout to prevent hanging the whole app
+              const fetchDoc = getDoc(doc(db, 'users', currentFirebaseUser.uid));
+              const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000));
+              
+              const userDoc = await Promise.race([fetchDoc, timeout]) as any;
+              
+              if (userDoc && userDoc.exists()) {
+                const data = userDoc.data();
+                about = data.about || about;
+                avatar = data.photoURL || avatar;
+                name = data.displayName || name;
+                console.log('✅ Profile loaded:', name);
+              } else {
+                console.warn('⚠️ User doc does not exist');
+              }
+            } catch (docErr) {
+              console.warn('⚠️ Profile fetch skipped (timeout or error):', docErr);
+            }
+
             const user: CurrentUser = {
-              name: currentFirebaseUser.displayName || currentFirebaseUser.email?.split('@')[0] || 'User',
+              name,
               email: currentFirebaseUser.email || '',
               userId: currentFirebaseUser.uid || '',
-              avatar: currentFirebaseUser.photoURL || null,
-              about: '',
+              avatar,
+              about,
             };
+            
             setCurrentUser(user);
+            setNeedsVerification(false);
             setIsOnboarded(true);
+            console.log('🚀 Finalizing state: ONBOARDED');
+
+            // Background initializations
+            initializeProductionCollections().catch(() => {});
+            getEncryptionKey(user.userId).then(key => initializePushNotifications(user.userId, key)).catch(() => {});
           } else {
-            // User exists but not verified
-            const user: CurrentUser = {
-              name: currentFirebaseUser.displayName || currentFirebaseUser.email?.split('@')[0] || 'User',
+            console.log('🚀 Finalizing state: NEEDS_VERIFICATION');
+            setCurrentUser({
+              name: currentFirebaseUser.displayName || 'User',
               email: currentFirebaseUser.email || '',
               userId: currentFirebaseUser.uid || '',
               avatar: null,
               about: '',
-            };
-            setCurrentUser(user);
-            setIsOnboarded(false); // Prevent access to app
+            });
+            setNeedsVerification(true);
+            setIsOnboarded(false);
           }
         } else {
-          // No user logged in
-          setCurrentUser(null);
-          setIsOnboarded(false);
+          // No user - but give it a tiny bit of extra time to be absolutely sure
+          console.log('❓ No user found yet, verifying...');
+          await new Promise(r => setTimeout(r, 500));
+          
+          // Re-check current user from auth object directly
+          const reCheckUser = authService.getCurrentUserSync(); 
+          if (!reCheckUser) {
+            console.log('🚀 Finalizing state: NOT_LOGGED_IN');
+            setCurrentUser(null);
+            setIsOnboarded(false);
+            setNeedsVerification(false);
+          } else {
+             // If we found a user on re-check, don't finish yet
+             return; 
+          }
         }
       } catch (err) {
-        console.error('Auth initialization error:', err);
-        setCurrentUser(null);
+        console.error('❌ Auth init error:', err);
         setIsOnboarded(false);
       } finally {
+        // Wait for animation delay
+        console.log('⏳ Ensuring splash duration...');
+        await splashDelay;
         setIsAuthenticating(false);
+        initialAuthChecked.current = true;
+        console.log('🏁 Auth Initialization Complete');
       }
-    };
+    });
 
-    initializeAuth();
+    return () => authUnsubscribe();
   }, []);
+
+  // ─── Native Permissions Initialization ────────────────────────────────────
+  useEffect(() => {
+    if (isOnboarded && currentUser) {
+      const requestNativePermissions = async () => {
+        console.log('🛡️ Requesting native Android permissions...');
+        await permissionManager.requestPermission('camera');
+        await permissionManager.requestPermission('microphone');
+        await permissionManager.requestPermission('storage');
+        // Location requested lazily when needed
+      };
+      requestNativePermissions();
+    }
+  }, [isOnboarded, currentUser]);
 
   useEffect(() => {
     if (!currentUser || chats.length === 0) {
@@ -456,21 +560,164 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setIsOnboarded(true);
   }, []);
 
-  const updateCurrentUser = useCallback((updates: Partial<CurrentUser>) => {
-    setCurrentUser((prev) => (prev ? { ...prev, ...updates } : null));
-  }, []);
+  const updateCurrentUser = useCallback(async (updates: Partial<CurrentUser>) => {
+    if (!currentUser) return;
+
+    try {
+      let avatarToSave = updates.avatar;
+
+      // If updating avatar and it's a dataURL (new selection)
+      if (updates.avatar && updates.avatar.startsWith('data:')) {
+        console.log('📦 Chunking and encrypting new profile picture...');
+        // Convert dataURL to File
+        const res = await fetch(updates.avatar);
+        const blob = await res.blob();
+        const file = new File([blob], `profile_${currentUser.userId}.jpg`, { type: 'image/jpeg' });
+
+        // Store as encrypted chunks - use userId as Both user1 and user2 for self-media
+        const mediaRef = await uploadMediaWithProgress(file, 'image', currentUser.userId, currentUser.userId);
+        avatarToSave = mediaRef.fileId; // This is the hash reference
+        
+        // Update resolved URL immediately for UI responsiveness
+        const displayUrl = URL.createObjectURL(blob);
+        setCurrentUserAvatarUrl(displayUrl);
+      }
+
+      // Persist to Firebase
+      await authService.updateUserProfile(currentUser.userId, {
+        name: updates.name,
+        avatar: avatarToSave,
+        about: updates.about
+      });
+
+      // Update local state
+      setCurrentUser((prev) => (prev ? { ...prev, ...updates, avatar: avatarToSave || prev.avatar } : null));
+      console.log('✅ Profile saved to Firestore and local storage');
+    } catch (err) {
+      console.error('❌ Failed to save profile:', err);
+    }
+  }, [currentUser]);
+
+  // ─── Initialize Real-time Listeners ───────────────────────────────────────
+  useEffect(() => {
+    if (!currentUser || !isOnboarded) {
+      return;
+    }
+
+    const uid = currentUser.userId;
+    console.log('🔗 Establishing real-time Firebase listeners for', uid);
+
+    // 1. Listen to Friends List
+    friendsUnsubscribeRef.current = presenceService.listenToFriends(uid, (rawFriends) => {
+      const normalized = rawFriends.map((f, i) => normalizeContact(f, i));
+      setContacts(normalized);
+    });
+
+    // 2. Listen to Friends Presence
+    presenceUnsubscribeRef.current = presenceService.listenToFriendsPresence(uid, (friendsStatus) => {
+      setContacts(prev => prev.map(contact => {
+        const status = friendsStatus[contact.id];
+        if (status) {
+          return {
+            ...contact,
+            isOnline: status.online,
+            lastSeen: status.online ? 'online' : `last seen ${new Date(status.lastSeen).toLocaleTimeString()}`,
+          };
+        }
+        return contact;
+      }));
+    });
+
+    // 3. Listen to Friend Requests (Incoming)
+    requestsUnsubscribeRef.current = friendRequestService.listenToPendingRequests(uid, (rawRequests) => {
+      const requests = rawRequests.map((req, i) => ({
+        id: req.id,
+        contactId: req.fromUid,
+        direction: 'incoming' as const,
+        status: 'pending' as const,
+        timestamp: normalizeFirestoreTimestamp(req.createdAt),
+        previewMessage: `Friend request from ${req.fromUsername || req.fromUid}`,
+      }));
+      setChatRequests(requests);
+    });
+
+    // 4. Listen to Incoming Messages (Zero-Storage Pipe)
+    conversationsUnsubscribeRef.current = messageService.listenToIncomingMessages(uid, async (msg) => {
+      console.log('📬 New incoming message via Pipe:', msg.id);
+      
+      const chatId = msg.conversationId || msg.fromUid;
+      const incomingMsg = mapFirestoreMessage(msg, chatId);
+
+      // Add to UI state
+      setMessages((prev) => ({
+        ...prev,
+        [chatId]: [...(prev[chatId] || []), incomingMsg],
+      }));
+
+      // Update chat preview
+      setChats((prev) => {
+        const existing = prev.find(c => c.id === chatId);
+        if (existing) {
+          return prev.map(c => c.id === chatId ? {
+            ...c,
+            lastMessage: incomingMsg.content,
+            lastMessageTime: incomingMsg.timestamp,
+            lastMessageSender: incomingMsg.senderId,
+            unreadCount: (activeChatId === chatId) ? 0 : (c.unreadCount + 1)
+          } : c);
+        } else {
+          // If chat doesn't exist in list yet, we'd ideally fetch contact info
+          // and add it. For now, let's just create a shell
+          return [{
+            id: chatId,
+            contactId: msg.fromUid,
+            lastMessage: incomingMsg.content,
+            lastMessageTime: incomingMsg.timestamp,
+            lastMessageSender: incomingMsg.senderId,
+            unreadCount: 1
+          }, ...prev];
+        }
+      });
+    });
+
+    // 5. Listen to Typing Indicators
+    typingUnsubscribeRef.current = typingService.listenToTyping(uid, 'all', (typingData) => {
+      // typingData is Record<chatId, boolean>
+      setTypingContacts(typingData);
+    });
+
+    // 5. Global Call Signaling Listener (Detect Incoming Calls)
+    const unsubscribeSignaling = presenceService.listenToSignaling(uid, (data) => {
+      if (data.type === 'webrtc-offer') {
+        console.log('📞 Incoming call detected from:', data.fromUid);
+        // Automatically navigate to the call screen as the receiver
+        // We'll pass a 'received' flag so the screen knows to accept the offer
+        window.location.hash = `#/call/${data.callType || 'video'}/${data.fromUid}?received=true`;
+      }
+    });
+
+    // Cleanup all listeners on unmount or user change
+    return () => {
+      presenceUnsubscribeRef.current?.();
+      typingUnsubscribeRef.current?.();
+      friendsUnsubscribeRef.current?.();
+      requestsUnsubscribeRef.current?.();
+      conversationsUnsubscribeRef.current?.();
+      unsubscribeSignaling();
+    };
+  }, [currentUser, isOnboarded]);
 
   // ─── Helper: Convert raw contact to UI Contact ────────────────────────────
 
   const normalizeContact = useCallback((rawContact: any, index: number): Contact => {
-    const name = rawContact.name || rawContact.username || `User ${index}`;
-    const userId = `@${rawContact.username || rawContact.name || `user${index}`}`.toLowerCase();
+    const name = rawContact.name || rawContact.username || rawContact.displayName || `User ${index}`;
+    const userId = rawContact.uid || rawContact.userId || `@${rawContact.username || rawContact.name || `user${index}`}`.toLowerCase();
     
     return {
-      id: rawContact.username || rawContact.name || `user-${index}`,
+      id: rawContact.uid || rawContact.userId || rawContact.username || rawContact.name || `user-${index}`,
       userId,
       name,
-      avatar: rawContact.avatar || null,
+      avatar: rawContact.avatar || rawContact.photoURL || null,
       avatarColor: getAvatarColor(userId),
       initials: getInitials(name),
       isOnline: rawContact.online ?? false,
@@ -479,269 +726,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // ─── WebSocket Connection ─────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (!currentUser) {
-      setIsAuthenticating(false);
-      return;
-    }
-
-    const connectWebSocket = () => {
-      const serverUrl = import.meta.env.VITE_SERVER_URL || 'wss://quidec-server.onrender.com';
-      const ws = new WebSocket(serverUrl);
-
-      ws.onopen = () => {
-        console.log('✅ Connected to server');
-        setIsConnected(true);
-        reconnectAttemptsRef.current = 0;
-
-        // Expose WS globally so WebRTC call screens can use it for signaling
-        (window as any).__ws = ws;
-
-        // Authenticate user
-        ws.send(JSON.stringify({ type: 'auth', userId: currentUser.userId }));
-
-        // Request initial data
-        ws.send(JSON.stringify({ type: 'get-friends-list' }));
-        ws.send(JSON.stringify({ type: 'get-chat-requests' }));
-        ws.send(JSON.stringify({ type: 'get-chats' }));
-        ws.send(JSON.stringify({ type: 'get-call-history' }));
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          handleWebSocketMessage(message);
-        } catch (err) {
-          console.error('Failed to parse message:', err);
-        }
-      };
-
-      ws.onerror = (err) => {
-        console.error('WebSocket error:', err);
-        setIsConnected(false);
-      };
-
-      ws.onclose = () => {
-        console.log('WebSocket closed');
-        setIsConnected(false);
-        (window as any).__ws = null; // clear global ref
-
-        // Attempt reconnection with exponential backoff
-        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
-          reconnectAttemptsRef.current++;
-          setTimeout(connectWebSocket, delay);
-        }
-      };
-
-      wsRef.current = ws;
-    };
-
-    connectWebSocket();
-
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
-  }, [currentUser]);
-
-  // ─── WebSocket Message Handler ────────────────────────────────────────────
-
-  const handleWebSocketMessage = useCallback((message: any) => {
-    switch (message.type) {
-      case 'friends-list': {
-        const normalized = (message.friends || []).map((f: any, i: number) =>
-          normalizeContact(f, i)
-        );
-        setContacts(normalized);
-        break;
-      }
-
-      case 'pending-requests': {
-        const requests = (message.requests || []).map((req: any, i: number) => ({
-          id: `req-${i}`,
-          contactId: req.sender || req.username || `user-${i}`,
-          direction: 'incoming' as const,
-          status: 'pending' as const,
-          timestamp: new Date(req.sentAt || Date.now()).toISOString(),
-          previewMessage: `Friend request from ${req.sender || req.username}`,
-        }));
-        setChatRequests(requests);
-        break;
-      }
-
-      case 'new-message': {
-        const msgId = message.id || `msg-${Date.now()}`;
-        const chatId = message.from;
-        const incomingMsg: Message = {
-          id: msgId,
-          chatId,
-          senderId: message.from,
-          content: message.content,
-          type: 'text',
-          timestamp: new Date(message.timestamp || Date.now()).toISOString(),
-          status: 'delivered' as const,
-        };
-
-        setMessages((prev) => ({
-          ...prev,
-          [chatId]: [...(prev[chatId] || []), incomingMsg],
-        }));
-
-        // ── Persist to Firestore so the main app database stays Firebase-backed ──
-        if (currentUser) {
-          messageService.recordMessage(message.from, currentUser.userId, message.content, {
-            messageId: msgId,
-            messageType: message.messageType || 'text',
-            timestamp: new Date(message.timestamp || Date.now()),
-            status: 'delivered',
-          }).catch(err => console.warn('⚠️ Failed to persist incoming message:', err));
-        }
-
-        // Update chat's last message
-        setChats((prev) =>
-          prev.map((c) =>
-            c.id === chatId
-              ? {
-                  ...c,
-                  lastMessage: message.content,
-                  lastMessageTime: new Date(message.timestamp || Date.now()).toISOString(),
-                  lastMessageSender: message.from,
-                  unreadCount: c.unreadCount + 1,
-                }
-              : c
-          )
-        );
-        break;
-      }
-
-      case 'typing': {
-        setTypingContacts((prev) => ({
-          ...prev,
-          [message.from]: true,
-        }));
-        setTimeout(() => {
-          setTypingContacts((prev) => ({
-            ...prev,
-            [message.from]: false,
-          }));
-        }, 2000);
-        break;
-      }
-
-      case 'friend-online': {
-        setContacts((prev) =>
-          prev.map((c) =>
-            c.id === message.username
-              ? { ...c, isOnline: true, lastSeen: 'online' }
-              : c
-          )
-        );
-        break;
-      }
-
-      case 'friend-offline': {
-        setContacts((prev) =>
-          prev.map((c) =>
-            c.id === message.username
-              ? { ...c, isOnline: false, lastSeen: `last seen ${new Date().toLocaleTimeString()}` }
-              : c
-          )
-        );
-        break;
-      }
-
-      // ── #5: Call history loaded from server ──
-      case 'call-history':
-      case 'calls-list': {
-        const records = (message.calls || message.history || []).map((c: any, i: number): CallRecord => ({
-          id: c.id || `call-${i}`,
-          contactId: c.contactId || c.with || c.username || '',
-          type: c.type === 'video' ? 'video' : 'voice',
-          direction: c.direction || (c.incoming ? 'incoming' : 'outgoing'),
-          duration: c.duration,
-          timestamp: c.timestamp ? new Date(c.timestamp).toISOString() : new Date().toISOString(),
-        }));
-        setCalls(records);
-        break;
-      }
-
-      // ── #5: Chat list loaded from server ──
-      case 'chats-list':
-      case 'chat-list': {
-        const serverChats = (message.chats || []).map((c: any): Chat => ({
-          id: c.id || c.contactId,
-          contactId: c.contactId || c.id,
-          lastMessage: c.lastMessage || '',
-          lastMessageTime: c.lastMessageTime ? new Date(c.lastMessageTime).toISOString() : '',
-          lastMessageSender: c.lastMessageSender,
-          unreadCount: c.unreadCount || 0,
-          isPinned: c.isPinned,
-          isMuted: c.isMuted,
-          isArchived: c.isArchived,
-        }));
-        if (serverChats.length > 0) {
-          setChats(prev => {
-            // Merge server chats with any locally created ones, server wins on conflict
-            const byId = new Map(prev.map(c => [c.id, c]));
-            serverChats.forEach((c: Chat) => byId.set(c.id, c));
-            return Array.from(byId.values());
-          });
-        }
-        break;
-      }
-
-      // ── #6: Discoverable users from search ──
-      case 'users-list':
-      case 'search-results': {
-        const found = (message.users || message.results || []).map((u: any, i: number) =>
-          normalizeContact(u, i)
-        );
-        setDiscoverableContacts(found);
-        break;
-      }
-
-      // ── #10: Message delivery/read receipts from server ──
-      case 'message-delivered': {
-        const { messageId, chatId } = message;
-        if (messageId && chatId) {
-          setMessages(prev => ({
-            ...prev,
-            [chatId]: (prev[chatId] || []).map(m =>
-              m.id === messageId && m.status === 'sent' ? { ...m, status: 'delivered' as const } : m
-            ),
-          }));
-        }
-        break;
-      }
-
-      case 'message-read': {
-        const { messageId, chatId } = message;
-        if (messageId && chatId) {
-          setMessages(prev => ({
-            ...prev,
-            [chatId]: (prev[chatId] || []).map(m =>
-              m.id === messageId ? { ...m, status: 'read' as const } : m
-            ),
-          }));
-        }
-        break;
-      }
-
-      default:
-        console.log('Unknown message type:', message.type);
-    }
-  }, [normalizeContact, currentUser]);
-
   // ─── Chat Methods ─────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(
-    async (chatId: string, content: string, type: Message['type'] = 'text', extra?: Partial<Message>) => {
-      // Optimistic local message
+    async (chatId: string, content: string, type: Message['type'] = 'text', extra?: Partial<Message>, mediaFile?: File) => {
+      if (!currentUser) return;
+
       const msgId = `msg-${Date.now()}`;
+      let finalImageUrl = extra?.imageUrl;
+
+      // 1. Handle Native Media Chunking (Local-First)
+      if (mediaFile) {
+        console.log(`📦 Chunking and encrypting ${type} for local vault...`);
+        try {
+          const mediaRef = await uploadMediaWithProgress(
+            mediaFile,
+            type === 'text' ? 'image' : (type as any),
+            currentUser.userId,
+            chatId
+          );
+          finalImageUrl = mediaRef.fileId; // The hash reference
+        } catch (err) {
+          console.error('❌ Media chunking failed:', err);
+        }
+      }
+
+      // 2. Optimistic local message
       const msg: Message = {
         id: msgId,
         chatId,
@@ -751,6 +761,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         timestamp: new Date().toISOString(),
         status: 'sent',
         ...extra,
+        imageUrl: finalImageUrl,
       };
 
       setMessages((prev) => ({
@@ -758,25 +769,68 @@ export function AppProvider({ children }: { children: ReactNode }) {
         [chatId]: [...(prev[chatId] || []), msg],
       }));
 
-      // ── Persist outgoing message to Firestore ──
-      if (currentUser) {
-        messageService.sendMessage(currentUser.userId, chatId, content, undefined, type).catch(
-          err => console.warn('⚠️ Failed to persist outgoing message:', err)
-        );
-      }
+      // 3. Persist and Deliver (Cloud-Free content)
+      // recordMessage now only saves to local DB
+      messageService.recordMessage(currentUser.userId, chatId, content, {
+        messageId: msgId,
+        messageType: type,
+        mediaUrl: finalImageUrl,
+        timestamp: new Date(),
+        status: 'sent',
+      }).catch(err => console.warn('⚠️ Local record failed:', err));
+
+      // 4. (No WebSocket needed - Firestore handles real-time delivery via snapshots)
+    },
+    [currentUser]
+  );
+
+  const reactToMessage = useCallback(
+    async (chatId: string, messageId: string, emoji: string) => {
+      if (!currentUser) return;
+
+      setMessages((prev) => {
+        const chatMsgs = prev[chatId] || [];
+        const msg = chatMsgs.find((m) => m.id === messageId);
+        if (!msg) return prev;
+
+        const currentReactions = msg.reactions || [];
+        const existingIdx = currentReactions.findIndex((r) => r.emoji === emoji);
+
+        let nextReactions;
+        if (existingIdx > -1) {
+          // Toggle off if it's the same emoji, or could increment count
+          // For simplicity, let's just toggle for now
+          nextReactions = currentReactions.filter((r) => r.emoji !== emoji);
+        } else {
+          nextReactions = [...currentReactions, { emoji, count: 1 }];
+        }
+
+        // Update local state
+        const next = {
+          ...prev,
+          [chatId]: chatMsgs.map((m) =>
+            m.id === messageId ? { ...m, reactions: nextReactions } : m
+          ),
+        };
+
+        // Persist locally
+        updateMessageReactions(currentUser.userId, chatId, messageId, nextReactions)
+          .catch(err => console.warn('⚠️ Failed to persist reaction locally:', err));
+
+        // Sync with Firestore (optional but good for persistence)
+        messageService.reactToMessage(chatId, messageId, nextReactions);
+
+        // 5. (No WebSocket needed)
+
+        return next;
+      });
     },
     [currentUser]
   );
 
   const markAsRead = useCallback(async (chatId: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
-    wsRef.current.send(
-      JSON.stringify({
-        type: 'mark-as-read',
-        chatId,
-      })
-    );
+    if (!currentUser) return;
+    await messageService.markAllMessagesRead(currentUser.userId, chatId);
 
     setChats((prev) =>
       prev.map((c) =>
@@ -785,77 +839,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : c
       )
     );
-  }, []);
+  }, [currentUser]);
 
   // ─── Friend Request Methods ────────────────────────────────────────────────
 
   const sendChatRequest = useCallback(async (contactId: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.error('WebSocket not connected');
-      return;
-    }
-
-    wsRef.current.send(
-      JSON.stringify({
-        type: 'send-friend-request',
-        to: contactId,
-      })
-    );
-  }, []);
+    if (!currentUser) return;
+    await friendRequestService.sendFriendRequest(currentUser.userId, contactId);
+  }, [currentUser]);
 
   const acceptRequest = useCallback(async (requestId: string): Promise<string> => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.error('WebSocket not connected');
-      return '';
-    }
-
-    // Find the request to get contactId
     const request = chatRequests.find((r) => r.id === requestId);
-    if (request) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'accept-friend-request',
-          from: request.contactId,
-        })
-      );
-
-      // Remove from chat requests
-      setChatRequests((prev) => prev.filter((r) => r.id !== requestId));
-
-      // Create new chat
-      setChats((prev) => [
-        ...prev,
-        {
-          id: request.contactId,
-          contactId: request.contactId,
-          lastMessage: '',
-          lastMessageTime: new Date().toISOString(),
-          unreadCount: 0,
-        },
-      ]);
+    if (request && currentUser) {
+      await friendRequestService.acceptFriendRequest(requestId, request.contactId, currentUser.userId);
     }
-
     return requestId;
-  }, [chatRequests]);
+  }, [chatRequests, currentUser]);
 
   const declineRequest = useCallback(async (requestId: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.error('WebSocket not connected');
-      return;
-    }
-
-    const request = chatRequests.find((r) => r.id === requestId);
-    if (request) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'decline-friend-request',
-          from: request.contactId,
-        })
-      );
-
-      setChatRequests((prev) => prev.filter((r) => r.id !== requestId));
-    }
-  }, [chatRequests]);
+    if (!currentUser) return;
+    await friendRequestService.rejectFriendRequest(requestId, currentUser.userId);
+  }, [currentUser]);
 
   // ─── Other Methods ────────────────────────────────────────────────────────
 
@@ -864,6 +868,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
     );
   }, []);
+
+  // ─── Theme & Appearance Management ───────────────────────────────────────
+  useEffect(() => {
+    if (settings.theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [settings.theme]);
 
   const updateSettings = useCallback((updates: Partial<AppSettings>) => {
     setSettings((prev) => {
@@ -875,22 +888,73 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ─── User Discovery (#6) ──────────────────────────────────────────────────
 
-  const searchUsers = useCallback((query: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket not connected — cannot search users');
-      return;
-    }
-    wsRef.current.send(JSON.stringify({ type: 'search-users', query }));
-  }, []);
+  const searchUsers = useCallback(async (query: string) => {
+    if (!currentUser) return;
+    const results = await userService.searchUsers(query, currentUser.userId);
+    const normalized = results.map((u, i) => normalizeContact(u, i));
+    setDiscoverableContacts(normalized);
+  }, [currentUser, normalizeContact]);
 
   // NOTE: Session restore is handled entirely by Firebase's browserLocalPersistence.
   // The initializeAuth useEffect above (using authService.getCurrentUser()) is
   // sufficient — no manual credential storage is needed or safe.
 
+  // ─── Resolve Avatar Hash ──────────────────────────────────────────────────
+  useEffect(() => {
+    let retryCount = 0;
+    const maxRetries = 3;
+
+    const resolveAvatar = async () => {
+      if (currentUser?.avatar && currentUser.avatar.startsWith('image_')) {
+        try {
+          console.log(`🔍 Resolving avatar hash: ${currentUser.avatar} (Attempt ${retryCount + 1})`);
+          const url = await loadMediaWithCache(currentUser.avatar, 'image', currentUser.userId, currentUser.userId);
+          setCurrentUserAvatarUrl(url);
+          console.log('✅ Avatar resolved successfully');
+        } catch (err) {
+          console.warn(`⚠️ Failed to resolve avatar hash (Attempt ${retryCount + 1}):`, err);
+          
+          if (retryCount < maxRetries) {
+            retryCount++;
+            setTimeout(resolveAvatar, 500 * retryCount); // Exponential backoff
+          } else {
+            console.error('❌ Max retries reached for avatar resolution');
+            setCurrentUserAvatarUrl(null);
+          }
+        }
+      } else {
+        setCurrentUserAvatarUrl(currentUser?.avatar || null);
+      }
+    };
+    resolveAvatar();
+  }, [currentUser?.avatar, currentUser?.userId]);
+
+  // ─── Real-time Typing (Per Active Chat) ──────────────────────────────────
+  useEffect(() => {
+    if (!currentUser || !activeChatId) {
+      setTypingContacts({});
+      return;
+    }
+
+    const contact = chats.find(c => c.id === activeChatId)?.contactId;
+    if (!contact) return;
+
+    console.log(`⌨️ Listening for typing in ${activeChatId}`);
+    const unsubscribe = typingService.listenToTyping(currentUser.userId, contact, (typingData) => {
+      setTypingContacts(prev => ({
+        ...prev,
+        [activeChatId]: typingData[contact] || false
+      }));
+    });
+
+    return () => unsubscribe();
+  }, [currentUser, activeChatId, chats]);
+
   const value: AppContextType = {
     isOnboarded,
-    currentUser,
+    currentUser: currentUser ? { ...currentUser, avatar: currentUserAvatarUrl } : null,
     isAuthenticating,
+    needsVerification,
     completeOnboarding,
     updateCurrentUser,
     login,
@@ -917,6 +981,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showRequests,
     setShowRequests,
     sendMessage,
+    reactToMessage,
     markAsRead,
     typingContacts,
     searchQuery,
@@ -943,3 +1008,5 @@ export function useApp(): AppContextType {
   }
   return context;
 }
+
+
