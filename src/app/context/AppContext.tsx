@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import { messageService, authService, presenceService, friendRequestService, typingService, userService } from '../../utils/firebaseServices';
+import services from '../../utils/firebaseServices';
+const { messageService, authService, presenceService, friendRequestService, typingService, userService } = services;
 import { getDoc, doc } from 'firebase/firestore';
 import { db } from '../../utils/firebase';
 import { initializePushNotifications } from '../../utils/fcm';

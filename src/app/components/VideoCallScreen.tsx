@@ -14,7 +14,17 @@ export default function VideoCallScreen() {
   const { id: contactId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { contacts, currentUser } = useApp();
-  const contact = contacts.find(c => c.id === contactId);
+  const contact = contacts.find(c => c.id === contactId) || (contactId === currentUser?.userId ? {
+    id: currentUser.userId,
+    userId: currentUser.userId,
+    name: `${currentUser.name} (You)`,
+    avatar: currentUser.avatar,
+    avatarColor: '#00A884',
+    initials: currentUser.name[0]?.toUpperCase() || 'U',
+    isOnline: true,
+    lastSeen: 'online',
+    about: currentUser.about || 'Available'
+  } as any : null);
 
   const [callState, setCallState] = useState<'calling' | 'connected' | 'ended'>('calling');
   const [isMuted, setIsMuted] = useState(false);
@@ -142,7 +152,7 @@ export default function VideoCallScreen() {
     initializeVideoCall();
 
     // Listen to incoming signaling signals
-    const unsubscribeSignaling = presenceService.listenToSignaling(currentUser.userId, async (data) => {
+    const unsubscribeSignaling = services.presenceService.listenToSignaling(currentUser.userId, async (data) => {
       if (data.fromUid !== contact.id) return; // Only accept signals from this contact
 
       try {
@@ -153,7 +163,7 @@ export default function VideoCallScreen() {
           await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
           const answer = await peerConnectionRef.current.createAnswer();
           await peerConnectionRef.current.setLocalDescription(answer);
-          await presenceService.sendSignaling(currentUser.userId, contact.id, {
+          await services.presenceService.sendSignaling(currentUser.userId, contact.id, {
             type: 'webrtc-answer',
             answer: answer
           });
