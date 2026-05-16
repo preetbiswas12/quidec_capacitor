@@ -86,7 +86,7 @@ export function getFirestoreInstance(): Firestore {
     // and connection closed issues frequently seen in browser/web environments.
     firestoreInstance = initializeFirestore(firebaseApp, {
       experimentalForceLongPolling: true,
-    });
+    }, 'quidec');
   }
   return firestoreInstance;
 }

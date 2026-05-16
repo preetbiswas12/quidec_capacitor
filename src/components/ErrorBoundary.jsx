@@ -43,8 +43,8 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(135deg, #0a0a14 0%, #111122 100%)',
-    color: '#E3E3E3',
+    background: 'var(--wa-bg-main)',
+    color: 'var(--wa-text-primary)',
     padding: '20px',
   },
   content: {
@@ -57,7 +57,7 @@ const styles = {
   },
   message: {
     fontSize: '14px',
-    color: '#A0A0B0',
+    color: 'var(--wa-text-muted)',
     marginBottom: '24px',
   },
   button: {

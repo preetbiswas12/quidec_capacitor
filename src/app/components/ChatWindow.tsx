@@ -25,7 +25,7 @@ export default function ChatWindow() {
   const {
     chats, contacts, messages, sendMessage, typingContacts,
     setActiveChatId, contactInfoOpen, setContactInfoOpen,
-    replyTo, setReplyTo, reactToMessage,
+    replyTo, setReplyTo, reactToMessage, clearChat
   } = useApp();
 
   const [text, setText] = useState('');
@@ -219,8 +219,8 @@ export default function ChatWindow() {
     { label: 'View contact', action: () => { setShowHeaderMenu(false); setContactInfoOpen(true); } },
     { label: 'Media, links and docs', action: () => { setShowHeaderMenu(false); setContactInfoOpen(true); } },
     { label: 'Search', action: () => openSearch() },
-    { label: 'Mute notifications', action: () => setShowHeaderMenu(false) },
-    { label: 'Clear chat', action: () => setShowHeaderMenu(false) },
+    { label: 'Mute notifications', action: () => { setShowHeaderMenu(false); alert('Notifications for this chat will be muted for 8 hours.'); } },
+    { label: 'Clear chat', action: () => { setShowHeaderMenu(false); clearChat(chatId!); } },
   ];
 
   return (
@@ -348,26 +348,26 @@ export default function ChatWindow() {
           )}
         </AnimatePresence>
 
-        <div className="flex items-center gap-3 px-3 py-2.5 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border">
-          <button onClick={handleBack} className="text-[#aebac1] hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5"><ArrowLeft size={20} /></button>
+        <div className="flex items-center gap-3 px-3 py-2.5 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border/10">
+          <button onClick={handleBack} className="text-wa-header-icon hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5"><ArrowLeft size={20} /></button>
           <button onClick={() => setContactInfoOpen(!contactInfoOpen)} className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity">
             <div className="relative">
               <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={40} />
-              {contact.isOnline && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-[#00A884] border-2 border-[#202C33]" />}
+              {contact.isOnline && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute bottom-0.5 right-0.5 w-2.5 h-2.5 rounded-full bg-[#00A884] border-2 border-wa-header" />}
             </div>
             <div className="min-w-0 text-left">
-              <p className="text-wa-primary truncate" style={{ fontWeight: 600, fontSize: '0.95rem' }}>{contact.name}</p>
+              <p className="text-wa-primary truncate" style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '-0.2px' }}>{contact.name}</p>
               <AnimatePresence mode="wait">
-                {isTyping ? <motion.p key="typing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-[#00A884]" style={{ fontSize: '0.78rem' }}>typing...</motion.p>
-                : <motion.p key="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-wa-text-muted" style={{ fontSize: '0.78rem' }}>{contact.isGroup ? `${contact.members?.length} members` : contact.isOnline ? '🟢 online' : contact.lastSeen}</motion.p>}
+                {isTyping ? <motion.p key="typing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-[#00A884] font-bold" style={{ fontSize: '0.78rem' }}>typing...</motion.p>
+                : <motion.p key="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-wa-text-muted" style={{ fontSize: '0.78rem' }}>{contact.isGroup ? `${contact.members?.length} members` : contact.isOnline ? 'online' : contact.lastSeen}</motion.p>}
               </AnimatePresence>
             </div>
           </button>
           <div className="flex items-center gap-1">
-            <button onClick={() => navigate(`/call/video/${contact.id}`)} className="text-[#aebac1] hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"><Video size={20} /></button>
-            <button onClick={() => navigate(`/call/voice/${contact.id}`)} className="text-[#aebac1] hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"><Phone size={20} /></button>
+            <button onClick={() => navigate(`/call/video/${contact.id}`)} className="text-wa-header-icon hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"><Video size={20} /></button>
+            <button onClick={() => navigate(`/call/voice/${contact.id}`)} className="text-wa-header-icon hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"><Phone size={20} /></button>
             <div className="relative" ref={menuRef}>
-              <button onClick={() => setShowHeaderMenu(v => !v)} className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showHeaderMenu ? 'text-wa-primary bg-white/5' : 'text-[#aebac1] hover:text-wa-primary'}`}><MoreVertical size={20} /></button>
+              <button onClick={() => setShowHeaderMenu(v => !v)} className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showHeaderMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}><MoreVertical size={20} /></button>
               {showHeaderMenu && (
                 <div className="absolute right-0 top-full mt-1 w-52 bg-[#233138] rounded-xl shadow-2xl overflow-hidden z-50 border border-wa-border">
                   {headerMenuItems.map(item => (
@@ -381,7 +381,7 @@ export default function ChatWindow() {
 
         <div
           className="flex-1 overflow-y-auto py-4 px-3 space-y-1"
-          style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E")`, backgroundColor: '#0B141A' }}
+          style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E")`, backgroundColor: 'var(--wa-bg-main)' }}
           onClick={() => { setShowAttachSheet(false); setShowEmojiPicker(false); setShowHeaderMenu(false); }}
         >
           {chatMessages.map((msg, idx) => (
@@ -415,9 +415,9 @@ export default function ChatWindow() {
 
         <AnimatePresence>
           {showEmojiPicker && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-[#1F2C34] border-t border-wa-border flex-shrink-0 overflow-hidden">
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-wa-header border-t border-wa-border flex-shrink-0 overflow-hidden">
               <div className="px-3 py-3"><div className="grid grid-cols-10 gap-1">{EMOJI_LIST.map(emoji => (
-                <button key={emoji} onClick={() => appendEmoji(emoji)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#2A3942] transition-colors active:scale-90" style={{ fontSize: '1.25rem' }}>{emoji}</button>
+                <button key={emoji} onClick={() => appendEmoji(emoji)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-wa-secondary transition-colors active:scale-90" style={{ fontSize: '1.25rem' }}>{emoji}</button>
               ))}</div></div>
             </motion.div>
           )}
@@ -429,8 +429,8 @@ export default function ChatWindow() {
               {showLinkInput ? (
                 <div className="px-4 py-4">
                   <div className="flex items-center gap-2 mb-3"><button onClick={() => setShowLinkInput(false)} className="text-wa-text-muted"><ArrowLeft size={18} /></button><span className="text-wa-primary" style={{ fontWeight: 600 }}>Share a Link</span></div>
-                  <div className="flex items-center gap-2 bg-[#2A3942] rounded-xl px-4 py-2.5"><Link size={16} className="text-wa-text-muted flex-shrink-0" /><input type="url" value={linkInput} onChange={e => setLinkInput(e.target.value)} placeholder="https://example.com" className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]" style={{ fontSize: '0.9rem' }} autoFocus onKeyDown={e => e.key === 'Enter' && handleSendLink()} /></div>
-                  <button onClick={handleSendLink} disabled={!linkInput.trim()} className={`w-full mt-3 rounded-full py-3 flex items-center justify-center gap-2 transition-colors ${linkInput.trim() ? 'bg-[#00A884] text-white' : 'bg-[#2A3942] text-wa-text-muted'}`} style={{ fontWeight: 600 }}>Send Link <Send size={16} /></button>
+                  <div className="flex items-center gap-2 bg-wa-secondary rounded-xl px-4 py-2.5"><Link size={16} className="text-wa-text-muted flex-shrink-0" /><input type="url" value={linkInput} onChange={e => setLinkInput(e.target.value)} placeholder="https://example.com" className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]" style={{ fontSize: '0.9rem' }} autoFocus onKeyDown={e => e.key === 'Enter' && handleSendLink()} /></div>
+                  <button onClick={handleSendLink} disabled={!linkInput.trim()} className={`w-full mt-3 rounded-full py-3 flex items-center justify-center gap-2 transition-colors ${linkInput.trim() ? 'bg-[#00A884] text-white' : 'bg-wa-secondary text-wa-text-muted'}`} style={{ fontWeight: 600 }}>Send Link <Send size={16} /></button>
                 </div>
               ) : (
                 <div className="px-4 py-4"><div className="grid grid-cols-4 gap-3">{[
@@ -438,8 +438,8 @@ export default function ChatWindow() {
                   { icon: Image, label: 'Photos', color: '#e91e63', onClick: () => photoInputRef.current?.click() },
                   { icon: Camera, label: 'Camera', color: '#00897b', onClick: () => photoInputRef.current?.click() },
                   { icon: Link, label: 'Link', color: '#fb8c00', onClick: () => setShowLinkInput(true) },
-                  { icon: User, label: 'Contact', color: '#43a047', onClick: () => {} },
-                  { icon: MapPin, label: 'Location', color: '#e53935', onClick: () => {} },
+                  { icon: User, label: 'Contact', color: '#43a047', onClick: () => alert('Contact sharing is coming soon!') },
+                  { icon: MapPin, label: 'Location', color: '#e53935', onClick: () => alert('Location sharing is coming soon!') },
                 ].map(item => (
                   <button key={item.label} onClick={item.onClick} className="flex flex-col items-center gap-2 py-2"><div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: `${item.color}22` }}><item.icon size={22} style={{ color: item.color }} /></div><span className="text-wa-text-muted" style={{ fontSize: '0.72rem' }}>{item.label}</span></button>
                 ))}</div></div>
@@ -448,16 +448,16 @@ export default function ChatWindow() {
           )}
         </AnimatePresence>
 
-        <div className="flex items-end gap-2 px-3 py-3 pb-8 bg-wa-header flex-shrink-0">
-          <div className="flex items-end gap-2 flex-1 bg-[#2A3942] rounded-2xl px-3 py-2">
-            <button onClick={() => { setShowEmojiPicker(v => !v); setShowAttachSheet(false); }} className={`transition-colors flex-shrink-0 mb-0.5 ${showEmojiPicker ? 'text-[#00A884]' : 'text-wa-text-muted hover:text-wa-primary'}`}><Smile size={22} /></button>
-            <textarea ref={inputRef} value={text} onChange={e => setText(e.target.value)} onKeyDown={handleKeyDown} placeholder="Message" rows={1} className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0] resize-none py-0.5 max-h-32 overflow-y-auto" style={{ fontSize: '0.95rem', lineHeight: '1.4' }} />
-            {!text && <button onClick={() => { setShowAttachSheet(v => !v); setShowLinkInput(false); setShowEmojiPicker(false); }} className={`transition-colors flex-shrink-0 mb-0.5 ${showAttachSheet ? 'text-[#00A884]' : 'text-wa-text-muted hover:text-wa-primary'}`}><Paperclip size={22} /></button>}
-            {!text && <button onClick={() => { setShowAttachSheet(true); setShowLinkInput(false); setShowEmojiPicker(false); }} className="text-wa-text-muted hover:text-wa-primary transition-colors flex-shrink-0 mb-0.5"><Camera size={22} /></button>}
+        <div className="flex items-end gap-2 px-3 py-3 pb-8 bg-wa-header flex-shrink-0 border-t border-wa-border/5">
+          <div className="flex items-end gap-2 flex-1 bg-wa-secondary/40 rounded-2xl px-3 py-2 border border-wa-border/5">
+            <button onClick={() => { setShowEmojiPicker(v => !v); setShowAttachSheet(false); }} className={`transition-colors flex-shrink-0 mb-0.5 ${showEmojiPicker ? 'text-[#00A884]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Smile size={22} /></button>
+            <textarea ref={inputRef} value={text} onChange={e => setText(e.target.value)} onKeyDown={handleKeyDown} placeholder="Message" rows={1} className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted/50 resize-none py-0.5 max-h-32 overflow-y-auto" style={{ fontSize: '0.95rem', lineHeight: '1.4' }} />
+            {!text && <button onClick={() => { setShowAttachSheet(v => !v); setShowLinkInput(false); setShowEmojiPicker(false); }} className={`transition-colors flex-shrink-0 mb-0.5 ${showAttachSheet ? 'text-[#00A884]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Paperclip size={22} /></button>}
+            {!text && <button onClick={() => { setShowAttachSheet(true); setShowLinkInput(false); setShowEmojiPicker(false); }} className="text-wa-header-icon hover:text-wa-primary transition-colors flex-shrink-0 mb-0.5"><Camera size={22} /></button>}
           </div>
           <AnimatePresence mode="wait">
-            {text ? <motion.button key="send" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleSend} className="w-12 h-12 bg-[#00A884] rounded-full flex items-center justify-center flex-shrink-0 hover:bg-[#06cf9c] transition-colors active:scale-95"><Send size={20} className="text-white ml-0.5" /></motion.button>
-            : <motion.button key="mic" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} className="w-12 h-12 bg-[#00A884] rounded-full flex items-center justify-center flex-shrink-0 hover:bg-[#06cf9c] transition-colors active:scale-95"><Mic size={20} className="text-white" /></motion.button>}
+            {text ? <motion.button key="send" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleSend} className="w-12 h-12 bg-[#00A884] rounded-full flex items-center justify-center flex-shrink-0 hover:bg-[#06cf9c] transition-all shadow-md active:scale-90"><Send size={20} className="text-white ml-0.5" /></motion.button>
+            : <motion.button key="mic" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} className="w-12 h-12 bg-[#00A884] rounded-full flex items-center justify-center flex-shrink-0 hover:bg-[#06cf9c] transition-all shadow-md active:scale-90"><Mic size={20} className="text-white" /></motion.button>}
           </AnimatePresence>
         </div>
       </div>

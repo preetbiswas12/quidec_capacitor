@@ -20,7 +20,7 @@ export default function SplashScreen() {
   }, []);
 
   return (
-    <div className="h-full w-full bg-[#0b141a] flex flex-col items-center justify-between py-16 relative overflow-hidden">
+    <div className="h-full w-full bg-wa-main flex flex-col items-center justify-between py-16 relative overflow-hidden">
       {/* Premium Ambient Background */}
       <div className="absolute inset-0 z-0">
         <motion.div 
@@ -92,7 +92,7 @@ export default function SplashScreen() {
               transition={{ duration: 1.5, ease: "easeOut" }}
               className="flex items-center gap-3"
             >
-              <h1 className="text-white text-4xl font-black mb-1">QUIDEC</h1>
+              <h1 className="text-wa-primary text-4xl font-black mb-1">QUIDEC</h1>
             </motion.div>
             <motion.div 
               initial={{ width: 0 }}
@@ -110,7 +110,7 @@ export default function SplashScreen() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="text-[#8696A0] text-[10px] font-bold uppercase tracking-[0.3em] text-center"
+                className="text-wa-text-muted text-[10px] font-bold uppercase tracking-[0.3em] text-center"
               >
                 {statuses[statusIdx]}
               </motion.p>
@@ -119,7 +119,7 @@ export default function SplashScreen() {
 
           {/* Precision Progress Bar */}
           <div className="w-64 flex flex-col gap-2">
-            <div className="h-1 bg-white/5 rounded-full overflow-hidden relative backdrop-blur-sm border border-white/5">
+            <div className="h-1 bg-wa-secondary/20 rounded-full overflow-hidden relative backdrop-blur-sm border border-wa-border/5">
               <motion.div
                 initial={{ width: "0%" }}
                 animate={{ width: "100%" }}
@@ -128,7 +128,7 @@ export default function SplashScreen() {
               />
             </div>
             <div className="flex justify-between px-1">
-              <span className="text-[#667781] text-[8px] font-bold">SECURE_INIT_SEQ</span>
+              <span className="text-wa-text-muted text-[8px] font-bold">SECURE_INIT_SEQ</span>
               <motion.span 
                 animate={{ opacity: [1, 0.4, 1] }}
                 transition={{ duration: 0.5, repeat: Infinity }}
@@ -151,20 +151,20 @@ export default function SplashScreen() {
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <Lock size={12} className="text-[#00A884]/70" />
-            <span className="text-[9px] font-bold text-white/40 uppercase tracking-[0.2em]">Quantum-Safe</span>
+            <span className="text-[9px] font-bold text-wa-text-muted/60 uppercase tracking-[0.2em]">Quantum-Safe</span>
           </div>
-          <div className="w-[1px] h-3 bg-white/10" />
+          <div className="w-[1px] h-3 bg-wa-border/10" />
           <div className="flex items-center gap-2">
             <Globe size={12} className="text-[#00A884]/70" />
-            <span className="text-[9px] font-bold text-white/40 uppercase tracking-[0.2em]">Global Mesh</span>
+            <span className="text-[9px] font-bold text-wa-text-muted/60 uppercase tracking-[0.2em]">Global Mesh</span>
           </div>
         </div>
         
         <div className="flex flex-col items-center gap-1">
-          <p className="text-[#667781] text-[9px] font-black tracking-[0.4em] uppercase opacity-50">Advanced Agentic Architecture</p>
+          <p className="text-wa-text-muted text-[9px] font-black tracking-[0.4em] uppercase opacity-50">Advanced Agentic Architecture</p>
           <div className="flex items-center gap-2 mt-1">
             <div className="w-1 h-1 rounded-full bg-[#00A884]" />
-            <span className="text-white/20 text-[8px] font-bold tracking-widest uppercase">Deepmind Labs System</span>
+            <span className="text-wa-text-muted/20 text-[8px] font-bold tracking-widest uppercase">Deepmind Labs System</span>
           </div>
         </div>
       </motion.div>

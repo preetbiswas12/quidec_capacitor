@@ -20,17 +20,45 @@ export default defineConfig({
   plugins: [
     tailwindcss(),
     figmaAssetResolver(),
-    // The React and Tailwind plugins are both required for Make, even if
-    // Tailwind is not being actively used – do not remove them
     react(),
   ],
   resolve: {
     alias: {
-      // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
     },
   },
-
-  // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+  build: {
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom') || id.includes('scheduler')) {
+              return 'vendor-react';
+            }
+            if (id.includes('@mui') || id.includes('@emotion')) {
+              return 'vendor-mui';
+            }
+            if (id.includes('peerjs') || id.includes('peer')) {
+              return 'vendor-p2p';
+            }
+            if (id.includes('@radix-ui') || id.includes('recharts') || id.includes('react-day-picker') || id.includes('cmdk') || id.includes('date-fns')) {
+              return 'vendor-ui';
+            }
+            if (id.includes('firebase')) {
+              if (id.includes('firestore')) return 'firebase-firestore';
+              if (id.includes('auth')) return 'firebase-auth';
+              if (id.includes('storage')) return 'firebase-storage';
+              if (id.includes('messaging')) return 'firebase-messaging';
+              return 'vendor-firebase';
+            }
+            if (id.includes('@capacitor')) {
+              return 'vendor-capacitor';
+            }
+          }
+        },
+      },
+    },
+  },
 })

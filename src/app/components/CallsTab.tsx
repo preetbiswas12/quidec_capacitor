@@ -16,8 +16,8 @@ export default function CallsTab() {
   const getContact = (id: string) => contacts.find(c => c.id === id);
 
   const startCall = (contactId: string, type: 'voice' | 'video') => {
-    console.warn(`⚠️ ${type.toUpperCase()} calls are currently disabled`);
-    // Feature disabled for now
+    console.log(`📞 Starting ${type} call with ${contactId}`);
+    navigate(`/app/call/${type}/${contactId}`);
   };
 
   const openChatWithContact = (contactId: string) => {
@@ -44,40 +44,40 @@ export default function CallsTab() {
   return (
     <div className="flex flex-col h-full overflow-hidden relative">
       <div className="flex-1 overflow-y-auto">
-        {/* ⚠️ Feature Disabled Banner */}
-        <div className="px-4 py-3 border-b border-yellow-600 bg-yellow-900/20">
-          <div className="flex items-center gap-2 text-yellow-600 text-sm">
-            <span>⚠️</span>
-            <span>Voice and video calls are currently disabled</span>
+        {/* ✅ Calls Enabled Banner */}
+        <div className="px-4 py-3 border-b border-green-600/30 bg-green-900/10">
+          <div className="flex items-center gap-2 text-green-600 text-sm">
+            <span>✅</span>
+            <span style={{ fontWeight: 500 }}>Production-level WebRTC calling enabled with forced TURN relay</span>
           </div>
         </div>
 
         {/* Recent Calls */}
-        <div className="px-4 py-3">
-          <h3 className="text-[#8696A0] mb-2 px-1" style={{ fontSize: '0.8rem', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Recent
+        <div className="pt-4 pb-20">
+          <h3 className="text-[#00A884] px-4 mb-2" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+            RECENT CALLS
           </h3>
-          <div className="space-y-1">
+          <div className="flex flex-col">
             {calls.map(call => {
               const contact = getContact(call.contactId);
               if (!contact) return null;
               return (
                 <div
                   key={call.id}
-                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#2A3942] cursor-pointer transition-colors group"
+                  className="flex items-center gap-4 px-4 py-4 hover:bg-wa-secondary/20 cursor-pointer transition-colors group border-b border-wa-border/10 last:border-0"
                   onClick={() => openChatWithContact(call.contactId)}
                 >
                   <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={48} />
                   <div className="flex-1 min-w-0">
                     <p
-                      className={call.direction === 'missed' ? 'text-red-400' : 'text-[#E9EDEF]'}
-                      style={{ fontWeight: 500 }}
+                      className={call.direction === 'missed' ? 'text-red-400' : 'text-wa-primary'}
+                      style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '-0.2px' }}
                     >
                       {contact.name}
                     </p>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 mt-0.5">
                       <CallDirectionIcon direction={call.direction} type={call.type} />
-                      <span className="text-[#8696A0]" style={{ fontSize: '0.8rem' }}>
+                      <span className="text-wa-text-muted" style={{ fontSize: '0.82rem' }}>
                         {call.timestamp}
                         {call.duration && ` · ${call.duration}`}
                       </span>
@@ -85,8 +85,8 @@ export default function CallsTab() {
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); startCall(contact.id, call.type); }}
-                    className="text-[#8696A0] p-2 rounded-full opacity-50 cursor-not-allowed"
-                    title="Calls are currently disabled"
+                    className="text-wa-header-icon p-2 rounded-full hover:bg-wa-secondary/30 opacity-100 hover:opacity-100 transition-all"
+                    title={`Start ${call.type} call`}
                   >
                     {call.type === 'video' ? <Video size={20} /> : <Phone size={20} />}
                   </button>
@@ -98,10 +98,10 @@ export default function CallsTab() {
       </div>
 
       {/* FAB - disabled for now */}
-      <div className="absolute bottom-4 right-4 z-10">
+      <div className="absolute bottom-6 right-6 z-10">
         <button
           onClick={() => setShowNewCallSheet(true)}
-          className="w-14 h-14 rounded-full bg-[#00A884] flex items-center justify-center shadow-lg hover:bg-[#06cf9c] transition-colors active:scale-95"
+          className="w-14 h-14 rounded-full bg-[#00A884] flex items-center justify-center shadow-2xl hover:bg-[#06cf9c] transition-all active:scale-90"
         >
           <PhoneCall size={24} className="text-white" />
         </button>
@@ -111,48 +111,45 @@ export default function CallsTab() {
       <AnimatePresence>
         {showNewCallSheet && (
           <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className="absolute inset-0 bg-[#111B21] flex flex-col z-20"
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ duration: 0.22, ease: 'easeInOut' }}
+            className="absolute inset-0 bg-wa-main flex flex-col z-20"
           >
-            <div className="flex items-center gap-3 px-4 py-4 bg-[#202C33] flex-shrink-0">
+            <div className="flex items-center gap-3 px-4 py-4 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border/10">
               <button
                 onClick={() => { setShowNewCallSheet(false); setNewCallSearch(''); }}
-                className="text-[#aebac1] hover:text-[#E9EDEF] p-1"
+                className="text-wa-header-icon hover:text-wa-primary p-1"
               >
                 <ArrowLeft size={20} />
               </button>
-              <span className="text-[#E9EDEF]" style={{ fontSize: '1.05rem', fontWeight: 600 }}>New Call</span>
+              <span className="text-wa-primary" style={{ fontSize: '1.05rem', fontWeight: 700 }}>New Call</span>
             </div>
 
-            <div className="px-3 py-2 flex-shrink-0">
-              <div className="flex items-center gap-2 bg-[#202C33] rounded-xl px-4 py-2">
-                <Search size={16} className="text-[#8696A0]" />
+            <div className="px-4 py-3 flex-shrink-0">
+              <div className="flex items-center gap-3 bg-wa-secondary/30 rounded-2xl px-4 py-2.5 border border-wa-border/5">
+                <Search size={18} className="text-wa-text-muted flex-shrink-0" />
                 <input
                   type="text"
                   placeholder="Search contacts"
                   value={newCallSearch}
                   onChange={e => setNewCallSearch(e.target.value)}
-                  className="flex-1 bg-transparent outline-none text-[#E9EDEF] placeholder-[#8696A0]"
-                  style={{ fontSize: '0.9rem' }}
+                  className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted/50 font-medium"
+                  style={{ fontSize: '0.95rem' }}
                   autoFocus
                 />
-                {newCallSearch && (
-                  <button onClick={() => setNewCallSearch('')}><X size={16} className="text-[#8696A0]" /></button>
-                )}
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto">
               {filteredContacts.map(contact => (
-                <div key={contact.id} className="flex items-center gap-3 px-4 py-3 hover:bg-[#2A3942] transition-colors border-b border-[#2A3942]/30">
+                <div key={contact.id} className="flex items-center gap-4 px-4 py-4 hover:bg-wa-secondary/20 transition-colors border-b border-wa-border/10">
                   <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={48} isOnline={contact.isOnline} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[#E9EDEF]" style={{ fontWeight: 500 }}>{contact.name}</p>
-                    <p className="text-[#8696A0]" style={{ fontSize: '0.78rem' }}>
-                      {contact.isOnline ? '🟢 online' : contact.lastSeen}
+                    <p className="text-wa-primary" style={{ fontWeight: 700, fontSize: '1rem' }}>{contact.name}</p>
+                    <p className="text-wa-text-muted" style={{ fontSize: '0.82rem' }}>
+                      {contact.isOnline ? 'online' : contact.lastSeen}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -171,12 +168,6 @@ export default function CallsTab() {
                   </div>
                 </div>
               ))}
-              {filteredContacts.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-12 gap-2 text-[#8696A0]">
-                  <Search size={32} className="opacity-30" />
-                  <p style={{ fontSize: '0.9rem' }}>No contacts found</p>
-                </div>
-              )}
             </div>
           </motion.div>
         )}

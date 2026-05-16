@@ -1,15 +1,50 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import type { ReactNode } from 'react';
 import {
   User, Bell, Lock, MessageSquare, Palette, HelpCircle, LogOut,
   ChevronRight, Star, Download, Globe, Smartphone, ArrowLeft,
   Edit3, Check, Mail, Eye, Trash2, AlertTriangle,
-  Database, HardDrive, Volume2, VolumeX, Moon, Sun, AtSign, Copy, Camera,
+  Database, HardDrive, Volume2, VolumeX, Moon, Sun, AtSign, Copy, Camera, X,
+  Shield, Phone, LogOut as LogOutIcon,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import Avatar from './Avatar';
+import SecurityActionModal from './SecurityActionModal';
 import services from '../../utils/firebaseServices';
+import { auth } from '../../utils/firebase';
+import {
+  getPrivacySettings,
+  updatePrivacySettings,
+  getAccountSecuritySettings,
+  updateAccountSecuritySettings,
+  setTwoFactorAuth,
+  setTwoFactorPin,
+  setTypingIndicator,
+  setDisappearingMessages,
+  blockUser,
+  unblockUser,
+  getBlockList,
+  isUserBlocked,
+  type PrivacySettings,
+  type AccountSecuritySettings,
+} from '../../utils/privacySettingsManager';
+import {
+  getDeviceSessions,
+  listenToDeviceSessions,
+  logoutDevice,
+  logoutAllOtherDevices,
+  getCurrentDevice,
+  type DeviceSession,
+} from '../../utils/linkedDevicesManager';
+import { 
+  updateNotificationChannel, 
+  initializeNotificationChannels,
+  getNotificationPermissionStatus,
+  requestNotificationPermissions
+} from '../../utils/notificationSettingsManager';
+import { saveSettingsToNative, syncSettingsToFirebase } from '../../utils/settingsPersistence';
+import { updatePassword, updateEmail, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 
 type SubPage =
   | null
@@ -29,10 +64,11 @@ interface SettingsPageProps {
 }
 
 export default function SettingsPage({ onSubPageChange, forcedSubPage }: SettingsPageProps = {}) {
-  const { currentUser, updateCurrentUser, logout, settings, updateSettings } = useApp();
+  const { currentUser, updateCurrentUser, logout, settings, updateSettings, clearAllChats, chats } = useApp();
 
   if (!currentUser) return null;
 
+  // ─── State ────────────────────────────────────────────────────────────────
   const [localSubPage, setLocalSubPage] = useState<SubPage>(null);
   const [editName, setEditName] = useState(currentUser.name);
   const [editAbout, setEditAbout] = useState(currentUser.about);
@@ -40,6 +76,76 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
   const [editingAbout, setEditingAbout] = useState(false);
   const [idCopied, setIdCopied] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  // Settings & Security State
+  const [privacySettings, setPrivacySettings] = useState<PrivacySettings | null>(null);
+  const [securitySettings, setSecuritySettings] = useState<AccountSecuritySettings | null>(null);
+  const [deviceSessions, setDeviceSessions] = useState<DeviceSession[]>([]);
+  const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
+
+  // Modal States
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [show2FAModal, setShow2FAModal] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [showBlockModal, setShowBlockModal] = useState(false);
+
+  // Security Action Modal States
+  const [securityModalOpen, setSecurityModalOpen] = useState(false);
+  const [securityModalConfig, setSecurityModalConfig] = useState<{
+    title: string;
+    message: string;
+    email?: string;
+    action: 'password' | 'email' | '2fa';
+  }>({
+    title: '',
+    message: '',
+    action: 'password',
+  });
+
+  // Form States
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [newEmail, setNewEmail] = useState(currentUser.email || '');
+  const [blockUserId, setBlockUserId] = useState('');
+  const [blockList, setBlockList] = useState<string[]>([]);
+
+  // UI States
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [notificationTone, setNotificationTone] = useState<string>(settings.notificationTone || 'default');
+  const [vibrationType, setVibrationType] = useState<string>(settings.vibrationType || 'default');
+
+  // ─── Effects ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Load privacy settings
+    getPrivacySettings(currentUser.userId).then(setPrivacySettings).catch(console.error);
+
+    // Load security settings
+    getAccountSecuritySettings(currentUser.userId).then(setSecuritySettings).catch(console.error);
+
+    // Load current device ID
+    getCurrentDevice().then(device => setCurrentDeviceId(device.id)).catch(console.error);
+
+    // Load device sessions
+    getDeviceSessions(currentUser.userId).then(setDeviceSessions).catch(console.error);
+
+    // Listen to device sessions in real-time
+    const unsubscribe = listenToDeviceSessions(currentUser.userId, (sessions: DeviceSession[]) => {
+      setDeviceSessions(sessions);
+    });
+
+    // Load block list
+    getBlockList(currentUser.userId).then(setBlockList).catch(console.error);
+
+    return unsubscribe;
+  }, [currentUser]);
+
+
 
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -53,8 +159,280 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
     e.target.value = '';
   };
 
+  // ─── Handlers ────────────────────────────────────────────────────────────────
+
+  const handleChangePassword = async () => {
+    if (!currentUser?.email) return;
+    try {
+      setLoading(true);
+      setError(null);
+      await services.authService.sendPasswordReset(currentUser.email);
+      
+      // Show security action modal
+      setSecurityModalConfig({
+        title: 'Password Reset Email Sent',
+        message: 'We\'ve sent a password reset link to your email. Click the link to set a new password.',
+        email: currentUser.email,
+        action: 'password' as const,
+      });
+      setSecurityModalOpen(true);
+    } catch (err: any) {
+      console.error('❌ Error:', err);
+      setError('Failed to send reset email: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChangeEmail = async () => {
+    if (!currentUser?.email) return;
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const result = await services.authService.sendEmailChangeVerification(currentUser.email);
+      
+      // Show security action modal
+      setSecurityModalConfig({
+        title: 'Email Change Verification Sent',
+        message: result.message,
+        email: currentUser.email,
+        action: 'email',
+      });
+      setSecurityModalOpen(true);
+      
+      // Close any existing modals
+      setShowEmailModal(false);
+      setCurrentPassword('');
+      setNewEmail(currentUser.email);
+    } catch (err: any) {
+      setError(err.message || 'Failed to send email verification');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggle2FA = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const newState = !securitySettings?.twoFactorEnabled;
+      
+      if (newState) {
+        // Enabling 2FA - send enrollment email
+        const result = await services.authService.send2FAEnrollmentEmail();
+        
+        // Show security action modal
+        setSecurityModalConfig({
+          title: '2FA Enrollment Email Sent',
+          message: result.message,
+          email: currentUser?.email,
+          action: '2fa',
+        });
+        setSecurityModalOpen(true);
+        
+        // Update settings
+        await setTwoFactorAuth(currentUser!.userId, true);
+        setSecuritySettings(prev => ({ ...prev!, twoFactorEnabled: true }));
+      } else {
+        // Disabling 2FA
+        await setTwoFactorAuth(currentUser!.userId, false);
+        setSecuritySettings(prev => ({ ...prev!, twoFactorEnabled: false }));
+        setSuccess('Two-factor authentication disabled');
+        setTimeout(() => setSuccess(null), 3000);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to update 2FA');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSet2FAPin = async (pin: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      await setTwoFactorPin(currentUser.userId, pin);
+      setSecuritySettings(prev => ({ ...prev!, twoFactorEnabled: true, twoFactorPin: pin }));
+      setShow2FAModal(false);
+      setSuccess('Two-step verification PIN set successfully');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to set PIN');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBlockUser = async () => {
+    if (!blockUserId.trim()) {
+      setError('Please enter a user ID or email');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      await blockUser(currentUser.userId, blockUserId);
+      setBlockList(prev => [...prev, blockUserId]);
+      setSuccess(`User blocked successfully`);
+      setBlockUserId('');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to block user');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnblockUser = async (blockedUserId: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      await unblockUser(currentUser.userId, blockedUserId);
+      setBlockList(prev => prev.filter(id => id !== blockedUserId));
+      setSuccess(`User unblocked successfully`);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to unblock user');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdatePrivacySetting = async (key: keyof PrivacySettings, value: any) => {
+    try {
+      setLoading(true);
+      await updatePrivacySettings(currentUser.userId, { [key]: value } as any);
+      setPrivacySettings(prev => ({ ...prev!, [key]: value }));
+      setLoading(false);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update setting');
+      setLoading(false);
+    }
+  };
+
+  const handleLogoutDevice = async (deviceId: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      await logoutDevice(currentUser.userId, deviceId);
+      setDeviceSessions(prev => prev.filter(d => d.id !== deviceId));
+      setSuccess('Device logged out successfully');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to logout device');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogoutAllOtherDevices = async () => {
+    if (!window.confirm('Are you sure? You will be logged out of all other devices.')) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+      await logoutAllOtherDevices(currentUser.userId, currentDeviceId);
+      setDeviceSessions(prev => prev.filter(d => d.id === currentDeviceId));
+      setSuccess('All other devices logged out');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to logout other devices');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // If parent controls subpage (via forcedSubPage), use that; otherwise use local state
   const subPage: SubPage = (forcedSubPage as SubPage) ?? localSubPage;
+
+  const handleDeleteAccount = async () => {
+    if (!window.confirm('WARNING: This will permanently delete your account and all messages. This cannot be undone. Are you sure?')) return;
+    
+    const password = window.prompt('Please enter your password to confirm deletion:');
+    if (!password) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+      const user = auth.currentUser;
+      if (!user || !user.email) throw new Error('Not authenticated');
+
+      // Reauthenticate
+      const credential = EmailAuthProvider.credential(user.email, password);
+      await reauthenticateWithCredential(user, credential);
+
+      // 1. Delete from Firestore
+      const { deleteDoc, doc } = await import('firebase/firestore');
+      const { db } = await import('../../utils/firebase');
+      await deleteDoc(doc(db, 'users', user.uid));
+      
+      // 2. Delete Auth User
+      await user.delete();
+
+      console.log('✅ Account deleted');
+      logout();
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete account. Check your password.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateSettings = async (updates: any) => {
+    updateSettings(updates);
+    
+    // Sync with Native/Cloud
+    try {
+      await saveSettingsToNative(updates);
+      if (currentUser) {
+        await syncSettingsToFirebase(currentUser.userId, updates);
+      }
+    } catch (err) {
+      console.warn('⚠️ Settings sync failed:', err);
+    }
+
+    // Handle Native Notification Channel Sync
+    if (updates.notifications !== undefined) {
+      const enabled = updates.notifications;
+      await updateNotificationChannel('messages', { importance: enabled ? 'high' : 'low' });
+      await updateNotificationChannel('calls', { importance: enabled ? 'max' : 'low' });
+    }
+  };
+
+  const handleExportChats = async () => {
+    try {
+      setLoading(true);
+      const { loadMessages } = await import('../../utils/localMessageStore');
+      const allChats: any = {};
+      
+      for (const chat of chats) {
+        const msgs = await loadMessages(currentUser.userId, chat.id);
+        allChats[chat.id] = {
+          contact: chat.contactId,
+          messages: msgs
+        };
+      }
+
+      const blob = new Blob([JSON.stringify(allChats, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `quidec_backup_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      setSuccess('Chats exported successfully');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      setError('Failed to export chats');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const go = (page: SubPage) => {
     if (onSubPageChange) {
@@ -128,56 +506,34 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               </p>
             </div>
 
-            {/* User ID card - Slimmed down and premium */}
-            <div className="mx-4 mt-4 mb-3 bg-gradient-to-br from-[#1F2C34]/60 to-[#1F2C34]/30 border border-wa-border/50 rounded-2xl p-5 shadow-lg backdrop-blur-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-[#00A884] animate-pulse" />
-                  <p className="text-[#00A884]" style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1.2px' }}>
-                    QUIDEC IDENTITY
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    const newId = generateUserId(currentUser.name);
-                    updateCurrentUser({ userId: newId });
-                  }}
-                  className="text-white bg-[#00A884] px-3 py-1 rounded-full hover:bg-[#06cf9c] transition-all active:scale-95 shadow-md"
-                  style={{ fontSize: '0.65rem', fontWeight: 700 }}
-                >
-                  REGENERATE
-                </button>
-              </div>
-              
-              <div className="flex items-center justify-between gap-4 overflow-hidden bg-black/20 rounded-xl p-3 border border-white/5">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-[#00A884]/20 flex items-center justify-center flex-shrink-0 border border-[#00A884]/30">
+            {/* User ID - Sleek WhatsApp Style */}
+            <Section label="YOUR QUIDEC ID">
+              <div className="px-4 py-3.5 flex items-center justify-between gap-4 group">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-[#00A884]/10 flex items-center justify-center flex-shrink-0 border border-[#00A884]/20">
                     <AtSign size={18} className="text-[#00A884]" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-wa-text-muted" style={{ fontSize: '0.6rem', fontWeight: 600, textTransform: 'uppercase' }}>Unique ID</p>
-                    <p className="text-wa-primary truncate" style={{ fontSize: '1.05rem', fontWeight: 700, letterSpacing: '0.5px' }}>
+                    <p className="text-wa-primary font-bold" style={{ fontSize: '1rem', letterSpacing: '0.2px' }}>
                       {currentUser.userId || '@user.0000'}
                     </p>
+                    <p className="text-wa-text-muted" style={{ fontSize: '0.75rem' }}>Your unique encrypted identity</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(currentUser.userId || '').catch(() => {});
-                    setIdCopied(true);
-                    setTimeout(() => setIdCopied(false), 2000);
-                  }}
-                  className="flex items-center justify-center w-10 h-10 bg-wa-secondary rounded-full text-[#00A884] hover:bg-wa-header transition-colors flex-shrink-0 border border-wa-border shadow-sm"
-                  title="Copy ID"
-                >
-                  {idCopied ? <Check size={18} /> : <Copy size={18} />}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(currentUser.userId || '').catch(() => {});
+                      setIdCopied(true);
+                      setTimeout(() => setIdCopied(false), 2000);
+                    }}
+                    className="p-2 rounded-full hover:bg-wa-secondary text-[#00A884] transition-colors"
+                  >
+                    {idCopied ? <Check size={18} /> : <Copy size={18} />}
+                  </button>
+                </div>
               </div>
-              
-              <p className="text-wa-text-muted mt-4 text-center italic" style={{ fontSize: '0.7rem', opacity: 0.8 }}>
-                Encrypted identity based on your display name.
-              </p>
-            </div>
+            </Section>
 
             <Section>
               <p className="text-[#00A884] px-4 pb-2" style={{ fontSize: '0.8rem', fontWeight: 600 }}>EMAIL ADDRESS</p>
@@ -185,6 +541,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 icon={<Mail size={18} className="text-wa-text-muted" />}
                 label={currentUser.email || 'Not set'}
                 sub="Tap to change email"
+                onClick={() => { setShowEmailModal(true); setError(null); }}
               />
             </Section>
             <Section>
@@ -194,7 +551,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                   <input
                     value={editName}
                     onChange={e => setEditName(e.target.value)}
-                    className="flex-1 bg-[#2A3942] text-wa-primary rounded-lg px-3 py-2 outline-none border border-[#00A884]"
+                    className="flex-1 bg-wa-secondary text-wa-primary rounded-lg px-3 py-2 outline-none border border-[#00A884]"
                     style={{ fontSize: '0.95rem' }}
                     maxLength={25}
                     autoFocus
@@ -219,7 +576,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                   <input
                     value={editAbout}
                     onChange={e => setEditAbout(e.target.value)}
-                    className="flex-1 bg-[#2A3942] text-wa-primary rounded-lg px-3 py-2 outline-none border border-[#00A884]"
+                    className="flex-1 bg-wa-secondary text-wa-primary rounded-lg px-3 py-2 outline-none border border-[#00A884]"
                     style={{ fontSize: '0.95rem' }}
                     maxLength={139}
                     autoFocus
@@ -237,23 +594,21 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 />
               )}
             </Section>
+
             <Section>
-              <div className="px-6 py-8 flex flex-col items-center gap-4 border-t border-wa-border/20 mt-4">
-                <button
-                  onClick={logout}
-                  className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-all active:scale-95 border border-red-500/20 shadow-sm"
-                  style={{ fontWeight: 700, fontSize: '0.95rem' }}
-                >
-                  <AlertTriangle size={20} />
-                  <span>Delete my account</span>
-                </button>
-                <p className="text-wa-text-muted text-center italic" style={{ fontSize: '0.72rem', maxWidth: '80%' }}>
-                  This action is permanent and will wipe all your messages and identity from Quidec.
-                </p>
-                <div className="mt-4 opacity-30">
-                  <p style={{ fontSize: '0.65rem', fontWeight: 600 }}>QUIDEC STABLE v1.0.0</p>
-                </div>
+            <div className="px-6 py-12 flex flex-col items-center gap-6 mt-4">
+              <button
+                onClick={handleDeleteAccount}
+                className="w-full flex items-center justify-center gap-2 text-red-500 hover:text-red-400 transition-colors"
+                style={{ fontWeight: 600, fontSize: '0.95rem' }}
+              >
+                <Trash2 size={18} />
+                <span>Delete Account</span>
+              </button>
+              <div className="text-center opacity-30">
+                <p className="text-wa-text-muted" style={{ fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>QUIDEC STABLE v1.0.0</p>
               </div>
+            </div>
             </Section>
           </SubPageShell>
         );
@@ -262,36 +617,97 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
       case 'privacy':
         return (
           <SubPageShell title="Privacy" onBack={back}>
+            {error && <ErrorAlert message={error} onClose={() => setError(null)} />}
+            {success && <SuccessAlert message={success} />}
+
             <Section label="WHO CAN SEE MY INFO">
               <OptionRow
                 label="Last seen & online"
-                value={settings.lastSeenVisibility === 'everyone' ? 'Everyone' : settings.lastSeenVisibility === 'contacts' ? 'My Contacts' : 'Nobody'}
+                value={privacySettings?.lastSeenVisibility === 'everyone' ? 'Everyone' : privacySettings?.lastSeenVisibility === 'contacts' ? 'My Contacts' : 'Nobody'}
                 onClick={() => {
-                  const next = settings.lastSeenVisibility === 'everyone' ? 'contacts' : settings.lastSeenVisibility === 'contacts' ? 'nobody' : 'everyone';
-                  updateSettings({ lastSeenVisibility: next as any });
+                  const current = privacySettings?.lastSeenVisibility || 'contacts';
+                  const next = current === 'everyone' ? 'contacts' : current === 'contacts' ? 'nobody' : 'everyone';
+                  handleUpdatePrivacySetting('lastSeenVisibility', next);
                 }}
               />
               <OptionRow
                 label="Profile photo"
-                value={settings.profilePhotoVisibility === 'everyone' ? 'Everyone' : settings.profilePhotoVisibility === 'contacts' ? 'My Contacts' : 'Nobody'}
+                value={privacySettings?.profilePhotoVisibility === 'everyone' ? 'Everyone' : privacySettings?.profilePhotoVisibility === 'contacts' ? 'My Contacts' : 'Nobody'}
                 onClick={() => {
-                  const next = settings.profilePhotoVisibility === 'everyone' ? 'contacts' : settings.profilePhotoVisibility === 'contacts' ? 'nobody' : 'everyone';
-                  updateSettings({ profilePhotoVisibility: next as any });
+                  const current = privacySettings?.profilePhotoVisibility || 'contacts';
+                  const next = current === 'everyone' ? 'contacts' : current === 'contacts' ? 'nobody' : 'everyone';
+                  handleUpdatePrivacySetting('profilePhotoVisibility', next);
                 }}
               />
             </Section>
+
             <Section label="MESSAGING">
               <ToggleRow
                 icon={<Eye size={18} className="text-wa-text-muted" />}
                 label="Read receipts"
                 desc="When turned off, you won't send or receive read receipts."
-                value={settings.readReceipts}
-                onChange={v => updateSettings({ readReceipts: v })}
+                value={privacySettings?.readReceipts ?? true}
+                onChange={(v: boolean) => handleUpdatePrivacySetting('readReceipts', v)}
+              />
+              <ToggleRow
+                icon={<Edit3 size={18} className="text-wa-text-muted" />}
+                label="Typing indicator"
+                desc="When turned off, others won't see when you're typing."
+                value={privacySettings?.typingIndicator ?? true}
+                onChange={(v: boolean) => handleUpdatePrivacySetting('typingIndicator', v)}
               />
             </Section>
+
             <Section label="SECURITY">
-              <Row icon={<Lock size={18} className="text-wa-text-muted" />} label="Two-step verification" sub="Enabled" />
-              <Row icon={<Smartphone size={18} className="text-wa-text-muted" />} label="Change passcode" />
+              <ToggleRow
+                icon={<Lock size={18} className="text-wa-text-muted" />}
+                label="Two-step verification"
+                desc={securitySettings?.twoFactorEnabled ? 'Enabled' : 'Disabled'}
+                value={securitySettings?.twoFactorEnabled ?? false}
+                onChange={handleToggle2FA}
+              />
+              <Row
+                icon={<Shield size={18} className="text-wa-text-muted" />}
+                label="Change password"
+                onClick={handleChangePassword}
+              />
+              <Row
+                icon={<Mail size={18} className="text-wa-text-muted" />}
+                label="Change email"
+                sub={currentUser.email}
+                onClick={handleChangeEmail}
+              />
+            </Section>
+
+            <Section label="BLOCKED CONTACTS">
+              <button
+                onClick={() => setShowBlockModal(true)}
+                className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-wa-secondary/30 transition-colors text-left border-b border-wa-border/10"
+              >
+                <AlertTriangle size={18} className="text-red-400" />
+                <div className="flex-1">
+                  <p className="text-wa-primary" style={{ fontSize: '0.95rem', fontWeight: 500 }}>Manage blocked users</p>
+                  <p className="text-wa-text-muted" style={{ fontSize: '0.82rem' }}>{blockList.length} user{blockList.length !== 1 ? 's' : ''} blocked</p>
+                </div>
+              </button>
+              {blockList.length > 0 && (
+                <div className="border-t border-wa-border/10">
+                  {blockList.slice(0, 3).map(userId => (
+                    <div key={userId} className="px-4 py-3 flex items-center justify-between border-b border-wa-border/10 last:border-0">
+                      <p className="text-wa-primary text-sm">{userId}</p>
+                      <button
+                        onClick={() => handleUnblockUser(userId)}
+                        className="text-[#00A884] text-xs font-medium hover:underline"
+                      >
+                        Unblock
+                      </button>
+                    </div>
+                  ))}
+                  {blockList.length > 3 && (
+                    <div className="px-4 py-2 text-center text-wa-text-muted text-xs">+{blockList.length - 3} more</div>
+                  )}
+                </div>
+              )}
             </Section>
           </SubPageShell>
         );
@@ -300,30 +716,50 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
       case 'notifications':
         return (
           <SubPageShell title="Notifications" onBack={back}>
+            {error && <ErrorAlert message={error} onClose={() => setError(null)} />}
             <Section label="MESSAGES">
               <ToggleRow
                 icon={<Bell size={18} className="text-wa-text-muted" />}
                 label="Message notifications"
                 value={settings.notifications}
-                onChange={v => updateSettings({ notifications: v })}
+                onChange={(v: boolean) => handleUpdateSettings({ notifications: v })}
               />
-              <Row icon={<Volume2 size={18} className="text-wa-text-muted" />} label="Notification tone" sub="Default" />
-              <Row icon={<VolumeX size={18} className="text-wa-text-muted" />} label="Vibrate" sub="Default" />
+              <Row 
+                icon={<Volume2 size={18} className="text-wa-text-muted" />} 
+                label="Notification tone" 
+                sub={notificationTone || 'Default'}
+                onClick={() => setShowNotificationModal(true)}
+              />
+              <Row 
+                icon={<VolumeX size={18} className="text-wa-text-muted" />} 
+                label="Vibration" 
+                sub={vibrationType || 'Default'}
+                onClick={() => setVibrationType(vibrationType === 'default' ? 'strong' : vibrationType === 'strong' ? 'light' : 'default')}
+              />
             </Section>
             <Section label="GROUPS">
               <ToggleRow
                 icon={<Bell size={18} className="text-wa-text-muted" />}
                 label="Group notifications"
                 value={settings.groupNotifications}
-                onChange={v => updateSettings({ groupNotifications: v })}
+                onChange={(v: boolean) => handleUpdateSettings({ groupNotifications: v })}
               />
             </Section>
             <Section label="CALLS">
               <ToggleRow
-                icon={<Bell size={18} className="text-wa-text-muted" />}
+                icon={<Phone size={18} className="text-wa-text-muted" />}
                 label="Call notifications"
                 value={settings.callNotifications}
-                onChange={v => updateSettings({ callNotifications: v })}
+                onChange={(v: boolean) => handleUpdateSettings({ callNotifications: v })}
+              />
+            </Section>
+            <Section label="GLOBAL SETTINGS">
+              <ToggleRow
+                icon={settings.notifications ? <Volume2 size={18} className="text-wa-text-muted" /> : <VolumeX size={18} className="text-red-500" />}
+                label="Mute all notifications"
+                desc="Silence all incoming messages and call alerts"
+                value={!settings.notifications}
+                onChange={(v: boolean) => handleUpdateSettings({ notifications: !v })}
               />
             </Section>
           </SubPageShell>
@@ -339,12 +775,18 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 label="Enter sends message"
                 desc="Press Enter to send, Shift+Enter for new line"
                 value={settings.enterSendsMessage}
-                onChange={v => updateSettings({ enterSendsMessage: v })}
+                onChange={(v: boolean) => updateSettings({ enterSendsMessage: v })}
               />
             </Section>
             <Section label="CHAT HISTORY">
-              <Row icon={<Database size={18} className="text-wa-text-muted" />} label="Export chat" />
-              <button className="w-full flex items-center gap-4 px-4 py-3.5 text-red-400 hover:bg-wa-secondary/50 transition-colors">
+              <Row icon={<Database size={18} className="text-wa-text-muted" />} label="Export chat" onClick={handleExportChats} />
+              <button 
+                onClick={async () => {
+                  await clearAllChats();
+                  back();
+                }}
+                className="w-full flex items-center gap-4 px-4 py-3.5 text-red-400 hover:bg-wa-secondary/50 transition-colors"
+              >
                 <Trash2 size={18} />
                 <div className="text-left">
                   <p style={{ fontSize: '0.95rem' }}>Clear all chats</p>
@@ -369,7 +811,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                       className={`flex-1 py-3 rounded-xl border-2 transition-all duration-200 shadow-sm hover:shadow-md active:scale-[0.98] ${
                         settings.theme === t 
                           ? 'border-[#00A884] bg-[#00A884]/10 ring-1 ring-[#00A884]/20' 
-                          : 'border-wa-border bg-[#1F2C34]/50'
+                          : 'border-wa-border bg-wa-secondary/40'
                       }`}
                     >
                       <div className="flex flex-col items-center">
@@ -421,7 +863,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                   <HardDrive size={16} className="text-wa-text-muted" />
                   <span className="text-wa-text-muted" style={{ fontSize: '0.85rem' }}>1.2 GB used of 32 GB</span>
                 </div>
-                <div className="w-full h-2 bg-[#2A3942] rounded-full overflow-hidden">
+                <div className="w-full h-2 bg-wa-secondary rounded-full overflow-hidden">
                   <div className="h-full bg-[#00A884] rounded-full" style={{ width: '3.75%' }} />
                 </div>
               </div>
@@ -432,7 +874,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 label="Auto-download media"
                 desc="Automatically download photos and videos on Wi-Fi"
                 value={settings.mediaAutoDownload}
-                onChange={v => updateSettings({ mediaAutoDownload: v })}
+                onChange={(v: boolean) => updateSettings({ mediaAutoDownload: v })}
               />
             </Section>
             <Section>
@@ -445,27 +887,69 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
       case 'linked-devices':
         return (
           <SubPageShell title="Linked Devices" onBack={back}>
-            <div className="px-4 py-6 text-center">
-              <div className="w-16 h-16 bg-[#00A884]/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Smartphone size={28} className="text-[#00A884]" />
-              </div>
-              <p className="text-wa-primary mb-1" style={{ fontWeight: 600 }}>Link a device</p>
-              <p className="text-wa-text-muted" style={{ fontSize: '0.85rem' }}>
-                Use WhatsApp on other devices without keeping your phone online.
-              </p>
-            </div>
-            <Section label="LINKED DEVICES (1)">
-              <div className="px-4 py-3 flex items-center gap-3">
-                <div className="w-10 h-10 bg-[#2A3942] rounded-full flex items-center justify-center">
-                  <Globe size={18} className="text-wa-text-muted" />
+            {error && <ErrorAlert message={error} onClose={() => setError(null)} />}
+            {success && <SuccessAlert message={success} />}
+            
+            {deviceSessions.length === 0 ? (
+              <div className="px-4 py-6 text-center">
+                <div className="w-16 h-16 bg-[#00A884]/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Smartphone size={28} className="text-[#00A884]" />
                 </div>
-                <div className="flex-1">
-                  <p className="text-wa-primary" style={{ fontSize: '0.9rem', fontWeight: 500 }}>WhatsApp Web</p>
-                  <p className="text-wa-text-muted" style={{ fontSize: '0.78rem' }}>Last active: Today</p>
-                </div>
-                <button className="text-red-400" style={{ fontSize: '0.82rem' }}>Log out</button>
+                <p className="text-wa-primary mb-1" style={{ fontWeight: 600 }}>No devices linked</p>
+                <p className="text-wa-text-muted" style={{ fontSize: '0.85rem' }}>
+                  Your device will appear here once logged in.
+                </p>
               </div>
-            </Section>
+            ) : (
+              <>
+                <Section label={`ACTIVE DEVICES (${deviceSessions.length})`}>
+                  {deviceSessions.map(device => (
+                    <div key={device.id} className="px-4 py-4 flex items-center gap-3 border-b border-wa-border/10 last:border-0 hover:bg-wa-secondary/20 transition-colors">
+                      <div className={`w-10 h-10 ${device.isActive ? 'bg-[#00A884]/10' : 'bg-wa-secondary'} rounded-full flex items-center justify-center`}>
+                        {device.deviceType === 'mobile' ? (
+                          <Smartphone size={18} className={device.isActive ? 'text-[#00A884]' : 'text-wa-text-muted'} />
+                        ) : (
+                          <Globe size={18} className={device.isActive ? 'text-[#00A884]' : 'text-wa-text-muted'} />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-wa-primary" style={{ fontSize: '0.9rem', fontWeight: 500 }}>
+                          {device.deviceName}
+                        </p>
+                        <p className="text-wa-text-muted" style={{ fontSize: '0.78rem' }}>
+                          {device.isActive ? 'Active now' : `Last active: ${new Date((device.lastActivity as any)?.toDate?.() || device.lastActivity).toLocaleDateString()}`}
+                          {device.id === currentDeviceId && ' (this device)'}
+                        </p>
+                      </div>
+                      {device.id !== currentDeviceId && (
+                        <button
+                          onClick={() => handleLogoutDevice(device.id)}
+                          disabled={loading}
+                          className="text-red-400 hover:text-red-300 transition-colors disabled:opacity-50 text-sm font-medium"
+                        >
+                          {loading ? 'Logging out...' : 'Log out'}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </Section>
+
+                {deviceSessions.length > 1 && (
+                  <Section>
+                    <button
+                      onClick={handleLogoutAllOtherDevices}
+                      disabled={loading}
+                      className="w-full px-4 py-3.5 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50 text-left border-b border-wa-border/10"
+                    >
+                      <p style={{ fontSize: '0.95rem', fontWeight: 500 }}>Log out all other devices</p>
+                      <p className="text-wa-text-muted" style={{ fontSize: '0.82rem', marginTop: '4px' }}>
+                        You'll be logged out of all devices except this one
+                      </p>
+                    </button>
+                  </Section>
+                )}
+              </>
+            )}
           </SubPageShell>
         );
 
@@ -490,10 +974,10 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
         return (
           <SubPageShell title="Help" onBack={back}>
             <Section>
-              <Row icon={<HelpCircle size={18} className="text-wa-text-muted" />} label="Help Centre" sub="Visit our Help Centre" />
-              <Row icon={<Mail size={18} className="text-wa-text-muted" />} label="Contact us" sub="support@whatsapp.com" />
-              <Row icon={<Lock size={18} className="text-wa-text-muted" />} label="Privacy policy" />
-              <Row icon={<Globe size={18} className="text-wa-text-muted" />} label="Terms of Service" />
+              <Row icon={<HelpCircle size={18} className="text-wa-text-muted" />} label="Help Centre" sub="Visit our Help Centre" onClick={() => window.open('https://quidec.io/help', '_blank')} />
+              <Row icon={<Mail size={18} className="text-wa-text-muted" />} label="Contact us" sub="support@quidec.io" onClick={() => window.location.href = 'mailto:support@quidec.io'} />
+              <Row icon={<Lock size={18} className="text-wa-text-muted" />} label="Privacy policy" onClick={() => window.open('https://quidec.io/privacy', '_blank')} />
+              <Row icon={<Globe size={18} className="text-wa-text-muted" />} label="Terms of Service" onClick={() => window.open('https://quidec.io/terms', '_blank')} />
             </Section>
             <div className="px-4 py-6 text-center">
               <p className="text-wa-text-muted" style={{ fontSize: '0.75rem' }}>WhatsApp from Meta</p>
@@ -507,24 +991,20 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
     }
   };
 
-  if (subPage) {
-    return (
-      <div className="flex flex-col h-full overflow-hidden">
-        {renderSubPage()}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col h-full overflow-y-auto relative bg-gradient-to-b from-wa-main to-[#0B141A] text-wa-primary transition-colors duration-200 no-scrollbar pb-10">
+  const mainContent = subPage ? (
+    <div className="flex flex-col h-full overflow-hidden">
+      {renderSubPage()}
+    </div>
+  ) : (
+    <div className="flex flex-col h-full overflow-y-auto relative bg-wa-main text-wa-primary transition-colors duration-200 no-scrollbar pb-10">
       {/* Hidden avatar input */}
       <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarSelect} />
 
-      {/* Profile section - Premium Glow */}
-      <div className="flex flex-col items-center pt-10 pb-8 bg-gradient-to-b from-wa-header/40 to-transparent flex-shrink-0 border-b border-wa-border/20">
+      {/* Profile section - Sleek & Flat */}
+      <div className="flex flex-col items-center pt-10 pb-8 flex-shrink-0 border-b border-wa-border/10 bg-transparent">
         <div className="relative group cursor-pointer" onClick={() => go('account')}>
-          <div className="w-32 h-32 rounded-full p-1 bg-gradient-to-tr from-[#00A884] to-[#06cf9c] shadow-[0_0_20px_rgba(0,168,132,0.2)]">
-            <div className="w-full h-full rounded-full overflow-hidden border-4 border-wa-main group-hover:scale-[1.02] transition-transform duration-500 relative bg-[#1F2C34]">
+          <div className="w-32 h-32 rounded-full p-1 border-2 border-[#00A884]">
+            <div className="w-full h-full rounded-full overflow-hidden border-2 border-wa-main group-hover:scale-[1.02] transition-transform duration-500 relative bg-wa-secondary/20">
               {currentUser.avatar ? (
                 <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
               ) : (
@@ -594,32 +1074,252 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
           WhatsApp from Meta · Version 2.25.1.1
         </p>
 
-        {/* Developer Test Tools (Hidden/Footer) */}
-        <div className="mt-4 mb-8 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl mx-2">
-          <h3 className="text-red-400 text-sm font-medium mb-3">Developer Test Tools</h3>
+        {/* Developer Test Tools (Subtle Footer) */}
+        <div className="mt-8 mb-12 px-6 flex flex-col gap-2">
+          <button
+            onClick={async () => {
+              if (window.confirm('⚠️ CRITICAL: This will delete ALL users, messages, and friendships from Firestore. You will be logged out. Continue?')) {
+                try {
+                  setLoading(true);
+                  const res = await services.authService.wipeDatabase();
+                  await logout();
+                  alert(`💥 System Reset Complete! ${res.totalDeleted} items deleted. Please register again.`);
+                } catch (err: any) {
+                  alert('❌ Reset failed: ' + err.message);
+                } finally {
+                  setLoading(false);
+                }
+              }
+            }}
+            className="w-full py-3 text-red-500/60 hover:text-red-500 transition-colors border border-red-500/20 rounded-lg"
+            style={{ fontSize: '0.75rem', fontWeight: 600, letterSpacing: '1px' }}
+          >
+            WIPE & RESET ALL DATA
+          </button>
+
           <button
             onClick={async () => {
               if (!currentUser) return;
               try {
-                // Send a test offer to YOURSELF
                 await services.presenceService.sendSignaling(currentUser.userId, currentUser.userId, {
                   type: 'webrtc-offer',
                   fromUid: currentUser.userId,
                   callType: 'video',
                   offer: { type: 'offer', sdp: 'test-sdp' } 
                 });
-                console.log('🚀 Test Signal Sent!');
+                alert('🚀 Test Signal Sent!');
               } catch (err: any) {
                 console.error('❌ Test signal failed:', err.message);
               }
             }}
-            className="w-full py-3 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 transition-colors"
+            className="w-full py-3 text-red-500/40 hover:text-red-500 transition-colors"
+            style={{ fontSize: '0.75rem', fontWeight: 600, letterSpacing: '1px' }}
           >
-            Trigger Test Call (Self)
+            RUN SIGNALING DIAGNOSTIC
           </button>
         </div>
       </div>
+
+      {/* Modals */}
+
+      {showEmailModal && (
+        <Modal title="Change Email" onClose={() => { setShowEmailModal(false); setError(null); }}>
+          {error && <ErrorAlert message={error} onClose={() => setError(null)} />}
+          <div className="space-y-4">
+            <div>
+              <label className="text-wa-text-muted text-sm">Current Email</label>
+              <input
+                type="email"
+                value={currentUser.email || ''}
+                disabled
+                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-text-muted rounded-lg border border-wa-border opacity-60"
+              />
+            </div>
+            <div>
+              <label className="text-wa-text-muted text-sm">New Email</label>
+              <input
+                type="email"
+                value={newEmail}
+                onChange={e => setNewEmail(e.target.value)}
+                placeholder="Enter new email"
+                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#00A884]"
+              />
+            </div>
+            <div>
+              <label className="text-wa-text-muted text-sm">Current Password</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={e => setCurrentPassword(e.target.value)}
+                placeholder="Confirm with your password"
+                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#00A884]"
+              />
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => { setShowEmailModal(false); setError(null); }}
+                className="flex-1 py-2 text-wa-text-muted hover:bg-wa-secondary rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleChangeEmail}
+                disabled={loading}
+                className="flex-1 py-2 bg-[#00A884] text-white rounded-lg hover:bg-[#06cf9c] transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Updating...' : 'Update Email'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showBlockModal && (
+        <Modal title="Manage Blocked Users" onClose={() => setShowBlockModal(false)}>
+          {error && <ErrorAlert message={error} onClose={() => setError(null)} />}
+          {success && <SuccessAlert message={success} />}
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={blockUserId}
+                onChange={e => setBlockUserId(e.target.value)}
+                placeholder="User ID or email to block"
+                className="flex-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#00A884]"
+              />
+              <button
+                onClick={handleBlockUser}
+                disabled={loading || !blockUserId.trim()}
+                className="px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50"
+              >
+                Block
+              </button>
+            </div>
+
+            {blockList.length > 0 && (
+              <div className="mt-4 max-h-60 overflow-y-auto border border-wa-border rounded-lg">
+                {blockList.map((userId, idx) => (
+                  <div key={idx} className="px-3 py-2 flex items-center justify-between border-b border-wa-border/30 last:border-0 bg-wa-secondary/20">
+                    <span className="text-sm text-wa-primary truncate">{userId}</span>
+                    <button
+                      onClick={() => handleUnblockUser(userId)}
+                      disabled={loading}
+                      className="text-xs text-[#00A884] hover:underline disabled:opacity-50"
+                    >
+                      Unblock
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {show2FAModal && (
+        <Modal title="Set Two-Step PIN" onClose={() => setShow2FAModal(false)}>
+          {error && <ErrorAlert message={error} onClose={() => setError(null)} />}
+          <div className="space-y-6 text-center py-4">
+            <div className="w-16 h-16 bg-[#00A884]/10 rounded-full flex items-center justify-center mx-auto">
+              <Shield size={32} className="text-[#00A884]" />
+            </div>
+            <p className="text-wa-text-muted text-sm px-4">
+              Enter a 6-digit PIN that you'll be asked for when you register your phone number with Quidec again.
+            </p>
+            <div className="flex justify-center gap-2">
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <input
+                  key={i}
+                  id={`pin-${i}`}
+                  type="password"
+                  maxLength={1}
+                  className="w-10 h-12 bg-wa-secondary text-wa-primary text-2xl font-bold rounded-lg border border-wa-border text-center focus:border-[#00A884] outline-none"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val && i < 5) {
+                      document.getElementById(`pin-${i + 1}`)?.focus();
+                    }
+                    const fullPin = Array.from({ length: 6 }, (_, idx) => 
+                      (document.getElementById(`pin-${idx}`) as HTMLInputElement)?.value || ''
+                    ).join('');
+                    if (fullPin.length === 6) {
+                      setNewPassword(fullPin); // Reuse newPassword state temporarily for PIN
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Backspace' && !(e.target as HTMLInputElement).value && i > 0) {
+                      document.getElementById(`pin-${i - 1}`)?.focus();
+                    }
+                  }}
+                />
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShow2FAModal(false)}
+                className="flex-1 py-2 text-wa-text-muted hover:bg-wa-secondary rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const pin = Array.from({ length: 6 }, (_, idx) => 
+                    (document.getElementById(`pin-${idx}`) as HTMLInputElement)?.value || ''
+                  ).join('');
+                  if (pin.length === 6) {
+                    handleSet2FAPin(pin);
+                  } else {
+                    setError('Please enter a 6-digit PIN');
+                  }
+                }}
+                disabled={loading}
+                className="flex-1 py-2 bg-[#00A884] text-white rounded-lg hover:bg-[#06cf9c]"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showNotificationModal && (
+        <Modal title="Notification Tone" onClose={() => setShowNotificationModal(false)}>
+          <div className="space-y-1">
+            {['Default', 'Aurora', 'Bamboo', 'Crystal', 'Glass', 'Joy'].map((tone) => (
+              <button
+                key={tone}
+                onClick={() => {
+                  handleUpdateSettings({ notificationTone: tone.toLowerCase() });
+                  setNotificationTone(tone);
+                  setShowNotificationModal(false);
+                }}
+                className="w-full flex items-center justify-between px-4 py-4 hover:bg-wa-secondary/50 rounded-xl transition-colors"
+              >
+                <span className={notificationTone.toLowerCase() === tone.toLowerCase() ? 'text-[#00A884] font-bold' : 'text-wa-primary'}>
+                  {tone}
+                </span>
+                {notificationTone.toLowerCase() === tone.toLowerCase() && <Check size={18} className="text-[#00A884]" />}
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
     </div>
+  );
+
+  return (
+    <>
+      {mainContent}
+      {/* Security Action Modal - Always rendered regardless of subpage */}
+      <SecurityActionModal
+        isOpen={securityModalOpen}
+        title={securityModalConfig.title}
+        message={securityModalConfig.message}
+        email={securityModalConfig.email}
+        action={securityModalConfig.action}
+        onClose={() => setSecurityModalOpen(false)}
+      />
+    </>
   );
 }
 
@@ -641,13 +1341,13 @@ function SubPageShell({ title, onBack, children }: { title: string; onBack: () =
 
 function Section({ label, children }: { label?: string; children: ReactNode }) {
   return (
-    <div className="mb-2">
+    <div className="mb-4">
       {label && (
-        <p className="text-[#00A884] px-4 pt-4 pb-1" style={{ fontSize: '0.78rem', fontWeight: 600, letterSpacing: '0.3px' }}>
+        <p className="text-wa-text-muted px-4 pt-4 pb-2" style={{ fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.5px' }}>
           {label}
         </p>
       )}
-      <div className="bg-wa-secondary">{children}</div>
+      <div className="bg-transparent">{children}</div>
     </div>
   );
 }
@@ -659,17 +1359,26 @@ function Row({ icon, label, sub, action, onClick }: {
   action?: ReactNode;
   onClick?: () => void;
 }) {
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (onClick) {
+      onClick();
+    }
+  };
+
   return (
     <button
-      onClick={onClick}
-      className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-wa-secondary/50 transition-colors text-left"
+      type="button"
+      onClick={handleClick}
+      className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-wa-secondary/30 transition-colors text-left border-b border-wa-border/10 last:border-0 cursor-pointer"
     >
-      {icon && <span className="flex-shrink-0">{icon}</span>}
+      {icon && <span className="flex-shrink-0 text-wa-text-muted">{icon}</span>}
       <div className="flex-1 min-w-0">
-        <p className="text-wa-primary" style={{ fontSize: '0.95rem' }}>{label}</p>
-        {sub && <p className="text-wa-text-muted" style={{ fontSize: '0.78rem' }}>{sub}</p>}
+        <p className="text-wa-primary" style={{ fontSize: '1rem', fontWeight: 500 }}>{label}</p>
+        {sub && <p className="text-wa-text-muted mt-0.5" style={{ fontSize: '0.82rem' }}>{sub}</p>}
       </div>
-      {action || <ChevronRight size={16} className="text-wa-text-muted flex-shrink-0" />}
+      {action || <ChevronRight size={16} className="text-wa-border/40 flex-shrink-0" />}
     </button>
   );
 }
@@ -696,27 +1405,82 @@ function ToggleRow({ icon, label, desc, value, onChange }: {
   return (
     <button
       onClick={() => onChange(!value)}
-      className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-wa-secondary/50 transition-colors text-left"
+      className="w-full flex items-center gap-4 px-4 py-4 hover:bg-wa-secondary/30 transition-colors text-left border-b border-wa-border/10 last:border-0"
     >
-      {icon && <span className="flex-shrink-0">{icon}</span>}
+      {icon && <span className="flex-shrink-0 text-wa-text-muted">{icon}</span>}
       <div className="flex-1 min-w-0">
-        <p className="text-wa-primary" style={{ fontSize: '0.95rem' }}>{label}</p>
-        {desc && <p className="text-wa-text-muted" style={{ fontSize: '0.75rem', lineHeight: '1.4' }}>{desc}</p>}
+        <p className="text-wa-primary" style={{ fontSize: '1rem', fontWeight: 500 }}>{label}</p>
+        {desc && <p className="text-wa-text-muted mt-1" style={{ fontSize: '0.8rem', lineHeight: '1.4' }}>{desc}</p>}
       </div>
       {/* Toggle pill */}
-      <div className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${value ? 'bg-[#00A884]' : 'bg-[#2A3942]'}`}>
+      <div className={`relative w-11 h-5 rounded-full transition-colors flex-shrink-0 ${value ? 'bg-[#00A884]/80' : 'bg-wa-secondary'}`}>
         <motion.div
           animate={{ x: value ? 24 : 2 }}
           transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-          className="absolute top-1 w-4 h-4 rounded-full bg-white shadow"
+          className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm"
         />
       </div>
     </button>
   );
 }
 
-function generateUserId(name: string): string {
-  const cleanName = name.toLowerCase().replace(/\s+/g, '.');
-  const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-  return `@${cleanName}.${randomSuffix}`;
+
+// ─── Modal Components ────────────────────────────────────────────────────────────
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end z-50">
+      <motion.div
+        initial={{ y: '100%' }}
+        animate={{ y: 0 }}
+        exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        className="w-full bg-wa-main rounded-t-2xl p-6 max-h-[80vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-wa-primary font-bold text-lg">{title}</h2>
+          <button
+            onClick={onClose}
+            className="text-wa-text-muted hover:text-wa-primary p-2 -mr-2 rounded-full hover:bg-wa-secondary transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        {children}
+      </motion.div>
+    </div>
+  );
+}
+
+function ErrorAlert({ message, onClose }: { message: string; onClose?: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="mx-4 mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3"
+    >
+      <AlertTriangle size={18} className="text-red-400 flex-shrink-0" />
+      <p className="text-red-400 text-sm flex-1">{message}</p>
+      {onClose && (
+        <button onClick={onClose} className="text-red-400/60 hover:text-red-400 ml-2">
+          <X size={16} />
+        </button>
+      )}
+    </motion.div>
+  );
+}
+
+function SuccessAlert({ message }: { message: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="mx-4 mb-4 p-3 bg-[#00A884]/10 border border-[#00A884]/30 rounded-lg flex items-center gap-3"
+    >
+      <Check size={18} className="text-[#00A884] flex-shrink-0" />
+      <p className="text-[#00A884] text-sm flex-1">{message}</p>
+    </motion.div>
+  );
 }

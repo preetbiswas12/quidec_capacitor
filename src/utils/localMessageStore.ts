@@ -380,6 +380,19 @@ export async function deleteLocalChat(chatId: string): Promise<void> {
 }
 
 /**
+ * Delete ALL local chat files on the device.
+ */
+export async function clearAllMessages(): Promise<void> {
+  try {
+    const chatIds = await listLocalChatIds();
+    await Promise.all(chatIds.map(id => deleteLocalChat(id)));
+    clearKeyCache();
+  } catch (err) {
+    console.error('[LocalStore] clearAllMessages failed:', err);
+  }
+}
+
+/**
  * Update the status of a specific message in a chat file.
  * Since chunk files are append-only, we rewrite the entire file with the updated message.
  * For large files this is expensive — call sparingly (only on read receipt).

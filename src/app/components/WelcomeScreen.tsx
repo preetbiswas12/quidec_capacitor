@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 
 export default function WelcomeScreen() {
   return (
-    <div className="h-full w-full bg-[#222E35] flex flex-col items-center justify-between py-16 px-8">
+    <div className="h-full w-full bg-wa-main flex flex-col items-center justify-between py-16 px-8">
       {/* Center content */}
       <div className="flex-1 flex flex-col items-center justify-center gap-6 text-center">
         <motion.div
@@ -32,13 +32,13 @@ export default function WelcomeScreen() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2, duration: 0.4 }}
         >
-          <h1 className="text-[#E9EDEF] mb-3" style={{ fontSize: '1.75rem', fontWeight: 300 }}>
+          <h1 className="text-wa-primary mb-3" style={{ fontSize: '1.75rem', fontWeight: 300 }}>
             WhatsApp
           </h1>
-          <p className="text-[#8696A0] max-w-xs mx-auto leading-relaxed" style={{ fontSize: '0.875rem' }}>
+          <p className="text-wa-text-muted max-w-xs mx-auto leading-relaxed" style={{ fontSize: '0.875rem' }}>
             Select a chat to start messaging.
           </p>
-          <p className="text-[#8696A0] max-w-xs mx-auto mt-2 leading-relaxed" style={{ fontSize: '0.875rem' }}>
+          <p className="text-wa-text-muted max-w-xs mx-auto mt-2 leading-relaxed" style={{ fontSize: '0.875rem' }}>
             Your messages are end-to-end encrypted.
           </p>
         </motion.div>
@@ -60,7 +60,7 @@ export default function WelcomeScreen() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.6 }}
-        className="flex items-center gap-2 text-[#8696A0]"
+        className="flex items-center gap-2 text-wa-text-muted"
       >
         <Lock size={12} />
         <span style={{ fontSize: '0.8rem' }}>Your personal messages are end-to-end encrypted</span>

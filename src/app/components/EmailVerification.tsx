@@ -19,20 +19,27 @@ export default function EmailVerification() {
     let interval: any;
     if (needsVerification && !verified) {
       interval = setInterval(async () => {
-        const user = await authService.reloadUser();
-        if (user?.emailVerified) {
-          setVerified(true);
-          clearInterval(interval);
-          // Small delay before redirecting to allow user to see success
-          setTimeout(() => {
-             // In a real app, we might need to refresh the page or context state
-             window.location.reload(); 
-          }, 2000);
+        try {
+          const user = await authService.reloadUser();
+          if (user?.emailVerified) {
+            setVerified(true);
+            clearInterval(interval);
+            // Update Firestore to mark email as verified
+            await authService.updateUserEmailVerified(user.uid);
+            // Small delay before redirecting to allow user to see success
+            setTimeout(() => {
+              navigate('/app', { replace: true });
+            }, 2000);
+          }
+        } catch (err) {
+          console.error('Error checking verification:', err);
         }
       }, 5000);
     }
-    return () => clearInterval(interval);
-  }, [needsVerification, verified]);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [needsVerification, verified, navigate]);
 
   const handleManualVerify = async () => {
     setVerifying(true);
@@ -41,7 +48,11 @@ export default function EmailVerification() {
       const user = await authService.reloadUser();
       if (user?.emailVerified) {
         setVerified(true);
-        setTimeout(() => window.location.reload(), 1500);
+        // Update Firestore to mark email as verified
+        await authService.updateUserEmailVerified(user.uid);
+        setTimeout(() => {
+          navigate('/app', { replace: true });
+        }, 1500);
       } else {
         setError('Email not verified yet. Please check your inbox and click the link.');
       }

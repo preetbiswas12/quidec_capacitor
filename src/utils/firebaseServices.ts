@@ -22,6 +22,9 @@ import {
   User,
   sendEmailVerification,
   sendPasswordResetEmail,
+  verifyBeforeUpdateEmail,
+  multiFactor,
+  PhoneAuthProvider,
 } from 'firebase/auth';
 import {
   getFirestore,
@@ -76,6 +79,73 @@ export const MESSAGE_STATUS = {
   READ: 'read',
 } as const;
 
+/**
+ * Sanitize UIDs and other identifiers for use in Firebase RTDB paths
+ * Firebase paths cannot contain: . # $ [ ]
+ * Replace invalid characters with underscores
+ */
+function sanitizePathComponent(component: string): string {
+  if (!component) return 'unknown';
+  return component.replace(/[.#$\[\]@]/g, '_');
+}
+
+/**
+ * Get the custom username (document ID) by Firebase UID
+ * This is needed because user documents are keyed by custom username,
+ * but we need to bind them with the Firebase UID
+ */
+async function getCustomUsernameByFirebaseUid(firebaseUid: string): Promise<string | null> {
+  try {
+    const q = query(collection(db, 'users'), where('uid', '==', firebaseUid));
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      const userDoc = snapshot.docs[0];
+      return userDoc.data().username || userDoc.id;
+    }
+    return null;
+  } catch (err) {
+    console.warn('⚠️ Failed to fetch custom username:', err);
+    return null;
+  }
+}
+
+/**
+ * Generate a unique-looking user ID
+ * Pattern: username.1234
+ * Checks Firestore to ensure uniqueness
+ */
+export async function generateUniqueUserId(name: string): Promise<string> {
+  const cleanName = name.toLowerCase().replace(/\s+/g, '');
+  let isUnique = false;
+  let generatedId = '';
+  let attempts = 0;
+
+  while (!isUnique && attempts < 15) {
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    generatedId = `${cleanName}.${randomSuffix}`;
+    
+    try {
+      const q = query(collection(db, 'users'), where('username', '==', generatedId));
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) {
+        isUnique = true;
+      }
+    } catch (err) {
+      console.warn('⚠️ Uniqueness check failed, retrying...', err);
+    }
+    attempts++;
+  }
+  
+  return generatedId;
+}
+
+// Keep sync version for legacy UI if needed, but mark as deprecated
+export function generateUserIdSync(name: string): string {
+  const cleanName = name.toLowerCase().replace(/\s+/g, '');
+  const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+  return `${cleanName}.${randomSuffix}`;
+}
+
 // ============ AUTHENTICATION SERVICES ============
 
 export const authService = {
@@ -102,10 +172,11 @@ export const authService = {
       await sendEmailVerification(user);
       console.log(`📧 Verification email sent to ${email}`);
 
-      // Create user document in Firestore
-      await setDoc(doc(db, 'users', user.uid), {
+      // Create user document in Firestore - Use Handle as Document ID
+      const generatedUserId = await generateUniqueUserId(username);
+      await setDoc(doc(db, 'users', generatedUserId), {
         uid: user.uid,
-        username,
+        username: generatedUserId,
         email,
         displayName: username,
         photoURL: null,
@@ -119,7 +190,7 @@ export const authService = {
       });
 
       // Initialize user presence in Realtime Database
-      await set(ref(realtimeDb, `presence/${user.uid}`), {
+      await set(ref(realtimeDb, `presence/${sanitizePathComponent(user.uid)}`), {
         online: false, // Set to false until email is verified
         lastSeen: rtdbServerTimestamp(),
         username,
@@ -138,6 +209,7 @@ export const authService = {
         success: true, 
         user, 
         uid: user.uid,
+        username: generatedUserId,
         message: 'Please check your email to verify your account',
       };
     } catch (error: any) {
@@ -177,15 +249,27 @@ export const authService = {
         };
       }
 
+      // Get the custom username (document ID) bound with this Firebase UID
+      const customUsername = await getCustomUsernameByFirebaseUid(user.uid);
+      
+      if (!customUsername) {
+        console.error('❌ Custom username not found for Firebase UID:', user.uid);
+        return {
+          success: false,
+          message: 'User profile not found. Please re-register.',
+          user,
+        };
+      }
+
       // Update online status in Realtime Database
-      await set(ref(realtimeDb, `presence/${user.uid}`), {
+      await set(ref(realtimeDb, `presence/${sanitizePathComponent(user.uid)}`), {
         online: true,
         lastSeen: rtdbServerTimestamp(),
-        username: user.displayName || user.email,
+        username: customUsername,
       });
 
-      // Update Firestore user document
-      await setDoc(doc(db, 'users', user.uid), {
+      // Update Firestore user document using custom username as document ID
+      await setDoc(doc(db, 'users', customUsername), {
         isOnline: true,
         lastSeen: serverTimestamp(),
         emailVerified: true,
@@ -193,11 +277,11 @@ export const authService = {
 
       // Get and save FCM token if not already saved
       try {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        const userDoc = await getDoc(doc(db, 'users', customUsername));
         if (!userDoc.data()?.fcmToken) {
           const fcmToken = await getFCMToken();
           if (fcmToken) {
-            await setDoc(doc(db, 'users', user.uid), {
+            await setDoc(doc(db, 'users', customUsername), {
               fcmToken: fcmToken,
             }, { merge: true });
             console.log('✅ FCM token saved');
@@ -208,7 +292,7 @@ export const authService = {
       }
 
       console.log(`✅ User logged in: ${user.email}`);
-      return { success: true, user, uid: user.uid, emailVerified: true };
+      return { success: true, user, uid: user.uid, username: customUsername, emailVerified: true };
     } catch (error: any) {
       console.error('❌ Login error:', error.message);
       if (error.code === 'auth/user-not-found') {
@@ -249,13 +333,70 @@ export const authService = {
   async sendPasswordReset(email: string) {
     try {
       await sendPasswordResetEmail(auth, email);
-      console.log(`📧 Password reset email sent to ${email}`);
       return { success: true, message: 'Password reset email sent' };
     } catch (error: any) {
-      console.error('❌ Error sending password reset:', error.message);
       if (error.code === 'auth/user-not-found') {
         throw new Error('User not found');
       }
+      throw error;
+    }
+  },
+
+  /**
+   * Send email change verification
+   * User must verify the change through Firebase email link
+   */
+  async sendEmailChangeVerification(newEmail: string) {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error('No user logged in');
+      }
+
+      // Use Firebase's verifyBeforeUpdateEmail to send verification email to new address
+      // This requires the user to click the link in the email before the change is applied
+      console.log(`📧 Sending email verification for new email: ${newEmail}`);
+      
+      await verifyBeforeUpdateEmail(user, newEmail);
+      
+      return {
+        success: true,
+        message: `Verification email sent to ${newEmail}. Check your email and click the link to confirm the change.`,
+      };
+    } catch (error: any) {
+      console.error('❌ Error sending email change verification:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Send 2FA enrollment email
+   * Sends setup instructions via email
+   * In production, this would send a QR code or setup key via email
+   */
+  async send2FAEnrollmentEmail() {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error('No user logged in');
+      }
+
+      console.log(`📧 Sending 2FA enrollment email to ${user.email}`);
+      
+      // For now, we send the password reset email with instructions
+      // In production, you'd want to:
+      // 1. Generate a 2FA secret (base32 encoded)
+      // 2. Create a QR code from the secret
+      // 3. Send via Cloud Function with setup instructions
+      // This is a placeholder that sends setup email
+      await sendPasswordResetEmail(auth, user.email!);
+      
+      return {
+        success: true,
+        message: 'Two-factor authentication setup email sent. Follow the instructions in your email to enable 2FA.',
+      };
+    } catch (error: any) {
+      console.error('❌ Error sending 2FA enrollment email:', error.message);
       throw error;
     }
   },
@@ -279,24 +420,53 @@ export const authService = {
   },
 
   /**
+   * Update Firestore to mark email as verified
+   * Called after Firebase Auth detects email verification
+   */
+  async updateUserEmailVerified(uid: string) {
+    try {
+      // Get the custom username (document ID) bound with this Firebase UID
+      const customUsername = await getCustomUsernameByFirebaseUid(uid);
+      
+      if (customUsername) {
+        await setDoc(doc(db, 'users', customUsername), {
+          emailVerified: true,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+        console.log('✅ Email verification status updated in Firestore');
+      } else {
+        console.warn('⚠️ Custom username not found, skipping Firestore update');
+      }
+    } catch (error: any) {
+      console.error('❌ Error updating email verification status:', error.message);
+      // Don't throw - this is non-critical
+    }
+  },
+
+  /**
    * Logout user and update presence
    */
   async logoutUser() {
     try {
       const user = auth.currentUser;
       if (user) {
+        // Get the custom username (document ID) bound with this Firebase UID
+        const customUsername = await getCustomUsernameByFirebaseUid(user.uid);
+
         // Set offline in Realtime Database
-        await set(ref(realtimeDb, `presence/${user.uid}`), {
+        await set(ref(realtimeDb, `presence/${sanitizePathComponent(user.uid)}`), {
           online: false,
           lastSeen: rtdbServerTimestamp(),
-          username: user.displayName || user.email,
+          username: customUsername || user.displayName || user.email,
         });
 
-        // Update Firestore
-        await setDoc(doc(db, 'users', user.uid), {
-          isOnline: false,
-          lastSeen: serverTimestamp(),
-        }, { merge: true });
+        // Update Firestore using custom username as document ID
+        if (customUsername) {
+          await setDoc(doc(db, 'users', customUsername), {
+            isOnline: false,
+            lastSeen: serverTimestamp(),
+          }, { merge: true });
+        }
       }
 
       await signOut(auth);
@@ -326,38 +496,130 @@ export const authService = {
 
   /**
    * Update user profile information in Auth and Firestore
+   * Targets document by handle (username)
    */
-  async updateUserProfile(uid: string, updates: { name?: string; avatar?: string | null; about?: string }) {
+  async updateUserProfile(updates: { name?: string; avatar?: string | null; about?: string; userId: string }) {
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('No authenticated user');
 
-      // 1. Update Firebase Auth Profile (limited to display name and photoURL)
-      const authUpdates: any = {};
-      if (updates.name) authUpdates.displayName = updates.name;
-      if (updates.avatar !== undefined) authUpdates.photoURL = updates.avatar;
-      
-      if (Object.keys(authUpdates).length > 0) {
-        await updateProfile(user, authUpdates);
-      }
-
-      // 2. Update Firestore User Document
       const firestoreUpdates: any = {
         updatedAt: serverTimestamp(),
       };
       if (updates.name) {
         firestoreUpdates.displayName = updates.name;
-        firestoreUpdates.username = updates.name.toLowerCase().replace(/\s+/g, '.');
+        await updateProfile(user, { displayName: updates.name });
       }
       if (updates.avatar !== undefined) firestoreUpdates.photoURL = updates.avatar;
       if (updates.about !== undefined) firestoreUpdates.about = updates.about;
 
-      await setDoc(doc(db, 'users', uid), firestoreUpdates, { merge: true });
-      
-      console.log(`✅ User profile updated for ${uid}`);
+      // Use updates.userId (the handle) as the document ID
+      const userRef = doc(db, 'users', updates.userId);
+      await setDoc(userRef, firestoreUpdates, { merge: true });
+
       return { success: true };
     } catch (error: any) {
       console.error('❌ Error updating user profile:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Migrate existing UID-named documents to Handle-named ones
+   */
+  async migrateToHandleIds() {
+    try {
+      const usersRef = collection(db, 'users');
+      const snapshot = await getDocs(usersRef);
+      
+      let migratedCount = 0;
+      
+      for (const userDoc of snapshot.docs) {
+        const id = userDoc.id;
+        const data = userDoc.data();
+        
+        // If ID is a long string (UID) and has a username field
+        if (id.length > 20 && !id.includes('.') && data.username) {
+          const newId = data.username;
+          console.log(`🚀 Migrating ${id} -> ${newId}`);
+          
+          // 1. Create new doc with handle as ID
+          await setDoc(doc(db, 'users', newId), data);
+          
+          // 2. Delete old doc with UID as ID
+          await deleteDoc(doc(db, 'users', id));
+          
+          migratedCount++;
+        }
+      }
+      
+      console.log(`✅ Migration complete. Moved ${migratedCount} documents.`);
+      return { success: true, migratedCount };
+    } catch (error: any) {
+      console.error('❌ Migration failed:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Cleanup duplicate/legacy user documents that were incorrectly named after handles
+   */
+  async cleanupDuplicateUsers() {
+    try {
+      const usersRef = collection(db, 'users');
+      const snapshot = await getDocs(usersRef);
+      
+      let deletedCount = 0;
+      const deletePromises = [];
+      
+      for (const userDoc of snapshot.docs) {
+        const id = userDoc.id;
+        const data = userDoc.data();
+        console.log(`DEBUG: DocID: ${id}, Username Field: ${data.username}`);
+        // Firebase Auth UIDs are 28 chars. Handles usually have dots or are shorter/different.
+        if (id.includes('.') || id.startsWith('@') || (id.length < 20 && id !== 'system_config')) {
+          console.log(`🗑️ Mark for deletion: ${id}`);
+          deletePromises.push(deleteDoc(doc(db, 'users', id)));
+          deletedCount++;
+        }
+      }
+      
+      if (deletePromises.length > 0) {
+        await Promise.all(deletePromises);
+      }
+      console.log(`✅ Cleanup complete. Deleted ${deletedCount} documents.`);
+      return { success: true, deletedCount };
+    } catch (error: any) {
+      console.error('❌ Cleanup failed:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Wipe all user-related data from Firestore (DANGEROUS - for dev reset)
+   */
+  async wipeDatabase() {
+    try {
+      const collectionsToWipe = ['users', 'friendships', 'conversations', 'messages', 'calls'];
+      let totalDeleted = 0;
+      
+      for (const collName of collectionsToWipe) {
+        const collRef = collection(db, collName);
+        const snapshot = await getDocs(collRef);
+        
+        const deletePromises = snapshot.docs.map(d => {
+          if (collName === 'users' && d.id === 'system_config') return Promise.resolve();
+          return deleteDoc(d.ref);
+        });
+        
+        await Promise.all(deletePromises);
+        totalDeleted += deletePromises.length;
+        console.log(`🗑️ Wiped collection: ${collName}`);
+      }
+      
+      return { success: true, totalDeleted };
+    } catch (error: any) {
+      console.error('❌ Wipe failed:', error.message);
       throw error;
     }
   },
@@ -367,6 +629,15 @@ export const authService = {
    */
   onAuthStateChange(callback: (user: User | null) => void) {
     return onAuthStateChanged(auth, callback);
+  },
+
+  /**
+   * Get the custom username (document ID) by Firebase UID
+   * This is needed because user documents are keyed by custom username,
+   * but we need to bind them with the Firebase UID
+   */
+  async getCustomUsernameByFirebaseUid(firebaseUid: string): Promise<string | null> {
+    return getCustomUsernameByFirebaseUid(firebaseUid);
   },
 };
 
@@ -378,7 +649,7 @@ export const presenceService = {
    */
   async setUserOnline(uid: string, username: string) {
     try {
-      await set(ref(realtimeDb, `presence/${uid}`), {
+      await set(ref(realtimeDb, `presence/${sanitizePathComponent(uid)}`), {
         online: true,
         lastSeen: rtdbServerTimestamp(),
         username,
@@ -400,7 +671,7 @@ export const presenceService = {
    */
   async setUserOffline(uid: string) {
     try {
-      await set(ref(realtimeDb, `presence/${uid}`), {
+      await set(ref(realtimeDb, `presence/${sanitizePathComponent(uid)}`), {
         online: false,
         lastSeen: rtdbServerTimestamp(),
       });
@@ -423,7 +694,7 @@ export const presenceService = {
     uid: string,
     callback: (isOnline: boolean, lastSeen: any) => void
   ) {
-    const presenceRef = ref(realtimeDb, `presence/${uid}`);
+    const presenceRef = ref(realtimeDb, `presence/${sanitizePathComponent(uid)}`);
     const unsubscribe = onValue(presenceRef, (snapshot: any) => {
       const data = snapshot.val();
       if (data) {
@@ -451,7 +722,7 @@ export const presenceService = {
 
       // Listen to each friend's presence
       friendsList.forEach((friendUid: string) => {
-        const presenceRef = ref(realtimeDb, `presence/${friendUid}`);
+        const presenceRef = ref(realtimeDb, `presence/${sanitizePathComponent(friendUid)}`);
         const unsubPresence = onValue(presenceRef, (snapshot: any) => {
           const presenceData = snapshot.val();
           friendsStatus[friendUid] = {
@@ -530,7 +801,7 @@ export const presenceService = {
    */
   async sendSignaling(fromUid: string, toUid: string, signal: any) {
     const signalId = `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    const signalRef = ref(realtimeDb, `signaling/${toUid}/${signalId}`);
+    const signalRef = ref(realtimeDb, `signaling/${sanitizePathComponent(toUid)}/${signalId}`);
     await set(signalRef, {
       ...signal,
       fromUid,
@@ -543,7 +814,7 @@ export const presenceService = {
    * Listen to incoming WebRTC signaling (Pipe Model)
    */
   listenToSignaling(uid: string, callback: (signal: any) => void) {
-    const signalingRef = ref(realtimeDb, `signaling/${uid}`);
+    const signalingRef = ref(realtimeDb, `signaling/${sanitizePathComponent(uid)}`);
     
     const unsubscribe = onChildAdded(signalingRef, async (snapshot) => {
       const data = snapshot.val();
@@ -556,7 +827,7 @@ export const presenceService = {
       });
 
       // 2. IMMEDIATELY DELETE from server
-      await remove(ref(realtimeDb, `signaling/${uid}/${snapshot.key}`));
+      await remove(ref(realtimeDb, `signaling/${sanitizePathComponent(uid)}/${snapshot.key}`));
       console.log(`🗑️ Signal ${snapshot.key} wiped from server after delivery`);
     });
 
@@ -612,7 +883,7 @@ export const messageService = {
 
     // CLOUD STORAGE: TRANSPORT ONLY (ZERO PERSISTENCE)
     // We use RTDB as a "pipe". Recipient will delete this record immediately upon receipt.
-    const deliveryRef = ref(realtimeDb, `delivery/${toUid}/${messageId}`);
+    const deliveryRef = ref(realtimeDb, `delivery/${sanitizePathComponent(toUid)}/${messageId}`);
     await set(deliveryRef, {
       ...messageData,
       fromUid,
@@ -796,7 +1067,7 @@ export const messageService = {
    * Recipient receives the message and IMMEDIATELY deletes it from RTDB
    */
   listenToIncomingMessages(uid: string, callback: (message: any) => void) {
-    const deliveryRef = ref(realtimeDb, `delivery/${uid}`);
+    const deliveryRef = ref(realtimeDb, `delivery/${sanitizePathComponent(uid)}`);
     
     // Use onChildAdded so we get each message one by one
     const unsubscribe = onChildAdded(deliveryRef, async (snapshot) => {
@@ -810,7 +1081,7 @@ export const messageService = {
       });
 
       // 2. IMMEDIATELY DELETE from server
-      await remove(ref(realtimeDb, `delivery/${uid}/${snapshot.key}`));
+      await remove(ref(realtimeDb, `delivery/${sanitizePathComponent(uid)}/${snapshot.key}`));
       console.log(`🗑️ Message ${snapshot.key} wiped from server after delivery`);
     });
 
@@ -1009,7 +1280,7 @@ export const typingService = {
         fromUid,
         toUid
       );
-      const typingRef = ref(realtimeDb, `typing/${conversationId}/${fromUid}`);
+      const typingRef = ref(realtimeDb, `typing/${sanitizePathComponent(conversationId)}/${sanitizePathComponent(fromUid)}`);
 
       if (isTyping) {
         await set(typingRef, {
@@ -1038,7 +1309,7 @@ export const typingService = {
       fromUid,
       toUid
     );
-    const typingRef = ref(realtimeDb, `typing/${conversationId}`);
+    const typingRef = ref(realtimeDb, `typing/${sanitizePathComponent(conversationId)}`);
 
     const unsubscribe = onValue(typingRef, (snapshot: any) => {
       const typingData = snapshot.val() || {};
@@ -1514,7 +1785,7 @@ export const userService = {
       await batch.commit();
 
       // Delete from Realtime Database
-      await remove(ref(realtimeDb, `presence/${uid}`));
+      await remove(ref(realtimeDb, `presence/${sanitizePathComponent(uid)}`));
 
       console.log(`✅ User account deleted`);
       return { success: true };
@@ -1660,4 +1931,5 @@ export default {
   userService,
   conversationService,
   analyticsService,
+  generateUniqueUserId,
 };

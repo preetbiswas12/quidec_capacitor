@@ -1,6 +1,7 @@
 import { Plus, Camera } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import Avatar from './Avatar';
+import { toast } from 'sonner';
 
 export default function StatusTab() {
   const { contacts, statuses, currentUser } = useApp();
@@ -10,32 +11,45 @@ export default function StatusTab() {
 
   const getContact = (id: string) => contacts.find(c => c.id === id);
 
+  const handleAddStatus = () => {
+    toast.info('Status updates coming soon!', {
+      description: 'You\'ll be able to share text, photos, and videos with your contacts.',
+    });
+  };
+
+  const handleViewStatus = (contactName: string) => {
+    toast.info(`Viewing ${contactName}'s status`);
+  };
+
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* My Status */}
-      <div className="px-4 py-4 border-b border-[#2A3942]">
+      <div className="px-4 py-4 border-b border-wa-border/10">
         <h3 className="text-[#8696A0] mb-3 px-1" style={{ fontSize: '0.8rem', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
           My Status
         </h3>
-        <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#2A3942] cursor-pointer transition-colors">
+        <div
+          onClick={handleAddStatus}
+          className="flex items-center gap-3 p-2 rounded-lg hover:bg-wa-secondary transition-colors cursor-pointer"
+        >
           <div className="relative">
             <div className="w-12 h-12 rounded-full bg-[#DFE5E7] flex items-center justify-center overflow-hidden">
-              {currentUser.avatar ? (
+              {currentUser?.avatar ? (
                 <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full bg-[#DFE5E7] flex items-center justify-center">
                   <span className="text-[#8696A0]" style={{ fontSize: '1.2rem', fontWeight: 600 }}>
-                    {currentUser.name ? currentUser.name[0].toUpperCase() : '?'}
+                    {currentUser?.name ? currentUser.name[0].toUpperCase() : '?'}
                   </span>
                 </div>
               )}
             </div>
-            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-[#00A884] rounded-full flex items-center justify-center border-2 border-[#111B21]">
+            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-[#00A884] rounded-full flex items-center justify-center border-2 border-wa-main">
               <Plus size={10} className="text-white" />
             </div>
           </div>
           <div>
-            <p className="text-[#E9EDEF]" style={{ fontWeight: 500 }}>My status</p>
+            <p className="text-wa-primary" style={{ fontWeight: 500 }}>My status</p>
             <p className="text-[#8696A0]" style={{ fontSize: '0.8rem' }}>Tap to add status update</p>
           </div>
         </div>
@@ -75,10 +89,10 @@ export default function StatusTab() {
 
       {/* Camera FAB */}
       <div className="fixed bottom-20 right-4 md:hidden flex flex-col gap-3 items-end">
-        <button className="w-12 h-12 rounded-full bg-[#2A3942] flex items-center justify-center shadow-lg">
+        <button onClick={handleAddStatus} className="w-12 h-12 rounded-full bg-wa-secondary flex items-center justify-center shadow-lg hover:bg-wa-secondary/80 transition-colors">
           <Camera size={20} className="text-[#8696A0]" />
         </button>
-        <button className="w-14 h-14 rounded-full bg-[#00A884] flex items-center justify-center shadow-lg">
+        <button onClick={handleAddStatus} className="w-14 h-14 rounded-full bg-[#00A884] flex items-center justify-center shadow-lg hover:bg-[#06cf9c] transition-colors">
           <Plus size={24} className="text-white" />
         </button>
       </div>
@@ -91,18 +105,22 @@ function StatusItem({ status, contact, viewed = false }: {
   contact: any;
   viewed?: boolean;
 }) {
+  const handleClick = () => {
+    toast.info(`Viewing ${contact.name}'s status`);
+  };
+
   return (
-    <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#2A3942] cursor-pointer transition-colors">
+    <div onClick={handleClick} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#2A3942] cursor-pointer transition-colors">
       <div className="relative">
         {/* Status ring */}
         <div className={`w-14 h-14 rounded-full p-0.5 ${viewed ? 'bg-[#8696A0]' : 'bg-gradient-to-br from-[#00A884] to-[#34b7f1]'}`}>
-          <div className="w-full h-full rounded-full p-0.5 bg-[#111B21]">
+          <div className="w-full h-full rounded-full p-0.5 bg-wa-main">
             <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={48} />
           </div>
         </div>
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[#E9EDEF]" style={{ fontWeight: 500 }}>{contact.name}</p>
+        <p className="text-wa-primary" style={{ fontWeight: 500 }}>{contact.name}</p>
         <p className="text-[#8696A0] truncate" style={{ fontSize: '0.8rem' }}>{status.timestamp}</p>
       </div>
     </div>

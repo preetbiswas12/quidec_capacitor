@@ -1,0 +1,10 @@
+<key>NSCameraUsageDescription</key>
+<string>This app needs camera access to make video calls with your contacts.</string>
+<key>NSMicrophoneUsageDescription</key>
+<string>This app needs microphone access to make voice and video calls.</string>
+<key>NSLocalNetworkUsageDescription</key>
+<string>This app needs local network access for peer-to-peer connections.</string>
+<key>NSBonjourServices</key>
+<array>
+  <string>_webrtc._tcp</string>
+</array>

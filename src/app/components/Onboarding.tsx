@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { useApp } from '../context/AppContext';
-import { authService } from '../../utils/firebaseServices';
+import services from '../../utils/firebaseServices';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronRight, ChevronLeft, Mail, Shield, Camera, Check, Copy, AtSign, Loader2, Lock, User as UserIcon } from 'lucide-react';
-import { generateUserId } from '../data/mockData';
+const { authService } = services;
 
 export default function Onboarding() {
   const navigate = useNavigate();
@@ -128,7 +128,8 @@ export default function Onboarding() {
     if (!name.trim()) return;
     setLoading(true);
     try {
-      const userId = generatedId || generateUserId(name);
+      // Use the already generated unique ID
+      const userId = generatedId;
       await updateCurrentUser({ name: name.trim(), userId, about: 'Available' });
       navigate('/app');
     } catch (err) {
@@ -137,6 +138,21 @@ export default function Onboarding() {
       setLoading(false);
     }
   };
+
+  // ─── Real-time Unique ID Generation ───────────────────────────────────────
+  useEffect(() => {
+    if (!name.trim()) {
+      setGeneratedId('');
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      const uniqueId = await services.generateUniqueUserId(name);
+      setGeneratedId(uniqueId);
+    }, 500); // Debounce to avoid too many Firestore lookups
+
+    return () => clearTimeout(timer);
+  }, [name]);
 
   const steps = [
     // Step 0: Welcome
@@ -432,10 +448,7 @@ export default function Onboarding() {
             <input
               type="text"
               value={name}
-              onChange={e => {
-                setName(e.target.value);
-                setGeneratedId(e.target.value.trim() ? generateUserId(e.target.value) : '');
-              }}
+              onChange={e => setName(e.target.value)}
               placeholder="Display Name"
               className="flex-1 outline-none py-3 text-[#111B21] bg-transparent"
               style={{ fontSize: '1.1rem' }}

@@ -13,7 +13,7 @@ export default function VoiceCallScreen() {
   const { id: contactId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { contacts, currentUser } = useApp();
-  const contact = contacts.find(c => c.id === contactId) || (contactId === currentUser?.userId ? {
+  const contact = contacts.find(c => c.id === contactId) || (contactId === currentUser?.userId && currentUser ? {
     id: currentUser.userId,
     userId: currentUser.userId,
     name: `${currentUser.name} (You)`,
@@ -24,6 +24,14 @@ export default function VoiceCallScreen() {
     lastSeen: 'online',
     about: currentUser.about || 'Available'
   } as any : null);
+
+  useEffect(() => {
+    if (!contact && !currentUser) {
+      navigate('/app');
+    }
+  }, [contact, currentUser, navigate]);
+
+  if (!contact) return null;
 
   const [callState, setCallState] = useState<'calling' | 'connected' | 'ended'>('calling');
   const [isMuted, setIsMuted] = useState(false);

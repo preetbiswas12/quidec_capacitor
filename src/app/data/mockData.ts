@@ -402,5 +402,5 @@ export const autoReplies: Record<string, string[]> = {
 export function generateUserId(name: string): string {
   const base = name.trim().toLowerCase().split(' ')[0].replace(/[^a-z0-9]/g, '');
   const suffix = Math.floor(1000 + Math.random() * 9000);
-  return `@${base}.${suffix}`;
+  return `${base}.${suffix}`;
 }

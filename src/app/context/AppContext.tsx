@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { useNavigate } from 'react-router';
 import services from '../../utils/firebaseServices';
 const { messageService, authService, presenceService, friendRequestService, typingService, userService } = services;
-import { getDoc, doc } from 'firebase/firestore';
+import { getDoc, doc, query, collection, where, getDocs } from 'firebase/firestore';
 import { db } from '../../utils/firebase';
 import { initializePushNotifications } from '../../utils/fcm';
 import { loadMessages as loadLocalMessages, clearKeyCache, updateMessageReactions } from '../../utils/localMessageStore';
@@ -10,6 +10,24 @@ import { getEncryptionKey } from '../../utils/encryption';
 import { uploadMediaWithProgress, loadMediaWithCache } from '../../utils/mediaUploadHandler';
 import { permissionManager } from '../../utils/permissionManager';
 import { initializeProductionCollections } from '../../scripts/initCollections';
+import { 
+  initSettingsPersistence, 
+  saveSettingsToNative, 
+  syncSettingsToFirebase,
+  getOrCreateDeviceId 
+} from '../../utils/settingsPersistence';
+import { 
+  initializeNotificationChannels,
+  requestNotificationPermissions 
+} from '../../utils/notificationSettingsManager';
+import { 
+  getPrivacySettings,
+  getAccountSecuritySettings 
+} from '../../utils/privacySettingsManager';
+import {
+  createDeviceSession,
+  listenToDeviceSessions
+} from '../../utils/linkedDevicesManager';
 
 // ─── Types (Matching UI App Expectations) ──────────────────────────────────
 
@@ -107,6 +125,8 @@ export interface AppSettings {
   fontSize: 'small' | 'medium' | 'large';
   enterSendsMessage: boolean;
   theme: 'dark' | 'light';
+  notificationTone: string;
+  vibrationType: string;
 }
 
 interface AppContextType {
@@ -150,6 +170,8 @@ interface AppContextType {
   sendMessage: (chatId: string, content: string, type?: Message['type'], extra?: Partial<Message>, mediaFile?: File) => Promise<void>;
   reactToMessage: (chatId: string, messageId: string, emoji: string) => Promise<void>;
   markAsRead: (chatId: string) => Promise<void>;
+  clearAllChats: () => Promise<void>;
+  clearChat: (chatId: string) => Promise<void>;
   typingContacts: Record<string, boolean>;
 
   // Search & Filters
@@ -183,6 +205,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   fontSize: 'medium',
   enterSendsMessage: true,
   theme: 'dark',
+  notificationTone: 'default',
+  vibrationType: 'default',
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -300,7 +324,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const user: CurrentUser = {
         name: result.user?.displayName || email.split('@')[0],
         email: email,
-        userId: result.uid || result.user?.uid || '',
+        userId: result.username || result.uid || result.user?.uid || '',
         avatar: result.user?.photoURL || null,
         about: '',
       };
@@ -346,7 +370,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const user: CurrentUser = {
         name: username,
         email: email,
-        userId: result.uid || result.user?.uid || '',
+        userId: result.username || result.uid || result.user?.uid || '',
         avatar: null,
         about: '',
       };
@@ -408,39 +432,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
             let about = 'Available';
             let avatar = currentFirebaseUser.photoURL || null;
             let name = currentFirebaseUser.displayName || currentFirebaseUser.email?.split('@')[0] || 'User';
+            let userId = currentFirebaseUser.uid;
 
             try {
-              console.log('📥 Fetching Firestore profile...');
-              // Use a timeout to prevent hanging the whole app
-              const fetchDoc = getDoc(doc(db, 'users', currentFirebaseUser.uid));
+              console.log('📥 Fetching Firestore profile by UID search...');
+              // Since document IDs are now Handles, we must query by the 'uid' field
+              const q = query(collection(db, 'users'), where('uid', '==', currentFirebaseUser.uid));
               const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000));
               
-              const userDoc = await Promise.race([fetchDoc, timeout]) as any;
+              const querySnapshot = await Promise.race([getDocs(q), timeout]) as any;
               
-              if (userDoc && userDoc.exists()) {
+              if (querySnapshot && !querySnapshot.empty) {
+                const userDoc = querySnapshot.docs[0];
                 const data = userDoc.data();
                 about = data.about || about;
                 avatar = data.photoURL || avatar;
                 name = data.displayName || name;
-                console.log('✅ Profile loaded:', name);
+                userId = data.username || currentFirebaseUser.uid;
+                console.log('✅ Profile loaded:', name, userId);
+                setIsOnboarded(true);
               } else {
-                console.warn('⚠️ User doc does not exist');
+                console.warn('⚠️ User doc does not exist for UID:', currentFirebaseUser.uid);
+                setIsOnboarded(false);
+                navigate('/onboarding');
               }
             } catch (docErr) {
               console.warn('⚠️ Profile fetch skipped (timeout or error):', docErr);
+              setIsOnboarded(true); // Default to true on error to avoid looping
             }
 
             const user: CurrentUser = {
               name,
               email: currentFirebaseUser.email || '',
-              userId: currentFirebaseUser.uid || '',
+              userId: userId || currentFirebaseUser.uid || '',
               avatar,
               about,
             };
             
             setCurrentUser(user);
             setNeedsVerification(false);
-            setIsOnboarded(true);
+            // Moved isOnboarded to inside the if/else above
             console.log('🚀 Finalizing state: ONBOARDED');
 
             // Background initializations
@@ -448,10 +479,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
             getEncryptionKey(user.userId).then(key => initializePushNotifications(user.userId, key)).catch(() => {});
           } else {
             console.log('🚀 Finalizing state: NEEDS_VERIFICATION');
+            
+            // Look up custom username for unverified users too
+            let customUsernameForUnverified = currentFirebaseUser.uid;
+            try {
+              const customUsername = await authService.getCustomUsernameByFirebaseUid(currentFirebaseUser.uid);
+              if (customUsername) {
+                customUsernameForUnverified = customUsername;
+              }
+            } catch (err) {
+              console.warn('⚠️ Could not fetch custom username for unverified user:', err);
+            }
+            
             setCurrentUser({
               name: currentFirebaseUser.displayName || 'User',
               email: currentFirebaseUser.email || '',
-              userId: currentFirebaseUser.uid || '',
+              userId: customUsernameForUnverified,
               avatar: null,
               about: '',
             });
@@ -490,6 +533,74 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     return () => authUnsubscribe();
   }, []);
+
+  // ─── Monitor Email Verification Changes ───────────────────────────────────
+  useEffect(() => {
+    if (!currentUser || !needsVerification) return;
+
+    let verificationCheckInterval: ReturnType<typeof setInterval> | null = null;
+    
+    const checkEmailVerification = async () => {
+      try {
+        const firebaseUser = await authService.reloadUser();
+        if (firebaseUser?.emailVerified) {
+          console.log('✅ Email verification detected! Updating app state...');
+          
+          // Fetch updated profile
+          let about = 'Available';
+          let avatar = firebaseUser.photoURL || null;
+          let name = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
+          let userId = firebaseUser.uid;
+
+          try {
+            const q = query(collection(db, 'users'), where('uid', '==', firebaseUser.uid));
+            const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000));
+            const querySnapshot = await Promise.race([getDocs(q), timeout]) as any;
+            
+            if (querySnapshot && !querySnapshot.empty) {
+              const userDoc = querySnapshot.docs[0];
+              const data = userDoc.data();
+              about = data.about || about;
+              avatar = data.photoURL || avatar;
+              name = data.displayName || name;
+              userId = data.username || firebaseUser.uid;
+            }
+          } catch (docErr) {
+            console.warn('⚠️ Profile fetch skipped:', docErr);
+          }
+
+          // Update context state
+          setCurrentUser({
+            name,
+            email: firebaseUser.email || '',
+            userId,
+            avatar,
+            about,
+          });
+          setNeedsVerification(false);
+          setIsOnboarded(true);
+          
+          // Stop checking
+          if (verificationCheckInterval) clearInterval(verificationCheckInterval);
+          
+          // Initialize background services
+          initializeProductionCollections().catch(() => {});
+          getEncryptionKey(userId).then(key => initializePushNotifications(userId, key)).catch(() => {});
+          
+          console.log('🚀 Email verified! User is now onboarded');
+        }
+      } catch (err) {
+        console.warn('⚠️ Verification check error:', err);
+      }
+    };
+
+    // Check every 3 seconds for email verification
+    verificationCheckInterval = setInterval(checkEmailVerification, 3000);
+    
+    return () => {
+      if (verificationCheckInterval) clearInterval(verificationCheckInterval);
+    };
+  }, [currentUser, needsVerification]);
 
   // ─── Native Permissions Initialization ────────────────────────────────────
   useEffect(() => {
@@ -585,10 +696,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       // Persist to Firebase
-      await authService.updateUserProfile(currentUser.userId, {
+      await authService.updateUserProfile({
         name: updates.name,
         avatar: avatarToSave,
-        about: updates.about
+        about: updates.about,
+        userId: updates.userId || currentUser.userId
       });
 
       // Update local state
@@ -607,6 +719,69 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const uid = currentUser.userId;
     console.log('🔗 Establishing real-time Firebase listeners for', uid);
+
+    // 0. Initialize Push Notifications & Action Groups
+    const initNotify = async () => {
+      try {
+        const { initializePushNotifications, setupNotificationActions, setNotificationsEnabled } = await import('../../utils/fcm');
+        await setupNotificationActions();
+        await initializePushNotifications(uid, null);
+        setNotificationsEnabled(settings.notifications);
+      } catch (err) {
+        console.warn('⚠️ Notification init failed:', err);
+      }
+    };
+    initNotify();
+
+    // 0.1 Initialize Android Settings Systems
+    const initAndroidSettings = async () => {
+      try {
+        // Initialize notification channels for Android
+        await initializeNotificationChannels();
+        console.log('✅ Android notification channels initialized');
+
+        // Request notification permissions
+        const hasPermission = await requestNotificationPermissions();
+        console.log(`✅ Notification permission: ${hasPermission ? 'granted' : 'denied'}`);
+
+        // Initialize settings persistence (load from native storage + Firebase)
+        const loadedSettings = await initSettingsPersistence(uid);
+        setSettings(prev => ({ ...prev, ...loadedSettings }));
+        console.log('✅ Settings loaded from native storage and Firebase');
+
+        // Load privacy settings
+        const privacySettings = await getPrivacySettings(uid);
+        console.log('✅ Privacy settings loaded');
+
+        // Load account security settings
+        const securitySettings = await getAccountSecuritySettings(uid);
+        console.log('✅ Account security settings loaded');
+
+        // Create device session for linked devices tracking
+        const pushToken = localStorage.getItem('fcm_token');
+        await createDeviceSession(uid, 'mobile', pushToken || undefined);
+        console.log('✅ Device session created for linked devices');
+
+        // Listen to device sessions for real-time updates
+        const unsubscribeDevices = listenToDeviceSessions(uid, (sessions) => {
+          console.log(`📱 Active devices: ${sessions.length}`);
+          // Could update app state with device list here
+        });
+
+        // Cleanup device listeners on unmount
+        return unsubscribeDevices;
+      } catch (err) {
+        console.warn('⚠️ Android settings init failed:', err);
+      }
+    };
+
+    // Execute async initialization
+    let unsubscribeAndroidSettings: (() => void) | undefined;
+    initAndroidSettings().then(unsubscribe => {
+      unsubscribeAndroidSettings = unsubscribe;
+    }).catch(err => {
+      console.error('❌ Failed to initialize Android settings:', err);
+    });
 
     // 1. Listen to Friends List
     friendsUnsubscribeRef.current = presenceService.listenToFriends(uid, (rawFriends) => {
@@ -705,6 +880,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       requestsUnsubscribeRef.current?.();
       conversationsUnsubscribeRef.current?.();
       unsubscribeSignaling();
+      unsubscribeAndroidSettings?.();
     };
   }, [currentUser, isOnboarded, navigate]);
 
@@ -831,7 +1007,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const markAsRead = useCallback(async (chatId: string) => {
     if (!currentUser) return;
-    await messageService.markAllMessagesAsRead(currentUser.userId, chatId);
+    const contactId = chats.find(c => c.id === chatId)?.contactId || chatId;
+    await messageService.markAllMessagesAsRead(chatId, currentUser.userId, contactId);
 
     setChats((prev) =>
       prev.map((c) =>
@@ -840,7 +1017,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : c
       )
     );
-  }, [currentUser]);
+  }, [currentUser, chats]);
+
+  const clearAllChats = useCallback(async () => {
+    if (!window.confirm('Are you sure you want to delete all messages? This cannot be undone.')) return;
+    
+    // 1. Clear local files
+    const { clearAllMessages } = await import('../../utils/localMessageStore');
+    await clearAllMessages();
+    
+    // 2. Clear state
+    setMessages({});
+    setChats(prev => prev.map(c => ({ ...c, lastMessage: '', lastMessageTime: '', unreadCount: 0 })));
+    
+    console.log('🧹 All chats cleared locally.');
+  }, []);
+
+  const clearChat = useCallback(async (chatId: string) => {
+    if (!window.confirm('Clear all messages in this chat?')) return;
+    
+    const { deleteLocalChat } = await import('../../utils/localMessageStore');
+    await deleteLocalChat(chatId);
+    
+    setMessages(prev => ({ ...prev, [chatId]: [] }));
+    setChats(prev => prev.map(c => c.id === chatId ? { ...c, lastMessage: '', lastMessageTime: '', unreadCount: 0 } : c));
+    
+    console.log(`🧹 Chat ${chatId} cleared.`);
+  }, []);
 
   // ─── Friend Request Methods ────────────────────────────────────────────────
 
@@ -872,20 +1075,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ─── Theme & Appearance Management ───────────────────────────────────────
   useEffect(() => {
-    if (settings.theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    const applyTheme = async () => {
+      const isDark = settings.theme === 'dark';
+      
+      // 1. DOM class
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+
+      // 2. Android Status Bar (Native Binding)
+      try {
+        const { StatusBar, Style } = await import('@capacitor/status-bar');
+        await StatusBar.setStyle({ style: isDark ? Style.Dark : Style.Light });
+        await StatusBar.setBackgroundColor({ color: isDark ? '#202C33' : '#F0F2F5' });
+      } catch (err) {
+        // Not on mobile or plugin failed
+      }
+    };
+
+    applyTheme();
   }, [settings.theme]);
 
   const updateSettings = useCallback((updates: Partial<AppSettings>) => {
     setSettings((prev) => {
       const next = { ...prev, ...updates };
-      try { localStorage.setItem('quidec_settings', JSON.stringify(next)); } catch { /* ignore */ }
+      try { 
+        localStorage.setItem('quidec_settings', JSON.stringify(next));
+      } catch { /* ignore */ }
+      
+      // Also save to native storage and sync to Firebase
+      if (currentUser) {
+        saveSettingsToNative(next).catch(err => console.warn('⚠️ Failed to save to native storage:', err));
+        syncSettingsToFirebase(currentUser.userId, next).catch(err => console.warn('⚠️ Failed to sync to Firebase:', err));
+      }
+      
       return next;
     });
-  }, []);
+  }, [currentUser]);
 
   // ─── User Discovery (#6) ──────────────────────────────────────────────────
 
@@ -951,6 +1179,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, [currentUser, activeChatId, chats]);
 
+  // Sync Mute status with FCM service
+  useEffect(() => {
+    const syncMute = async () => {
+      try {
+        const { setNotificationsEnabled } = await import('../../utils/fcm');
+        setNotificationsEnabled(settings.notifications);
+      } catch (err) {
+        // ignore
+      }
+    };
+    syncMute();
+  }, [settings.notifications]);
+
   const value: AppContextType = {
     isOnboarded,
     currentUser: currentUser ? { ...currentUser, avatar: currentUserAvatarUrl } : null,
@@ -984,6 +1225,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     sendMessage,
     reactToMessage,
     markAsRead,
+    clearAllChats,
+    clearChat,
     typingContacts,
     searchQuery,
     setSearchQuery,

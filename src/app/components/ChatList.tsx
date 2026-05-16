@@ -1,5 +1,6 @@
 import { Search, Archive, X, MessageSquare } from 'lucide-react';
 import { useNavigate } from 'react-router';
+import { toast } from 'sonner';
 import { useApp } from '../context/AppContext';
 import Avatar from './Avatar';
 
@@ -53,23 +54,18 @@ export default function ChatList() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Search Bar */}
-      <div className="px-3 py-2 flex-shrink-0">
-        <div className="flex items-center gap-2 bg-wa-header rounded-xl px-4 py-2">
-          <Search size={16} className="text-wa-text-muted flex-shrink-0" />
+      {/* Search Bar - Sleek & Flat */}
+      <div className="px-4 py-3 flex-shrink-0">
+        <div className="flex items-center gap-3 bg-wa-secondary/40 rounded-2xl px-4 py-2.5 border border-wa-border/5">
+          <Search size={18} className="text-wa-text-muted flex-shrink-0" />
           <input
             type="text"
-            placeholder="Search"
+            placeholder="Search conversations"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]"
-            style={{ fontSize: '0.9rem' }}
+            className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted/50 font-medium"
+            style={{ fontSize: '0.95rem' }}
           />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery('')}>
-              <X size={16} className="text-wa-text-muted" />
-            </button>
-          )}
         </div>
       </div>
 
@@ -129,16 +125,18 @@ export default function ChatList() {
           </button>
         )}
 
-        {/* Archive row — only show in "all" filter and no search */}
+        {/* Archive row — Sleek integrated */}
         {!searchQuery && chatFilter === 'all' && (
-          <div className="flex items-center gap-3 px-4 py-3 hover:bg-wa-secondary/50 cursor-pointer transition-colors border-b border-wa-border/50">
-            <div className="w-12 h-12 rounded-full bg-[#2A3942] flex items-center justify-center">
+          <div
+            onClick={() => toast.info('Archived chats', { description: 'Archived chats feature coming soon!' })}
+            className="flex items-center gap-4 px-4 py-3.5 hover:bg-wa-secondary/20 cursor-pointer transition-colors border-b border-wa-border/10"
+          >
+            <div className="w-12 h-12 rounded-full bg-wa-secondary flex items-center justify-center">
               <Archive size={20} className="text-[#00A884]" />
             </div>
             <div className="flex-1">
-              <span className="text-[#00A884]" style={{ fontWeight: 500 }}>Archived</span>
+              <span className="text-wa-primary font-bold" style={{ fontSize: '1rem' }}>Archived</span>
             </div>
-            <span className="text-wa-text-muted" style={{ fontSize: '0.75rem' }}>0</span>
           </div>
         )}
 
@@ -197,7 +195,7 @@ function ChatRow({ chat, contact, isActive, isTyping, onOpen, isPinned }: {
   return (
     <div
       onClick={onOpen}
-      className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors border-b border-wa-border/30 ${isActive ? 'bg-wa-secondary' : 'hover:bg-wa-secondary/50'}`}
+      className={`flex items-center gap-4 px-4 py-4 cursor-pointer transition-colors border-b border-wa-border/10 ${isActive ? 'bg-wa-secondary/40' : 'hover:bg-wa-secondary/20'}`}
     >
       <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={52} isOnline={contact.isOnline} />
       <div className="flex-1 min-w-0">

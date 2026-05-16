@@ -5,14 +5,28 @@
 
 import { PushNotifications } from '@capacitor/push-notifications'
 import { LocalNotifications } from '@capacitor/local-notifications'
+import { Capacitor } from '@capacitor/core'
 import { decryptMessage } from './encryption'
 
 let encryptionKey = null
+let notificationsEnabled = true
+
+/**
+ * Enable or disable all notifications (Mute)
+ */
+export function setNotificationsEnabled(enabled) {
+  notificationsEnabled = enabled
+  console.log(`🔔 Notifications ${enabled ? 'enabled' : 'MUTED'}`)
+}
 
 /**
  * Initialize push notifications (requires Firebase configured)
  */
 export async function initializePushNotifications(userId, key) {
+  if (Capacitor.getPlatform() === 'web') {
+    console.log('🌐 Web platform: Skipping native push notifications initialization');
+    return;
+  }
   try {
     encryptionKey = key
 
@@ -78,6 +92,10 @@ async function sendTokenToBackend(userId, fcmToken) {
  * Data-only messages contain encrypted content
  */
 async function handleIncomingNotification(notification) {
+  if (!notificationsEnabled) {
+    console.log('🔇 Notification suppressed (Mute is ON)')
+    return
+  }
   const { data } = notification.notification || notification
 
   // Extract notification type
@@ -205,6 +223,7 @@ async function handleFriendRequestNotification(from, notification) {
  * Show generic local notification
  */
 export async function showLocalNotification(title, body, notificationId = null) {
+  if (!notificationsEnabled) return
   try {
     await LocalNotifications.schedule({
       notifications: [
@@ -263,6 +282,10 @@ function handleNotificationAction(notification) {
  * Called during app initialization
  */
 export async function setupNotificationActions() {
+  if (Capacitor.getPlatform() === 'web') {
+    console.log('🌐 Web platform: Skipping native notification actions setup');
+    return;
+  }
   try {
     await LocalNotifications.createActionGroup({
       id: 'call-action',

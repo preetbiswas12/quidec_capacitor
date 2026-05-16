@@ -5,6 +5,7 @@
  */
 
 import { openDB } from 'idb'
+import logger from './logger'
 
 const DB_NAME = 'quidec-app'
 const DB_VERSION = 1
@@ -71,10 +72,10 @@ export async function initializeDB() {
         }
       },
     })
-    console.log('✅ IndexedDB initialized')
+    logger.info('IndexedDB', 'Database initialized successfully')
     return db
   } catch (err) {
-    console.error('❌ Failed to initialize IndexedDB:', err)
+    logger.error('IndexedDB', 'Failed to initialize database', err)
     throw err
   }
 }
@@ -311,7 +312,7 @@ export async function cleanupOldMessages(days = 30) {
     }
   }
   await tx.done
-  console.log(`✅ Cleaned up messages older than ${days} days`)
+  logger.info('IndexedDB', `Cleaned up messages older than ${days} days`)
 }
 
 /**
@@ -335,5 +336,5 @@ export async function clearAllData() {
     await tx.objectStore(store).clear()
     await tx.done
   }
-  console.log('✅ All app data cleared')
+  logger.info('IndexedDB', 'All app data cleared')
 }

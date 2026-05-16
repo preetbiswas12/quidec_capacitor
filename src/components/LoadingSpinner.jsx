@@ -47,7 +47,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(135deg, #0a0a14 0%, #111122 100%)',
+    background: 'var(--wa-bg-main)',
   },
   content: {
     display: 'flex',
@@ -69,7 +69,7 @@ const styles = {
     animation: 'spin 1s linear infinite',
   },
   text: {
-    color: '#E3E3E3',
+    color: 'var(--wa-text-primary)',
     fontSize: '14px',
     textAlign: 'center',
   },
