@@ -21,9 +21,8 @@
     <!-- ===== CAMERA & MEDIA PERMISSIONS ===== -->
     <!-- CAMERA enabled: @capacitor/camera is installed and configured in capacitor.config.ts -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- RECORD_AUDIO and MODIFY_AUDIO_SETTINGS reserved for future audio/video recording features -->
-    <!-- <uses-permission android:name="android.permission.RECORD_AUDIO" /> -->
-    <!-- <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /> -->
+    <!-- RECORD_AUDIO for voice/video calls -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- ===== NOTIFICATION PERMISSIONS ===== -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
