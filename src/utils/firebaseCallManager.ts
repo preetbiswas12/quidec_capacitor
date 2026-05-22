@@ -13,6 +13,7 @@ import {
   getDocs,
   serverTimestamp,
 } from 'firebase/firestore';
+import logger from './logger';
 
 export type CallStatus = 'ringing' | 'accepted' | 'rejected' | 'ended' | 'missed';
 
@@ -41,12 +42,12 @@ export class FirebaseCallManager {
 
   private log(message: string, data?: any) {
     if (this.debug) {
-      console.log(`[FirebaseCallManager] ${message}`, data || '');
+      logger.debug('FirebaseCallManager', message, data);
     }
   }
 
   private error(message: string, err?: any) {
-    console.error(`[FirebaseCallManager] ❌ ${message}`, err || '');
+    logger.error('FirebaseCallManager', message, err);
   }
 
   /**

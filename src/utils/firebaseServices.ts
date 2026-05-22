@@ -65,7 +65,16 @@ import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { db, auth, realtimeDb, getFCMToken, EMBEDDED_VAPID_KEY } from './firebase';
 import { encryptMessage, decryptMessage, getConversationKey } from './encryption';
 import { appendMessage, loadMessages as loadLocalMessages, listLocalChatIds, StoredMessage } from './localMessageStore';
+import { messageQueue } from './persistentMessageQueue';
 import { uploadMediaWithProgress, loadMediaWithCache, StoredMediaReference } from './mediaUploadHandler';
+import { 
+  validateEmail, 
+  validatePassword, 
+  validateUsername,
+  loginLimiter, 
+  registerLimiter 
+} from './validators';
+import logger from './logger';
 
 /**
  * MESSAGE DELIVERY STATUS TYPES
@@ -154,6 +163,47 @@ export const authService = {
    * Sends verification email automatically
    */
   async registerUser(email: string, username: string, password: string) {
+    const errors: Record<string, string> = {};
+    
+    // Validate all inputs FIRST
+    try {
+      validateEmail(email);
+    } catch (err: any) {
+      errors.email = err.message;
+    }
+    
+    try {
+      validateUsername(username);
+    } catch (err: any) {
+      errors.username = err.message;
+    }
+    
+    try {
+      validatePassword(password);
+    } catch (err: any) {
+      errors.password = err.message;
+    }
+    
+    // Return validation errors immediately
+    if (Object.keys(errors).length > 0) {
+      return {
+        success: false,
+        errors,
+        message: 'Please fix the errors above',
+      };
+    }
+    
+    // Check rate limit
+    try {
+      await registerLimiter.checkLimit(email);
+    } catch (err: any) {
+      return {
+        success: false,
+        errors: { submit: err.message },
+        message: 'Too many registration attempts',
+      };
+    }
+    
     try {
       await setPersistence(auth, browserLocalPersistence);
 
@@ -214,12 +264,21 @@ export const authService = {
       };
     } catch (error: any) {
       console.error('❌ Registration error:', error.message);
+      const registerErrors: Record<string, string> = {};
+      
       if (error.code === 'auth/email-already-in-use') {
-        throw new Error('Email already in use');
+        registerErrors.email = 'Email already registered';
       } else if (error.code === 'auth/weak-password') {
-        throw new Error('Password is too weak. Use at least 6 characters');
+        registerErrors.password = 'Password is too weak. Use at least 6 characters';
+      } else {
+        registerErrors.submit = 'Registration failed. Try again later.';
       }
-      throw error;
+      
+      return {
+        success: false,
+        errors: registerErrors,
+        message: 'Registration failed',
+      };
     }
   },
 
@@ -228,6 +287,33 @@ export const authService = {
    * Checks if email is verified before allowing login
    */
   async loginUser(email: string, password: string) {
+    const errors: Record<string, string> = {};
+    
+    // Validate email first
+    try {
+      validateEmail(email);
+    } catch (err: any) {
+      errors.email = err.message;
+      return {
+        success: false,
+        emailVerified: null,
+        errors,
+        message: 'Invalid email',
+      };
+    }
+    
+    // Check rate limit before Firebase auth
+    try {
+      await loginLimiter.checkLimit(email);
+    } catch (err: any) {
+      return {
+        success: false,
+        emailVerified: null,
+        errors: { submit: err.message },
+        message: 'Too many login attempts',
+      };
+    }
+    
     try {
       await setPersistence(auth, browserLocalPersistence);
       const userCredential = await signInWithEmailAndPassword(
@@ -295,12 +381,24 @@ export const authService = {
       return { success: true, user, uid: user.uid, username: customUsername, emailVerified: true };
     } catch (error: any) {
       console.error('❌ Login error:', error.message);
+      const loginErrors: Record<string, string> = {};
+      
       if (error.code === 'auth/user-not-found') {
-        throw new Error('User not found');
+        loginErrors.email = 'No account found with this email';
       } else if (error.code === 'auth/wrong-password') {
-        throw new Error('Incorrect password');
+        loginErrors.password = 'Incorrect password';
+      } else if (error.code === 'auth/invalid-credential') {
+        loginErrors.submit = 'Invalid credentials';
+      } else {
+        loginErrors.submit = 'Login failed. Try again.';
       }
-      throw error;
+      
+      return {
+        success: false,
+        emailVerified: null,
+        errors: loginErrors,
+        message: 'Login failed',
+      };
     }
   },
 
@@ -499,17 +597,28 @@ export const authService = {
    * Targets document by handle (username)
    */
   async updateUserProfile(updates: { name?: string; avatar?: string | null; about?: string; userId: string }) {
+    const startTime = Date.now();
+    
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('No authenticated user');
 
+      logger.info('updateUserProfile', `Updating profile for ${updates.userId}`);
+
       const firestoreUpdates: any = {
         updatedAt: serverTimestamp(),
       };
+      
       if (updates.name) {
         firestoreUpdates.displayName = updates.name;
-        await updateProfile(user, { displayName: updates.name });
+        try {
+          await updateProfile(user, { displayName: updates.name });
+        } catch (authErr) {
+          logger.warn('updateUserProfile', `Failed to update auth profile: ${authErr}`);
+          // Continue with Firestore update even if auth update fails
+        }
       }
+      
       if (updates.avatar !== undefined) firestoreUpdates.photoURL = updates.avatar;
       if (updates.about !== undefined) firestoreUpdates.about = updates.about;
 
@@ -517,10 +626,13 @@ export const authService = {
       const userRef = doc(db, 'users', updates.userId);
       await setDoc(userRef, firestoreUpdates, { merge: true });
 
+      const duration = Date.now() - startTime;
+      logger.info('updateUserProfile', `Profile updated in ${duration}ms`);
       return { success: true };
     } catch (error: any) {
-      console.error('❌ Error updating user profile:', error.message);
-      throw error;
+      const duration = Date.now() - startTime;
+      logger.error('updateUserProfile', `Failed after ${duration}ms: ${error.message}`);
+      throw new Error(`Failed to update profile: ${error.message}`);
     }
   },
 
@@ -649,20 +761,31 @@ export const presenceService = {
    */
   async setUserOnline(uid: string, username: string) {
     try {
-      await set(ref(realtimeDb, `presence/${sanitizePathComponent(uid)}`), {
+      logger.info('setUserOnline', `Setting user ${username} online`);
+      
+      // Update RTDB presence (real-time)
+      const presenceRef = ref(realtimeDb, `presence/${sanitizePathComponent(uid)}`);
+      await set(presenceRef, {
         online: true,
         lastSeen: rtdbServerTimestamp(),
         username,
       });
 
-      await setDoc(doc(db, 'users', uid), {
-        isOnline: true,
-        lastSeen: serverTimestamp(),
-      }, { merge: true });
+      // Update Firestore metadata (backup)
+      try {
+        await setDoc(doc(db, 'users', uid), {
+          isOnline: true,
+          lastSeen: serverTimestamp(),
+        }, { merge: true });
+      } catch (firestoreErr) {
+        logger.warn('setUserOnline', `Firestore update failed: ${firestoreErr}`);
+        // Continue - RTDB update succeeded, this is backup only
+      }
 
-      console.log(`✅ User ${username} is online`);
+      logger.info('setUserOnline', `User ${username} marked online`);
     } catch (error: any) {
-      console.error('❌ Error setting online:', error.message);
+      logger.error('setUserOnline', `Failed to set online status: ${error.message}`);
+      // Non-critical, don't throw
     }
   },
 
@@ -671,19 +794,30 @@ export const presenceService = {
    */
   async setUserOffline(uid: string) {
     try {
-      await set(ref(realtimeDb, `presence/${sanitizePathComponent(uid)}`), {
+      logger.info('setUserOffline', `Setting user ${uid} offline`);
+      
+      // Update RTDB presence
+      const presenceRef = ref(realtimeDb, `presence/${sanitizePathComponent(uid)}`);
+      await set(presenceRef, {
         online: false,
         lastSeen: rtdbServerTimestamp(),
       });
 
-      await setDoc(doc(db, 'users', uid), {
-        isOnline: false,
-        lastSeen: serverTimestamp(),
-      }, { merge: true });
+      // Update Firestore metadata (backup)
+      try {
+        await setDoc(doc(db, 'users', uid), {
+          isOnline: false,
+          lastSeen: serverTimestamp(),
+        }, { merge: true });
+      } catch (firestoreErr) {
+        logger.warn('setUserOffline', `Firestore update failed: ${firestoreErr}`);
+        // Continue - RTDB update succeeded, this is backup only
+      }
 
-      console.log(`✅ User ${uid} is offline`);
+      logger.info('setUserOffline', `User ${uid} marked offline`);
     } catch (error: any) {
-      console.error('❌ Error setting offline:', error.message);
+      logger.error('setUserOffline', `Failed to set offline status: ${error.message}`);
+      // Non-critical, don't throw
     }
   },
 
@@ -854,61 +988,237 @@ export const messageService = {
       status?: string;
     } = {}
   ) {
+    const startTime = Date.now();
     const conversationId = this.getConversationId(fromUid, toUid);
     const messageId = options.messageId || `${Date.now()}_${Math.random()}`;
 
-    // E2E Encryption: Encrypt content if it's a text message
-    let encryptedContent = content;
     try {
-      const convKey = await getConversationKey(fromUid, toUid);
-      encryptedContent = await encryptMessage(content, convKey);
-    } catch (encErr) {
-      console.warn('⚠️ Encryption failed, sending plaintext:', encErr);
+      logger.info('recordMessage', `Recording message from ${fromUid} to ${toUid}`);
+
+      // E2E Encryption: Encrypt content if it's a text message
+      let encryptedContent = content;
+      try {
+        const convKey = await getConversationKey(fromUid, toUid);
+        encryptedContent = await encryptMessage(content, convKey);
+      } catch (encErr) {
+        logger.warn('recordMessage', `Encryption failed, using plaintext: ${encErr}`);
+        // Don't fail entirely, continue with plaintext
+      }
+
+      const messageData = {
+        messageId,
+        fromUid,
+        toUid,
+        content: encryptedContent, // Store encrypted
+        mediaUrl: options.mediaUrl || null,
+        messageType: options.messageType || 'text',
+        timestamp: options.timestamp || serverTimestamp(),
+        status: options.status || MESSAGE_STATUS.SENT,
+        deliveredAt: null,
+        readAt: null,
+        typing: false,
+        isEncrypted: true,
+      };
+
+      // TRANSIENT DELIVERY PIPE (Zero Persistence)
+      // Messages stored temporarily in RTDB only for delivery - IMMEDIATELY deleted after recipient receives
+      // This keeps Firebase storage usage near zero while enabling real-time delivery
+      const deliveryRef = ref(realtimeDb, `delivery/${sanitizePathComponent(toUid)}/${messageId}`);
+      
+      try {
+        await set(deliveryRef, {
+          ...messageData,
+          fromUid,
+          conversationId
+        });
+      } catch (rtdbErr) {
+        logger.error('recordMessage', `RTDB delivery failed: ${rtdbErr}`);
+        // Log but don't fail - we have local persistence fallback
+      }
+
+      // Save to local persistence - This is our ONLY permanent store
+      try {
+        await appendMessage(fromUid, {
+          id: messageId,
+          chatId: conversationId,
+          senderId: fromUid,
+          content: content,
+          type: (options.messageType as any) || 'text',
+          timestamp: new Date().toISOString(),
+          status: (options.status as any) || 'sent',
+        });
+      } catch (localErr) {
+        logger.warn('recordMessage', `Local persistence failed: ${localErr}`);
+        // Message still recorded in RTDB, local fallback failed
+      }
+
+      const duration = Date.now() - startTime;
+      logger.info('recordMessage', `Message recorded successfully in ${duration}ms`);
+
+      return { success: true, messageId, conversationId, status: messageData.status };
+    } catch (err: any) {
+      const duration = Date.now() - startTime;
+      logger.error('recordMessage', `Failed after ${duration}ms: ${err.message}`);
+      throw new Error(`Failed to record message: ${err.message}`);
     }
+  },
 
-    const messageData = {
-      messageId,
-      fromUid,
-      toUid,
-      content: encryptedContent, // Store encrypted
-      mediaUrl: options.mediaUrl || null,
-      messageType: options.messageType || 'text',
-      timestamp: options.timestamp || serverTimestamp(),
-      status: options.status || MESSAGE_STATUS.SENT,
-      deliveredAt: null,
-      readAt: null,
-      typing: false,
-      isEncrypted: true,
-    };
-
-    // CLOUD STORAGE: TRANSPORT ONLY (ZERO PERSISTENCE)
-    // We use RTDB as a "pipe". Recipient will delete this record immediately upon receipt.
-    const deliveryRef = ref(realtimeDb, `delivery/${sanitizePathComponent(toUid)}/${messageId}`);
-    await set(deliveryRef, {
-      ...messageData,
-      fromUid,
-      conversationId
-    });
-
-    // Save to local persistence - This remains our ONLY permanent store
+  /**
+   * Prepare encrypted message for delivery (WebSocket + FCM)
+   * Returns the encrypted payload that can be sent via WebSocket
+   */
+  async prepareMessageForDelivery(
+    fromUid: string,
+    toUid: string,
+    content: string,
+    messageId: string,
+    messageType: string = 'text',
+    mediaUrl: string | null = null
+  ): Promise<{ encrypted: string; messageId: string; fromUid: string; toUid: string; messageType: string; mediaUrl: string | null; timestamp: string }> {
     try {
-      await appendMessage(fromUid, {
+      // Encrypt the message content
+      const conversationKey = await getConversationKey(fromUid, toUid);
+      const messagePayload = {
+        content,
+        messageType,
+        mediaUrl,
+        messageId,
+        timestamp: new Date().toISOString(),
+      };
+      const encrypted = await encryptMessage(messagePayload, conversationKey);
+
+      return {
+        encrypted,
+        messageId,
+        fromUid,
+        toUid,
+        messageType,
+        mediaUrl,
+        timestamp: messagePayload.timestamp,
+      };
+    } catch (err) {
+      console.error('❌ Failed to prepare message for delivery:', err);
+      throw err;
+    }
+  },
+
+  /**
+   * Send push notification to recipient via FCM
+   * This is the ONLY Firebase cloud function for messages - notifications only!
+   */
+  async sendPushNotification(toUid: string, fromUid: string, content: string, messageType: string) {
+    try {
+      // Get recipient's FCM token from their user document
+      const userDoc = await getDoc(doc(db, 'users', toUid));
+      if (!userDoc.exists()) {
+        console.warn('⚠️ Recipient user not found for notification');
+        return false;
+      }
+
+      const userData = userDoc.data();
+      const fcmToken = userData.fcmToken;
+
+      if (!fcmToken) {
+        console.warn('⚠️ Recipient has no FCM token');
+        return false;
+      }
+
+      // Get sender name for notification
+      const senderDoc = await getDoc(doc(db, 'users', fromUid));
+      const senderName = senderDoc.exists() ? senderDoc.data().displayName || 'Someone' : 'Someone';
+
+      // Build notification payload
+      const notificationBody = messageType === 'text'
+        ? content.substring(0, 50) + (content.length > 50 ? '...' : '')
+        : `Sent a ${messageType}`;
+
+      // Store notification request in RTDB (transient, not persisted)
+      const notificationRef = ref(realtimeDb, `notifications/${toUid}/${Date.now()}`);
+      await set(notificationRef, {
+        type: 'new_message',
+        fromUid,
+        fromName: senderName,
+        body: notificationBody,
+        messageType,
+        timestamp: Date.now(),
+      });
+
+      console.log(`📬 Push notification queued for ${toUid}`);
+      return true;
+    } catch (err) {
+      console.error('❌ Failed to send push notification:', err);
+      return false;
+    }
+  },
+
+  /**
+   * Handle incoming encrypted message from WebSocket
+   * Decrypts, saves to local .bin, returns decrypted message for UI
+   */
+  async handleIncomingMessage(
+    currentUid: string,
+    encryptedContent: string,
+    messageId: string,
+    fromUid: string,
+    messageType: string,
+    mediaUrl: string | null,
+    timestamp: string
+  ): Promise<{
+    id: string;
+    chatId: string;
+    senderId: string;
+    content: string;
+    type: string;
+    timestamp: string;
+    status: string;
+    imageUrl?: string;
+  }> {
+    try {
+      // 1. Decrypt the message
+      const convKey = await getConversationKey(fromUid, currentUid);
+      const decryptedPayload = await decryptMessage(encryptedContent, convKey);
+      const content = decryptedPayload.content || '';
+
+      // 2. Save to local .bin storage
+      const conversationId = this.getConversationId(currentUid, fromUid);
+      try {
+        await appendMessage(currentUid, {
+          id: messageId,
+          chatId: conversationId,
+          senderId: fromUid,
+          content: content,
+          type: (messageType || 'text') as any,
+          timestamp: timestamp || new Date().toISOString(),
+          status: MESSAGE_STATUS.DELIVERED,
+        });
+      } catch (localErr) {
+        console.warn('⚠️ Failed to save incoming message to local store:', localErr);
+      }
+
+      // 3. Return the decrypted message for UI
+      return {
         id: messageId,
         chatId: conversationId,
         senderId: fromUid,
-        content: content,
-        type: (options.messageType as any) || 'text',
-        timestamp: new Date().toISOString(),
-        status: (options.status as any) || 'sent',
-      });
-    } catch (localErr) {
-      console.warn('⚠️ Local persistence failed:', localErr);
+        content,
+        type: messageType || 'text',
+        timestamp: timestamp || new Date().toISOString(),
+        status: 'received',
+        imageUrl: mediaUrl || undefined,
+      };
+    } catch (err) {
+      console.error('❌ Failed to handle incoming message:', err);
+      // Return the message with empty content if decryption fails
+      return {
+        id: messageId,
+        chatId: this.getConversationId(currentUid, fromUid),
+        senderId: fromUid,
+        content: '[Message could not be decrypted]',
+        type: messageType || 'text',
+        timestamp: timestamp || new Date().toISOString(),
+        status: 'received',
+      };
     }
-
-    // We don't even update Firestore metadata anymore to keep the server 100% clean
-    // Metadata will be managed locally on the device.
-
-    return { success: true, messageId, conversationId, status: messageData.status };
   },
 
   /**
@@ -921,20 +1231,30 @@ export const messageService = {
     mediaFile?: File,
     messageType: 'text' | 'image' | 'video' | 'audio' = 'text'
   ) {
+    const startTime = Date.now();
+    let mediaRef: StoredMediaReference | null = null;
+    
     try {
+      logger.info('sendMessage', `Sending message from ${fromUid} to ${toUid}`);
+      
       let mediaUrl = null;
-      let mediaRef: StoredMediaReference | null = null;
 
       // Handle Production-Grade Media Upload
       if (mediaFile) {
-        console.log(`📤 Uploading encrypted ${messageType}...`);
-        mediaRef = await uploadMediaWithProgress(
-          mediaFile,
-          messageType === 'text' ? 'image' : messageType, // fallback
-          fromUid,
-          toUid
-        );
-        mediaUrl = mediaRef.fileId; // Use fileId as the reference
+        try {
+          logger.info('sendMessage', `Uploading encrypted ${messageType} (${mediaFile.size} bytes)`);
+          mediaRef = await uploadMediaWithProgress(
+            mediaFile,
+            messageType === 'text' ? 'image' : messageType, // fallback
+            fromUid,
+            toUid
+          );
+          mediaUrl = mediaRef.fileId; // Use fileId as the reference
+          logger.info('sendMessage', `Media uploaded: ${mediaUrl}`);
+        } catch (uploadErr) {
+          logger.error('sendMessage', `Media upload failed: ${uploadErr}`);
+          throw new Error(`Failed to upload media: ${uploadErr}`);
+        }
       }
 
       const result = await this.recordMessage(fromUid, toUid, content, {
@@ -945,29 +1265,53 @@ export const messageService = {
 
       const { messageId, conversationId } = result;
 
-      // Check if recipient is online, if so mark as delivered
-      await presenceService.listenToUserPresence(
-        toUid,
-        async (isOnline) => {
-          if (isOnline) {
-            // Mark as delivered after 500ms if online
-            setTimeout(() => {
-              this.markMessageDelivered(conversationId, messageId, toUid);
-            }, 500);
+      // Check if recipient is online, if so mark as delivered (don't fail on this)
+      try {
+        await presenceService.listenToUserPresence(
+          toUid,
+          async (isOnline) => {
+            if (isOnline) {
+              // Mark as delivered after 500ms if online
+              setTimeout(() => {
+                this.markMessageDelivered(conversationId, messageId, toUid)
+                  .catch(err => logger.warn('sendMessage', `Failed to mark delivered: ${err}`));
+              }, 500);
+            }
           }
-        }
-      );
+        );
+      } catch (presenceErr) {
+        logger.warn('sendMessage', `Failed to check presence: ${presenceErr}`);
+        // Don't fail message send if presence check fails
+      }
 
-      console.log(`✅ Message sent: ${fromUid} → ${toUid} (📤 Single tick)`);
+      const duration = Date.now() - startTime;
+      logger.info('sendMessage', `Message sent successfully in ${duration}ms`);
       return { ...result, status: MESSAGE_STATUS.SENT };
     } catch (error: any) {
-      console.error('❌ Error sending message:', error.message);
-      throw error;
+      const duration = Date.now() - startTime;
+      logger.error('sendMessage', `Failed after ${duration}ms: ${error.message}`);
+      
+      // Queue message for retry on reconnect
+      const conversationId = this.getConversationId(fromUid, toUid);
+      const messageId = messageQueue.addMessage({
+        conversationId,
+        fromUid,
+        toUid,
+        content,
+        messageType,
+        timestamp: new Date().toISOString(),
+        maxRetries: 10
+      });
+      
+      logger.info('sendMessage', `Message queued for retry: ${messageId}`);
+      
+      throw new Error(`Failed to send message: ${error.message}`);
     }
   },
 
   /**
    * Mark message as delivered (double tick)
+   * Uses RTDB transient pipe - receipt sent via RTDB, deleted after receipt
    */
   async markMessageDelivered(
     conversationId: string,
@@ -975,27 +1319,24 @@ export const messageService = {
     recipientUid: string
   ) {
     try {
-      const messageRef = doc(
-        db,
-        'conversations',
+      // Send delivery receipt via RTDB transient pipe
+      const receiptRef = ref(realtimeDb, `receipts/${recipientUid}/delivered/${messageId}`);
+      await set(receiptRef, {
+        messageId,
         conversationId,
-        'messages',
-        messageId
-      );
-
-      await updateDoc(messageRef, {
-        status: MESSAGE_STATUS.DELIVERED, // 📨 Double tick
-        deliveredAt: serverTimestamp(),
+        deliveredAt: Date.now(),
+        timestamp: serverTimestamp(),
       });
 
-      console.log(`✅ Message delivered (📨 Double tick): ${messageId}`);
+      console.log(`📨 Delivery receipt sent (📨 Double tick): ${messageId}`);
     } catch (error: any) {
-      console.error('❌ Error marking message delivered:', error.message);
+      console.error('❌ Error sending delivery receipt:', error.message);
     }
   },
 
   /**
    * Mark message as read (double blue tick)
+   * Uses RTDB transient pipe - receipt sent via RTDB, deleted after receipt
    */
   async markMessageRead(
     conversationId: string,
@@ -1003,13 +1344,65 @@ export const messageService = {
     readerUid: string
   ) {
     try {
-      const messageRef = doc(
-        db,
-        'conversations',
+      // Send read receipt via RTDB transient pipe
+      const receiptRef = ref(realtimeDb, `receipts/${readerUid}/read/${messageId}`);
+      await set(receiptRef, {
+        messageId,
         conversationId,
-        'messages',
-        messageId
-      );
+        readAt: Date.now(),
+        timestamp: serverTimestamp(),
+      });
+
+      console.log(`💙 Read receipt sent (💙 Double blue tick): ${messageId}`);
+    } catch (error: any) {
+      console.error('❌ Error sending read receipt:', error.message);
+    }
+  },
+
+  /**
+   * Listen to incoming delivery/read receipts
+   * Receipts are transient - immediately consumed and deleted
+   */
+  listenToReceipts(uid: string, callback: (receipt: { type: 'delivered' | 'read', messageId: string, conversationId: string }) => void) {
+    // Listen to delivery receipts
+    const deliveredRef = ref(realtimeDb, `receipts/${uid}/delivered`);
+    const unsubDelivered = onChildAdded(deliveredRef, async (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
+      callback({ type: 'delivered', messageId: snapshot.key!, conversationId: data.conversationId });
+
+      // Immediately delete receipt after processing
+      await remove(ref(realtimeDb, `receipts/${uid}/delivered/${snapshot.key}`));
+    });
+
+    // Listen to read receipts
+    const readRef = ref(realtimeDb, `receipts/${uid}/read`);
+    const unsubRead = onChildAdded(readRef, async (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
+      callback({ type: 'read', messageId: snapshot.key!, conversationId: data.conversationId });
+
+      // Immediately delete receipt after processing
+      await remove(ref(realtimeDb, `receipts/${uid}/read/${snapshot.key}`));
+    });
+
+    return () => {
+      unsubDelivered();
+      unsubRead();
+    };
+  },
+
+  /**
+   * Legacy - kept for compatibility (points to RTDB)
+   */
+  async markMessageReadLegacy(
+    conversationId: string,
+    messageId: string
+  ) {
+    try {
+      const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
 
       await updateDoc(messageRef, {
         status: MESSAGE_STATUS.READ, // 👀 Double blue tick
@@ -1024,6 +1417,7 @@ export const messageService = {
 
   /**
    * Mark all messages as read in a conversation
+   * Sends read receipts via RTDB transient pipe - no Firestore storage
    */
   async markAllMessagesAsRead(
     conversationId: string,
@@ -1031,34 +1425,28 @@ export const messageService = {
     senderUid: string
   ) {
     try {
-      const messagesRef = collection(
-        db,
-        'conversations',
-        conversationId,
-        'messages'
-      );
-      const q = query(
-        messagesRef,
-        where('fromUid', '==', senderUid),
-        where('status', '!=', MESSAGE_STATUS.READ)
+      // Get local messages that need read receipt
+      const { loadMessages } = await import('./localMessageStore');
+      const localMessages = await loadMessages(readerUid, conversationId);
+
+      // Send read receipts for each unread message from the other person
+      const receiptsToSend = localMessages.filter(
+        (m: any) => m.senderId !== readerUid && m.status !== 'read'
       );
 
-      const snapshot = await getDocs(q);
-      const batch = writeBatch(db);
-
-      snapshot.forEach((doc) => {
-        batch.update(doc.ref, {
-          status: MESSAGE_STATUS.READ,
-          readAt: serverTimestamp(),
+      for (const msg of receiptsToSend) {
+        const receiptRef = ref(realtimeDb, `receipts/${senderUid}/read/${msg.id}`);
+        await set(receiptRef, {
+          messageId: msg.id,
+          conversationId,
+          readAt: Date.now(),
+          timestamp: serverTimestamp(),
         });
-      });
+      }
 
-      await batch.commit();
-      console.log(
-        `✅ Marked all messages as read in conversation ${conversationId}`
-      );
+      console.log(`💙 Sent ${receiptsToSend.length} read receipts for conversation ${conversationId}`);
     } catch (error: any) {
-      console.error('❌ Error marking all messages read:', error.message);
+      console.error('❌ Error sending read receipts:', error.message);
     }
   },
 
@@ -1268,7 +1656,7 @@ export const messageService = {
 
 export const typingService = {
   /**
-   * Set typing status
+   * Set typing status with error handling
    */
   async setTyping(
     fromUid: string,
@@ -1287,13 +1675,14 @@ export const typingService = {
           isTyping: true,
           timestamp: rtdbServerTimestamp(),
         });
-        console.log(`✅ User ${fromUid} is typing`);
+        logger.info('setTyping', `User ${fromUid} typing in ${conversationId}`);
       } else {
         await remove(typingRef);
-        console.log(`✅ User ${fromUid} stopped typing`);
+        logger.info('setTyping', `User ${fromUid} stopped typing`);
       }
     } catch (error: any) {
-      console.error('❌ Error setting typing status:', error.message);
+      logger.warn('setTyping', `Failed to update typing status: ${error.message}`);
+      // Non-critical, don't throw
     }
   },
 
@@ -1330,44 +1719,77 @@ export const typingService = {
 
 export const friendRequestService = {
   /**
-   * Send friend request
+   * Send friend request with error handling
    */
   async sendFriendRequest(fromUid: string, toUid: string) {
+    const startTime = Date.now();
+    
     try {
+      logger.info('sendFriendRequest', `Sending request from ${fromUid} to ${toUid}`);
+      
       const requestId = `${Date.now()}_${Math.random()}`;
+
+      // Get user info with timeout
+      let fromUserInfo: any, toUserInfo: any;
+      try {
+        [fromUserInfo, toUserInfo] = await Promise.all([
+          Promise.race([
+            this.getUserInfo(fromUid),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
+          ]),
+          Promise.race([
+            this.getUserInfo(toUid),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
+          ])
+        ]);
+      } catch (infoErr) {
+        logger.warn('sendFriendRequest', `Failed to get user info: ${infoErr}`);
+        // Continue without user info
+      }
 
       // Create request document
       await setDoc(doc(db, 'friendRequests', requestId), {
         fromUid,
         toUid,
-        fromUsername: (await this.getUserInfo(fromUid))?.username,
-        toUsername: (await this.getUserInfo(toUid))?.username,
-        status: 'pending', // pending, accepted, rejected
+        fromUsername: (fromUserInfo as any)?.username || 'Unknown',
+        toUsername: (toUserInfo as any)?.username || 'Unknown',
+        status: 'pending',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
-      // Send notification to recipient
-      await this.sendNotificationToUser(toUid, {
-        type: 'friend-request',
-        from: fromUid,
-        message: `${(await this.getUserInfo(fromUid))?.username} sent you a friend request`,
-        timestamp: new Date(),
-      });
+      // Send notification (non-critical)
+      try {
+        await this.sendNotificationToUser(toUid, {
+          type: 'friend-request',
+          from: fromUid,
+          message: `${(fromUserInfo as any)?.username || 'Someone'} sent you a friend request`,
+          timestamp: new Date(),
+        });
+      } catch (notifErr) {
+        logger.warn('sendFriendRequest', `Notification failed: ${notifErr}`);
+        // Continue - request sent even if notification fails
+      }
 
-      console.log(`✅ Friend request sent: ${fromUid} → ${toUid}`);
+      const duration = Date.now() - startTime;
+      logger.info('sendFriendRequest', `Request sent in ${duration}ms`);
       return { success: true, requestId };
     } catch (error: any) {
-      console.error('❌ Error sending friend request:', error.message);
-      throw error;
+      const duration = Date.now() - startTime;
+      logger.error('sendFriendRequest', `Failed after ${duration}ms: ${error.message}`);
+      throw new Error(`Failed to send friend request: ${error.message}`);
     }
   },
 
   /**
-   * Accept friend request
+   * Accept friend request with error handling
    */
   async acceptFriendRequest(requestId: string, fromUid: string, toUid: string) {
+    const startTime = Date.now();
+    
     try {
+      logger.info('acceptFriendRequest', `Accepting request ${requestId}`);
+      
       const batch = writeBatch(db);
 
       // Update request status
@@ -1387,15 +1809,22 @@ export const friendRequestService = {
 
       await batch.commit();
 
-      // Send notification
-      await this.sendNotificationToUser(fromUid, {
-        type: 'friend-request-accepted',
-        from: toUid,
-        message: `${(await this.getUserInfo(toUid))?.username} accepted your friend request`,
-        timestamp: new Date(),
-      });
+      // Send notification (non-critical)
+      try {
+        const toUserInfo = await this.getUserInfo(toUid);
+        await this.sendNotificationToUser(fromUid, {
+          type: 'friend-request-accepted',
+          from: toUid,
+          message: `${toUserInfo?.username || 'Someone'} accepted your friend request`,
+          timestamp: new Date(),
+        });
+      } catch (notifErr) {
+        logger.warn('acceptFriendRequest', `Notification failed: ${notifErr}`);
+        // Continue - friendship created even if notification fails
+      }
 
-      console.log(`✅ Friend request accepted`);
+      const duration = Date.now() - startTime;
+      logger.info('acceptFriendRequest', `Request accepted in ${duration}ms`);
       return { success: true };
     } catch (error: any) {
       console.error('❌ Error accepting friend request:', error.message);
@@ -1672,14 +2101,41 @@ export const notificationService = {
 
 export const userService = {
   /**
-   * Get user profile by UID
+   * Get user profile by UID with error handling and timeout
    */
   async getUserProfile(uid: string) {
+    const startTime = Date.now();
+    
     try {
-      const userDoc = await getDoc(doc(db, 'users', uid));
+      logger.info('getUserProfile', `Fetching profile for uid: ${uid}`);
+      
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Profile fetch timeout (10s)')), 10000)
+      );
+      
+      const profilePromise = getDoc(doc(db, 'users', uid));
+      const userDoc = await Promise.race([profilePromise, timeoutPromise]) as any;
+      
+      if (!userDoc.exists()) {
+        logger.warn('getUserProfile', `Profile not found for uid: ${uid}`);
+        return null;
+      }
+      
+      const duration = Date.now() - startTime;
+      logger.info('getUserProfile', `Profile fetched in ${duration}ms`);
+      
       return userDoc.data();
     } catch (error: any) {
-      console.error('❌ Error getting user profile:', error.message);
+      const duration = Date.now() - startTime;
+      logger.error('getUserProfile', `Failed after ${duration}ms: ${error.message}`);
+      
+      // Return null for not found, throw for actual errors
+      if (error.code === 'permission-denied') {
+        throw new Error('Permission denied to access user profile');
+      } else if (error.code === 'unavailable') {
+        throw new Error('Firebase service temporarily unavailable');
+      }
+      
       return null;
     }
   },
@@ -1688,17 +2144,30 @@ export const userService = {
    * Update user profile
    */
   async updateUserProfile(uid: string, updates: Record<string, any>) {
+    const startTime = Date.now();
+    
     try {
+      logger.info('updateUserProfile', `Updating profile for ${uid}`);
+      
       await updateDoc(doc(db, 'users', uid), {
         ...updates,
         updatedAt: serverTimestamp(),
       });
 
-      console.log(`✅ User profile updated`);
+      const duration = Date.now() - startTime;
+      logger.info('updateUserProfile', `Profile updated in ${duration}ms`);
       return { success: true };
     } catch (error: any) {
-      console.error('❌ Error updating user profile:', error.message);
-      throw error;
+      const duration = Date.now() - startTime;
+      logger.error('updateUserProfile', `Failed after ${duration}ms: ${error.message}`);
+      
+      if (error.code === 'not-found') {
+        throw new Error('User profile not found');
+      } else if (error.code === 'permission-denied') {
+        throw new Error('Permission denied to update profile');
+      }
+      
+      throw new Error(`Failed to update profile: ${error.message}`);
     }
   },
 

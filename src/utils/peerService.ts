@@ -1,4 +1,5 @@
 import Peer, { DataConnection, MediaConnection } from 'peerjs';
+import logger from './logger';
 
 interface PeerServiceConfig {
   userId: string;
@@ -20,12 +21,12 @@ export class PeerServiceImpl {
 
   private log(message: string, data?: any) {
     if (this.debug) {
-      console.log(`[PeerService] ${message}`, data || '');
+      logger.debug('PeerService', message, data);
     }
   }
 
   private error(message: string, err?: any) {
-    console.error(`[PeerService] ❌ ${message}`, err || '');
+    logger.error('PeerService', message, err);
   }
 
   /**
@@ -40,7 +41,9 @@ export class PeerServiceImpl {
 
         this.log(`Initializing PeerJS for user: ${this.userId}`);
 
-        // ExpressTURN configuration - forced relay for 4k-5k km distances
+        // Build ICE servers configuration
+        // STUN servers for direct connections
+        // TURN servers for relay when direct connection is impossible
         const iceServers: ICEServer[] = [
           {
             urls: [
@@ -60,12 +63,18 @@ export class PeerServiceImpl {
           },
         ];
 
-        // PeerJS configuration with strict TURN relay enforcement
+        // PeerCloud configuration (cloud.peerjs.com)
+        const peerServerHost = import.meta.env.VITE_PEER_SERVER_HOST || 'cloud.peerjs.com';
+        const peerServerPort = import.meta.env.VITE_PEER_SERVER_PORT ? parseInt(import.meta.env.VITE_PEER_SERVER_PORT) : 443;
+        const peerServerSecure = import.meta.env.VITE_PEER_SERVER_SECURE !== 'false';
+        const peerServerKey = import.meta.env.VITE_PEER_SERVER_KEY || 'peerjs';
+
         this.peer = new Peer(this.userId, {
-          host: 'peerserver.example.com',
-          port: 9000,
-          path: '/peerjs',
-          secure: false, // Set to true if using HTTPS
+          host: peerServerHost,
+          port: peerServerPort,
+          path: '/',
+          key: peerServerKey,
+          secure: peerServerSecure,
           config: {
             // CRITICAL: Force all ICE traffic through TURN relay
             // This is essential for users 4k-5k km apart on carrier NATs

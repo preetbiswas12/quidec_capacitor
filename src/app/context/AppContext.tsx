@@ -337,6 +337,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         initializeProductionCollections().catch(err => console.warn('⚠️ Collection init skipped:', err));
       }
 
+      // ── Request Android system permissions after successful login ──
+      try {
+        const { permissionManager } = await import('../../utils/permissionManager');
+        const permissions = await permissionManager.requestAllPermissions();
+        console.log('📱 Permissions granted:', permissions);
+      } catch (permErr) {
+        console.warn('⚠️ Permission request skipped:', permErr);
+      }
+
       // ── Load locally stored messages for all known chats ──
       try {
         const uid = user.userId;
@@ -376,7 +385,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       setCurrentUser(user);
       setNeedsVerification(true);
-      setIsOnboarded(false); 
+      setIsOnboarded(false);
+
+      // ── Request Android system permissions after registration ──
+      try {
+        const { permissionManager } = await import('../../utils/permissionManager');
+        const permissions = await permissionManager.requestAllPermissions();
+        console.log('📱 Permissions granted:', permissions);
+      } catch (permErr) {
+        console.warn('⚠️ Permission request skipped:', permErr);
+      }
+
       return { success: true, emailVerified: false, user: result.user };
     } catch (err) {
       console.error('Registration error:', err);
@@ -606,11 +625,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isOnboarded && currentUser) {
       const requestNativePermissions = async () => {
-        console.log('🛡️ Requesting native Android permissions...');
-        await permissionManager.requestPermission('camera');
-        await permissionManager.requestPermission('microphone');
-        await permissionManager.requestPermission('storage');
-        // Location requested lazily when needed
+        console.log('🛡️ Checking & requesting missing Android permissions...');
+        // This checks current status and only prompts for denied/missing permissions
+        // Works for both new and returning users
+        const result = await permissionManager.requestMissingPermissions();
+        console.log('📱 Permission status:', result);
       };
       requestNativePermissions();
     }
@@ -817,18 +836,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setChatRequests(requests);
     });
 
-    // 4. Listen to Incoming Messages (Zero-Storage Pipe)
+    // 4. Listen to Incoming Messages (RTDB transient pipe - messages deleted after receipt)
     conversationsUnsubscribeRef.current = messageService.listenToIncomingMessages(uid, async (msg) => {
       console.log('📬 New incoming message via Pipe:', msg.id);
-      
       const chatId = msg.conversationId || msg.fromUid;
       const incomingMsg = mapFirestoreMessage(msg, chatId);
 
-      // Add to UI state
       setMessages((prev) => ({
         ...prev,
         [chatId]: [...(prev[chatId] || []), incomingMsg],
       }));
+
+      // Send delivery receipt back to sender (📨 double tick)
+      try {
+        await messageService.markMessageDelivered(chatId, msg.id, msg.fromUid);
+      } catch (err) {
+        console.warn('⚠️ Failed to send delivery receipt:', err);
+      }
 
       // Update chat preview
       setChats((prev) => {
@@ -842,8 +866,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
             unreadCount: (activeChatId === chatId) ? 0 : (c.unreadCount + 1)
           } : c);
         } else {
-          // If chat doesn't exist in list yet, we'd ideally fetch contact info
-          // and add it. For now, let's just create a shell
           return [{
             id: chatId,
             contactId: msg.fromUid,
@@ -858,8 +880,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // 5. Listen to Typing Indicators
     typingUnsubscribeRef.current = typingService.listenToTyping(uid, 'all', (typingData) => {
-      // typingData is Record<chatId, boolean>
       setTypingContacts(typingData);
+    });
+
+    // 6. Listen to Receipts (delivered double tick, read double blue tick)
+    const unsubscribeReceipts = messageService.listenToReceipts(uid, async (receipt) => {
+      console.log(`📨 Received receipt: ${receipt.type} for ${receipt.messageId}`);
+
+      const newStatus = receipt.type === 'delivered' ? 'delivered' : 'read';
+
+      // Update in-memory state
+      setMessages((prev) => {
+        const chatMessages = prev[receipt.conversationId];
+        if (!chatMessages) return prev;
+
+        return {
+          ...prev,
+          [receipt.conversationId]: chatMessages.map((msg) =>
+            msg.id === receipt.messageId
+              ? { ...msg, status: newStatus }
+              : msg
+          ),
+        };
+      });
+
+      // Also persist to local .bin file (so status survives app restart)
+      try {
+        const { updateMessageStatus } = await import('../../utils/localMessageStore');
+        await updateMessageStatus(uid, receipt.conversationId, receipt.messageId, newStatus);
+        console.log(`💾 Receipt status saved to local .bin: ${receipt.messageId} → ${newStatus}`);
+      } catch (err) {
+        console.warn('⚠️ Failed to persist receipt to local .bin:', err);
+      }
     });
 
     // 5. Global Call Signaling Listener (Detect Incoming Calls)
@@ -879,6 +931,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       friendsUnsubscribeRef.current?.();
       requestsUnsubscribeRef.current?.();
       conversationsUnsubscribeRef.current?.();
+      unsubscribeReceipts?.();
       unsubscribeSignaling();
       unsubscribeAndroidSettings?.();
     };
@@ -946,8 +999,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         [chatId]: [...(prev[chatId] || []), msg],
       }));
 
-      // 3. Persist and Deliver (Cloud-Free content)
-      // recordMessage now only saves to local DB
+      // 3. Persist locally (LOCAL-ONLY storage - .bin files)
+      // recordMessage saves to local .bin files only, NO Firebase storage
       messageService.recordMessage(currentUser.userId, chatId, content, {
         messageId: msgId,
         messageType: type,
@@ -956,7 +1009,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         status: 'sent',
       }).catch(err => console.warn('⚠️ Local record failed:', err));
 
-      // 4. (No WebSocket needed - Firestore handles real-time delivery via snapshots)
+      // 4. Push notification to recipient (FCM only)
+      messageService.sendPushNotification(chatId, currentUser.userId, content, type)
+        .catch(err => console.warn('⚠️ Push notification failed:', err));
+
+      console.log('📤 Message delivered via RTDB transient pipe + FCM notification');
     },
     [currentUser]
   );

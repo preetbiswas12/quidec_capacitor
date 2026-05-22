@@ -3,6 +3,11 @@
  * Works inside Capacitor WebView with native WebSocket support
  */
 
+/**
+ * WebRTC configuration for mobile video/audio calls
+ * Works inside Capacitor WebView with native WebSocket support
+ */
+
 export const WEBRTC_CONFIG = {
   // STUN servers (for NAT traversal) - works for direct connections
   iceServers: [
@@ -16,11 +21,13 @@ export const WEBRTC_CONFIG = {
       ],
     },
     // TURN servers for relay (when direct connection impossible)
-    // Express TURN - FREE tier, reliable and fast
+    // Express TURN - FREE tier
     // https://expressturn.com/
     {
       urls: [
         'turn:free.expressturn.com:3478',
+        'turn:free.expressturn.com:3479?transport=tcp',
+        'turns:free.expressturn.com:5349',
       ],
       username: '0000000020932600049',
       credential: 'K8KMvixuaPZkje9gjLJojFTM0+Y=',

@@ -62,14 +62,14 @@ export default function VoiceCallScreen() {
         
         localStreamRef.current = stream;
 
-        // Create peer connection
+        // Create peer connection with STUN/TURN servers
         const peerConnection = new RTCPeerConnection({
           iceServers: [
             { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
             {
-              urls: ['turn:free.expressturn.com:3478'],
+              urls: ['turn:free.expressturn.com:3478', 'turn:free.expressturn.com:3479?transport=tcp'],
               username: '0000000020932600049',
-              credential: 'K6KMvixuaPZkje9gjLJojFTM0+Y=',
+              credential: 'K8KMvixuaPZkje9gjLJojFTM0+Y=',
             },
           ],
         });

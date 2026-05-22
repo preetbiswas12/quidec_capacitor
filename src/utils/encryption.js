@@ -1,34 +1,79 @@
 /**
  * Message encryption using Web Crypto API (AES-GCM)
  * All messages encrypted before storage in IndexedDB
+ * ✅ SECURITY FIX: Per-device salt for stronger key derivation
  */
 
 /**
+ * Get or create device-specific salt
+ * ✅ SECURITY FIX: Instead of fixed salt, use random per-device salt
+ * Stored in localStorage/Preferences so it persists across sessions
+ */
+async function getOrCreateDeviceSalt() {
+  const SALT_KEY = 'encryption_device_salt_v1';
+
+  // Check if salt already exists
+  const stored = localStorage.getItem(SALT_KEY);
+  if (stored) {
+    try {
+      return new Uint8Array(JSON.parse(stored));
+    } catch (err) {
+      console.warn('Failed to parse stored salt, generating new one');
+    }
+  }
+
+  // Generate new random salt for this device
+  const newSalt = window.crypto.getRandomValues(new Uint8Array(32)); // 32 bytes = 256 bits
+  try {
+    localStorage.setItem(SALT_KEY, JSON.stringify(Array.from(newSalt)));
+    console.info('Generated new device salt');
+  } catch (err) {
+    console.warn('Failed to store salt (localStorage might be full or disabled), using in-memory only');
+  }
+
+  return newSalt;
+}
+
+// Cache device salt after first retrieval
+let cachedDeviceSalt = null;
+
+async function getDeviceSalt() {
+  if (!cachedDeviceSalt) {
+    cachedDeviceSalt = await getOrCreateDeviceSalt();
+  }
+  return cachedDeviceSalt;
+}
+
+/**
  * Derive encryption key from seed/password
+ * ✅ Now uses per-device salt instead of fixed salt
  */
 export async function deriveKey(seed) {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(seed)
+  const encoder = new TextEncoder();
+  const data = encoder.encode(seed);
 
   const importedKey = await window.crypto.subtle.importKey('raw', data, 'PBKDF2', false, [
     'deriveBits',
-  ])
+  ]);
+
+  // ✅ Use per-device salt (SECURITY FIX)
+  const deviceSalt = await getDeviceSalt();
 
   const derivedBits = await window.crypto.subtle.deriveBits(
     {
       name: 'PBKDF2',
-      salt: new Uint8Array(16), // Fixed salt for consistency
+      salt: deviceSalt, // ✅ Per-device salt (was: fixed)
       iterations: 100000,
       hash: 'SHA-256',
     },
     importedKey,
     256
-  )
+  );
 
   return await window.crypto.subtle.importKey('raw', derivedBits, { name: 'AES-GCM' }, false, [
     'encrypt',
     'decrypt',
-  ])
+  ]);
 }
 
 /**

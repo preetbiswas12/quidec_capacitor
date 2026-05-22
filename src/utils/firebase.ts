@@ -13,6 +13,7 @@ import { getAuth, Auth } from 'firebase/auth';
 import { initializeFirestore, getFirestore, Firestore } from 'firebase/firestore';
 import { getDatabase, Database } from 'firebase/database';
 import { getMessaging, Messaging, onMessage } from 'firebase/messaging';
+import logger from './logger';
 
 const EMBEDDED_FIREBASE_CONFIG = {
   apiKey: 'AIzaSyDRjYVeogF29znhNtSVNm9OvELFalusumc',
@@ -49,18 +50,18 @@ let messagingInstance: Messaging | null = null;
 export function initializeFirebase() {
   try {
     if (!firebaseConfig.apiKey || firebaseConfig.apiKey === 'YOUR_API_KEY') {
-      console.warn('⚠️ Firebase credentials not configured correctly. Please check your .env file.');
+      logger.warn('Firebase', 'Firebase credentials not configured correctly. Please check your .env file.');
       return null;
     }
 
     if (!firebaseApp) {
       firebaseApp = initializeApp(firebaseConfig);
-      console.log(`✅ Firebase initialized for project: ${firebaseConfig.projectId}`);
+      logger.info('Firebase', `Firebase initialized for project: ${firebaseConfig.projectId}`);
     }
 
     return firebaseApp;
   } catch (err) {
-    console.error('❌ Firebase initialization failed:', err);
+    logger.error('Firebase', 'Firebase initialization failed', err);
     return null;
   }
 }
@@ -119,7 +120,7 @@ export function getMessagingInstance(): Messaging | null {
       initializeFirebase();
       messagingInstance = getMessaging(firebaseApp);
     } catch (err) {
-      console.error('❌ Failed to get messaging instance:', err);
+      logger.error('Firebase', 'Failed to get messaging instance', err);
       return null;
     }
   }
@@ -133,12 +134,12 @@ export function setupForegroundMessageHandler(callback: (payload: any) => void) 
   const msg = getMessagingInstance();
 
   if (!msg) {
-    console.warn('⚠️ Messaging not available');
+    logger.warn('Firebase', 'Messaging not available');
     return;
   }
 
   onMessage(msg, (payload) => {
-    console.log('📬 Foreground message received:', payload);
+    logger.info('Firebase', 'Foreground message received', payload);
     
     const notification = payload.notification || {};
     const data = payload.data || {};
@@ -155,7 +156,7 @@ export function setupForegroundMessageHandler(callback: (payload: any) => void) 
     callback(payload);
   });
 
-  console.log('✅ Foreground message handler set up');
+  logger.info('Firebase', 'Foreground message handler set up');
 }
 
 /**
@@ -164,26 +165,26 @@ export function setupForegroundMessageHandler(callback: (payload: any) => void) 
 export async function requestNotificationPermission() {
   try {
     if (!('Notification' in window)) {
-      console.warn('⚠️ This browser does not support notifications');
+      logger.warn('Firebase', 'This browser does not support notifications');
       return false;
     }
 
     if (Notification.permission === 'granted') {
-      console.log('✅ Notification permission already granted');
+      logger.info('Firebase', 'Notification permission already granted');
       return true;
     }
 
     const permission = await Notification.requestPermission();
     
     if (permission === 'granted') {
-      console.log('✅ Notification permission granted');
+      logger.info('Firebase', 'Notification permission granted');
       return true;
     } else {
-      console.warn('⚠️ Notification permission denied');
+      logger.warn('Firebase', 'Notification permission denied');
       return false;
     }
   } catch (err) {
-    console.error('❌ Error requesting notification permission:', err);
+    logger.error('Firebase', 'Error requesting notification permission', err);
     return false;
   }
 }
@@ -194,15 +195,15 @@ export async function requestNotificationPermission() {
 export async function registerServiceWorker() {
   try {
     if (!('serviceWorker' in navigator)) {
-      console.warn('⚠️ Service Workers not supported');
+      logger.warn('Firebase', 'Service Workers not supported');
       return false;
     }
 
     const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-    console.log('✅ Service Worker registered:', registration);
+    logger.info('Firebase', 'Service Worker registered', registration);
     return true;
   } catch (err) {
-    console.error('❌ Service Worker registration failed:', err);
+    logger.error('Firebase', 'Service Worker registration failed', err);
     return false;
   }
 }
@@ -216,7 +217,7 @@ export async function getFCMToken(): Promise<string | null> {
     const msg = getMessagingInstance();
 
     if (!msg) {
-      console.warn('⚠️ Messaging not available for token generation');
+      logger.warn('Firebase', 'Messaging not available for token generation');
       return null;
     }
 
@@ -226,21 +227,21 @@ export async function getFCMToken(): Promise<string | null> {
     const permission = await requestNotificationPermission();
     
     if (!permission) {
-      console.warn('⚠️ Notification permission not granted');
+      logger.warn('Firebase', 'Notification permission not granted');
       return null;
     }
 
     const vapidKey = EMBEDDED_VAPID_KEY;
     if (!vapidKey) {
-      console.warn('⚠️ VAPID key not configured');
+      logger.warn('Firebase', 'VAPID key not configured');
       return null;
     }
 
     const token = await getToken(msg, { vapidKey });
-    console.log('✅ FCM Token obtained:', token.substring(0, 20) + '...');
+    logger.info('Firebase', `FCM Token obtained: ${token.substring(0, 20)}...`);
     return token;
   } catch (err) {
-    console.error('❌ Error getting FCM token:', err);
+    logger.error('Firebase', 'Error getting FCM token', err);
     return null;
   }
 }
@@ -250,7 +251,7 @@ export async function getFCMToken(): Promise<string | null> {
  */
 export async function initializePushNotifications(onMessageCallback: (payload: any) => void) {
   try {
-    console.log('🔔 Initializing push notifications...');
+    logger.info('Firebase', 'Initializing push notifications...');
 
     // Initialize Firebase
     initializeFirebase();
@@ -264,10 +265,10 @@ export async function initializePushNotifications(onMessageCallback: (payload: a
     // Setup foreground message handler
     setupForegroundMessageHandler(onMessageCallback);
 
-    console.log('✅ Push notifications initialized');
+    logger.info('Firebase', 'Push notifications initialized');
     return true;
   } catch (err) {
-    console.error('❌ Failed to initialize push notifications:', err);
+    logger.error('Firebase', 'Failed to initialize push notifications', err);
     return false;
   }
 }

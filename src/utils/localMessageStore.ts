@@ -18,6 +18,7 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
 import { Device } from '@capacitor/device';
+import logger from './logger';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -276,7 +277,7 @@ export async function appendMessage(
 
     await appendToFile(chatFilename(chatId), chunk);
   } catch (err) {
-    console.error(`[LocalStore] appendMessage failed for chat ${message.chatId}:`, err);
+    logger.error('LocalMessageStore', `appendMessage failed for chat ${message.chatId}`, err);
   }
 }
 
@@ -319,14 +320,14 @@ export async function loadMessages(
         const msg = JSON.parse(new TextDecoder().decode(plainBytes)) as StoredMessage;
         messages.push(msg);
       } catch (chunkErr) {
-        console.warn('[LocalStore] Skipping corrupted chunk:', chunkErr);
+        logger.warn('LocalMessageStore', 'Skipping corrupted chunk', chunkErr);
         // Continue reading remaining chunks
       }
     }
 
     return messages;
   } catch (err) {
-    console.error(`[LocalStore] loadMessages failed for chat ${chatId}:`, err);
+    logger.error('LocalMessageStore', `loadMessages failed for chat ${chatId}`, err);
     return [];
   }
 }
@@ -388,7 +389,7 @@ export async function clearAllMessages(): Promise<void> {
     await Promise.all(chatIds.map(id => deleteLocalChat(id)));
     clearKeyCache();
   } catch (err) {
-    console.error('[LocalStore] clearAllMessages failed:', err);
+    logger.error('LocalMessageStore', 'clearAllMessages failed', err);
   }
 }
 

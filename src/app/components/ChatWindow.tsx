@@ -14,6 +14,10 @@ import { loadMediaWithCache } from '../../utils/mediaUploadHandler';
 import type { Message } from '../context/AppContext';
 import { Share } from '@capacitor/share';
 import { Filesystem, Directory } from '@capacitor/filesystem';
+import { validateMessage, messageLimiter } from '../../utils/validators';
+import { mediaValidator } from '../../utils/mediaValidator';
+import { messageQueue } from '../../utils/persistentMessageQueue';
+import { idbPaginator } from '../../utils/idbPaginator';
 
 const EMOJI_LIST = [
   '😀','😂','😊','😍','🥰','😜','😭','🥺','🤔','👍','❤️','🔥','✨','🙏','✅'
@@ -38,12 +42,18 @@ export default function ChatWindow() {
   const [msgSearch, setMsgSearch] = useState('');
   const [msgSearchIndex, setMsgSearchIndex] = useState(0);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [queuedMessages, setQueuedMessages] = useState(0);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [hasOlderMessages, setHasOlderMessages] = useState(true);
   
   // Message interaction state
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const msgSearchRef = useRef<HTMLInputElement>(null);
@@ -70,6 +80,54 @@ export default function ChatWindow() {
     if (!showSearch) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, isTyping, showSearch]);
 
+  // Listen for message queue flush events (Priority 2: Message Queue)
+  useEffect(() => {
+    const handleQueueFlush = () => {
+      const stats = messageQueue.getStats();
+      setQueuedMessages(stats.totalMessages);
+    };
+
+    window.addEventListener('messageQueueFlush', handleQueueFlush);
+    // Initial check
+    const stats = messageQueue.getStats();
+    setQueuedMessages(stats.totalMessages);
+
+    return () => window.removeEventListener('messageQueueFlush', handleQueueFlush);
+  }, []);
+
+  // Priority 4: Infinite scroll for pagination (load older messages)
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container || !chatId || !hasOlderMessages) return;
+
+    const handleScroll = async () => {
+      // Load older messages when user scrolls to top
+      if (container.scrollTop < 100 && !isLoadingMessages) {
+        setIsLoadingMessages(true);
+        try {
+          const oldestMessage = chatMessages[0];
+          if (oldestMessage) {
+            const beforeTimestamp = typeof oldestMessage.timestamp === 'number' 
+              ? oldestMessage.timestamp 
+              : new Date(oldestMessage.timestamp || Date.now()).getTime();
+            
+            const result = await idbPaginator.loadBefore(chatId, beforeTimestamp, 50);
+            if (result.items.length < 50) {
+              setHasOlderMessages(false);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to load older messages:', error);
+        } finally {
+          setIsLoadingMessages(false);
+        }
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [chatId, hasOlderMessages, isLoadingMessages, chatMessages]);
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -85,16 +143,41 @@ export default function ChatWindow() {
     if (showSearch) msgSearchRef.current?.focus();
   }, [showSearch]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!text.trim() || !chatId) return;
-    const extra: Partial<Message> = replyTo
-      ? { replyToId: replyTo.id, replyToContent: replyTo.content, replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
-      : {};
-    sendMessage(chatId, text.trim(), 'text', extra);
-    setText('');
-    setReplyTo(null);
-    setShowEmojiPicker(false);
-    inputRef.current?.focus();
+    
+    setSendError(null);
+    setIsLoading(true);
+    
+    try {
+      // Validate message
+      const validatedText = validateMessage(text.trim());
+      
+      // Check rate limit
+      const userId = localStorage.getItem('userId') || 'unknown';
+      await messageLimiter.checkLimit(userId);
+      
+      // Message is valid, send it
+      const extra: Partial<Message> = replyTo
+        ? { replyToId: replyTo.id, replyToContent: replyTo.content, replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
+        : {};
+      
+      sendMessage(chatId, validatedText, 'text', extra);
+      setText('');
+      setReplyTo(null);
+      setShowEmojiPicker(false);
+      inputRef.current?.focus();
+      
+    } catch (error: any) {
+      // Show error to user
+      setSendError(error.message || 'Failed to send message');
+      console.error('Error sending message:', error);
+      
+      // Clear error after 4 seconds
+      setTimeout(() => setSendError(null), 4000);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSendLink = () => {
@@ -114,20 +197,58 @@ export default function ChatWindow() {
     setShowAttachSheet(false);
   };
 
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !chatId) return;
-    sendMessage(chatId, '', 'image', {}, file);
-    setShowAttachSheet(false);
-    e.target.value = '';
+
+    try {
+      // Priority 3: Media Validation - validate image before upload
+      const validation = await mediaValidator.validateFile(file, 'image');
+      if (!validation.valid) {
+        setSendError(validation.error || 'Invalid image file');
+        setTimeout(() => setSendError(null), 4000);
+        return;
+      }
+
+      const uploadId = `upload_${Date.now()}`;
+      const abortController = new AbortController();
+      mediaValidator.registerUpload(uploadId, abortController, file.size);
+
+      sendMessage(chatId, '', 'image', {}, file);
+      setShowAttachSheet(false);
+      e.target.value = '';
+    } catch (error: any) {
+      setSendError(error.message || 'Failed to process image');
+      setTimeout(() => setSendError(null), 4000);
+      console.error('Image processing error:', error);
+    }
   };
 
-  const handleDocumentSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDocumentSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !chatId) return;
-    sendMessage(chatId, `📎 ${file.name}`, 'document', {});
-    setShowAttachSheet(false);
-    e.target.value = '';
+
+    try {
+      // Priority 3: Media Validation - basic file size check for documents
+      const maxFileSize = 100 * 1024 * 1024; // 100MB for documents
+      if (file.size > maxFileSize) {
+        setSendError(`File too large. Maximum size is ${maxFileSize / 1024 / 1024}MB`);
+        setTimeout(() => setSendError(null), 4000);
+        return;
+      }
+
+      const uploadId = `upload_${Date.now()}`;
+      const abortController = new AbortController();
+      mediaValidator.registerUpload(uploadId, abortController, file.size);
+
+      sendMessage(chatId, `📎 ${file.name}`, 'document', {});
+      setShowAttachSheet(false);
+      e.target.value = '';
+    } catch (error: any) {
+      setSendError(error.message || 'Failed to process document');
+      setTimeout(() => setSendError(null), 4000);
+      console.error('Document processing error:', error);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -380,6 +501,7 @@ export default function ChatWindow() {
         </div>
 
         <div
+          ref={messagesContainerRef}
           className="flex-1 overflow-y-auto py-4 px-3 space-y-1"
           style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E")`, backgroundColor: 'var(--wa-bg-main)' }}
           onClick={() => { setShowAttachSheet(false); setShowEmojiPicker(false); setShowHeaderMenu(false); }}
@@ -449,6 +571,17 @@ export default function ChatWindow() {
         </AnimatePresence>
 
         <div className="flex items-end gap-2 px-3 py-3 pb-8 bg-wa-header flex-shrink-0 border-t border-wa-border/5">
+          {sendError && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute bottom-full left-0 right-0 px-3 py-2 bg-red-600/90 text-white text-sm flex items-center justify-between"
+            >
+              <span>{sendError}</span>
+              <button onClick={() => setSendError(null)} className="ml-2 text-white/80 hover:text-white">✕</button>
+            </motion.div>
+          )}
           <div className="flex items-end gap-2 flex-1 bg-wa-secondary/40 rounded-2xl px-3 py-2 border border-wa-border/5">
             <button onClick={() => { setShowEmojiPicker(v => !v); setShowAttachSheet(false); }} className={`transition-colors flex-shrink-0 mb-0.5 ${showEmojiPicker ? 'text-[#00A884]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Smile size={22} /></button>
             <textarea ref={inputRef} value={text} onChange={e => setText(e.target.value)} onKeyDown={handleKeyDown} placeholder="Message" rows={1} className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted/50 resize-none py-0.5 max-h-32 overflow-y-auto" style={{ fontSize: '0.95rem', lineHeight: '1.4' }} />
@@ -456,7 +589,7 @@ export default function ChatWindow() {
             {!text && <button onClick={() => { setShowAttachSheet(true); setShowLinkInput(false); setShowEmojiPicker(false); }} className="text-wa-header-icon hover:text-wa-primary transition-colors flex-shrink-0 mb-0.5"><Camera size={22} /></button>}
           </div>
           <AnimatePresence mode="wait">
-            {text ? <motion.button key="send" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleSend} className="w-12 h-12 bg-[#00A884] rounded-full flex items-center justify-center flex-shrink-0 hover:bg-[#06cf9c] transition-all shadow-md active:scale-90"><Send size={20} className="text-white ml-0.5" /></motion.button>
+            {text ? <motion.button key="send" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleSend} disabled={isLoading} className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 transition-all shadow-md active:scale-90 ${isLoading ? 'bg-[#00A884]/50 cursor-not-allowed' : 'bg-[#00A884] hover:bg-[#06cf9c]'}`}><Send size={20} className="text-white ml-0.5" /></motion.button>
             : <motion.button key="mic" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} className="w-12 h-12 bg-[#00A884] rounded-full flex items-center justify-center flex-shrink-0 hover:bg-[#06cf9c] transition-all shadow-md active:scale-90"><Mic size={20} className="text-white" /></motion.button>}
           </AnimatePresence>
         </div>
