@@ -44,13 +44,7 @@ export default function CallsTab() {
   return (
     <div className="flex flex-col h-full overflow-hidden relative">
       <div className="flex-1 overflow-y-auto">
-        {/* ✅ Calls Enabled Banner */}
-        <div className="px-4 py-3 border-b border-green-600/30 bg-green-900/10">
-          <div className="flex items-center gap-2 text-green-600 text-sm">
-            <span>✅</span>
-            <span style={{ fontWeight: 500 }}>Production-level WebRTC calling enabled with forced TURN relay</span>
-          </div>
-        </div>
+        {/* Calls banner removed per privacy/dev setting */}
 
         {/* Recent Calls */}
         <div className="pt-4 pb-20">
