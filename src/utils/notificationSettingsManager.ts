@@ -46,7 +46,7 @@ async function createNotificationChannels(): Promise<void> {
       importance: 'high',
       sound: 'default',
       vibration: true,
-      lightColor: '#00A884',
+      lightColor: '#4d91fb',
     },
     {
       id: 'group_messages',
@@ -54,7 +54,7 @@ async function createNotificationChannels(): Promise<void> {
       importance: 'default',
       sound: 'default',
       vibration: true,
-      lightColor: '#00A884',
+      lightColor: '#4d91fb',
     },
     {
       id: 'calls',

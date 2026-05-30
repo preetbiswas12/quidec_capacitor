@@ -1319,8 +1319,8 @@ export const messageService = {
     recipientUid: string
   ) {
     try {
-      // Send delivery receipt via RTDB transient pipe
-      const receiptRef = ref(realtimeDb, `receipts/${recipientUid}/delivered/${messageId}`);
+      // Send delivery receipt via RTDB transient pipe (sanitize UID for RTDB path)
+      const receiptRef = ref(realtimeDb, `receipts/${sanitizePathComponent(recipientUid)}/delivered/${messageId}`);
       await set(receiptRef, {
         messageId,
         conversationId,
@@ -1344,8 +1344,8 @@ export const messageService = {
     readerUid: string
   ) {
     try {
-      // Send read receipt via RTDB transient pipe
-      const receiptRef = ref(realtimeDb, `receipts/${readerUid}/read/${messageId}`);
+      // Send read receipt via RTDB transient pipe (sanitize UID for RTDB path)
+      const receiptRef = ref(realtimeDb, `receipts/${sanitizePathComponent(readerUid)}/read/${messageId}`);
       await set(receiptRef, {
         messageId,
         conversationId,
@@ -1364,8 +1364,8 @@ export const messageService = {
    * Receipts are transient - immediately consumed and deleted
    */
   listenToReceipts(uid: string, callback: (receipt: { type: 'delivered' | 'read', messageId: string, conversationId: string }) => void) {
-    // Listen to delivery receipts
-    const deliveredRef = ref(realtimeDb, `receipts/${uid}/delivered`);
+    // Listen to delivery receipts (sanitize UID for RTDB path)
+    const deliveredRef = ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered`);
     const unsubDelivered = onChildAdded(deliveredRef, async (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
@@ -1373,11 +1373,11 @@ export const messageService = {
       callback({ type: 'delivered', messageId: snapshot.key!, conversationId: data.conversationId });
 
       // Immediately delete receipt after processing
-      await remove(ref(realtimeDb, `receipts/${uid}/delivered/${snapshot.key}`));
+      await remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered/${snapshot.key}`));
     });
 
-    // Listen to read receipts
-    const readRef = ref(realtimeDb, `receipts/${uid}/read`);
+    // Listen to read receipts (sanitize UID for RTDB path)
+    const readRef = ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read`);
     const unsubRead = onChildAdded(readRef, async (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
@@ -1385,7 +1385,7 @@ export const messageService = {
       callback({ type: 'read', messageId: snapshot.key!, conversationId: data.conversationId });
 
       // Immediately delete receipt after processing
-      await remove(ref(realtimeDb, `receipts/${uid}/read/${snapshot.key}`));
+      await remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read/${snapshot.key}`));
     });
 
     return () => {

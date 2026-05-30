@@ -186,13 +186,13 @@ export default function LeftPanel() {
                   key={tab.id}
                   onClick={() => { setActiveTab(tab.id); setShowRequests(false); }}
                   className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors relative ${
-                    isActive ? 'text-[#00A884]' : 'text-wa-text-muted hover:text-[#aebac1]'
+                    isActive ? 'text-[#4d91fb]' : 'text-wa-text-muted hover:text-[#aebac1]'
                   }`}
                 >
                   <tab.icon size={22} />
                   <span style={{ fontSize: '0.65rem', fontWeight: isActive ? 600 : 400 }}>{tab.label}</span>
                   {isActive && (
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-0.5 bg-[#00A884] rounded-full" />
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-0.5 bg-[#4d91fb] rounded-full" />
                   )}
                 </button>
               );

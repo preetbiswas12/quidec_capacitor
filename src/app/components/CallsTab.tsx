@@ -54,7 +54,7 @@ export default function CallsTab() {
 
         {/* Recent Calls */}
         <div className="pt-4 pb-20">
-          <h3 className="text-[#00A884] px-4 mb-2" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+          <h3 className="text-[#4d91fb] px-4 mb-2" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>
             RECENT CALLS
           </h3>
           <div className="flex flex-col">
@@ -101,7 +101,7 @@ export default function CallsTab() {
       <div className="absolute bottom-6 right-6 z-10">
         <button
           onClick={() => setShowNewCallSheet(true)}
-          className="w-14 h-14 rounded-full bg-[#00A884] flex items-center justify-center shadow-2xl hover:bg-[#06cf9c] transition-all active:scale-90"
+          className="w-14 h-14 rounded-full bg-[#4d91fb] flex items-center justify-center shadow-2xl hover:bg-[#3b8eea] transition-all active:scale-90"
         >
           <PhoneCall size={24} className="text-white" />
         </button>
@@ -155,7 +155,7 @@ export default function CallsTab() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => { setShowNewCallSheet(false); startCall(contact.id, 'voice'); }}
-                      className="w-10 h-10 rounded-full bg-[#00A884]/10 hover:bg-[#00A884]/20 flex items-center justify-center text-[#00A884] transition-colors"
+                      className="w-10 h-10 rounded-full bg-[#4d91fb]/10 hover:bg-[#4d91fb]/20 flex items-center justify-center text-[#4d91fb] transition-colors"
                     >
                       <Phone size={18} />
                     </button>
@@ -177,7 +177,7 @@ export default function CallsTab() {
 }
 
 function CallDirectionIcon({ direction, type }: { direction: string; type: string }) {
-  const color = direction === 'missed' ? '#ef4444' : '#00A884';
+  const color = direction === 'missed' ? '#ef4444' : '#4d91fb';
   if (direction === 'incoming') return <PhoneIncoming size={13} style={{ color }} />;
   if (direction === 'outgoing') return <PhoneOutgoing size={13} style={{ color }} />;
   return <PhoneMissed size={13} style={{ color }} />;

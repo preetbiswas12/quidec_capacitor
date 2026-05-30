@@ -23,7 +23,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, EBSta
           <p className="text-[#8696A0] text-sm">{this.state.message}</p>
           <button
             onClick={() => window.location.reload()}
-            className="mt-2 px-6 py-2 bg-[#00A884] text-white rounded-full text-sm"
+            className="mt-2 px-6 py-2 bg-[#4d91fb] text-white rounded-full text-sm"
           >
             Reload
           </button>

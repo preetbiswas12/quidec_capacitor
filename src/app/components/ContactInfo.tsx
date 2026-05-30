@@ -90,7 +90,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
               <input ref={groupIconInputRef} type="file" accept="image/*" className="hidden" onChange={handleGroupIconSelect} />
               <button
                 onClick={() => groupIconInputRef.current?.click()}
-                className="absolute bottom-1 right-1 w-10 h-10 bg-[#00A884] rounded-full flex items-center justify-center border-[3px] border-wa-main hover:bg-[#06cf9c] transition-all shadow-xl active:scale-90"
+                className="absolute bottom-1 right-1 w-10 h-10 bg-[#4d91fb] rounded-full flex items-center justify-center border-[3px] border-wa-main hover:bg-[#3b8eea] transition-all shadow-xl active:scale-90"
               >
                 <Camera size={18} className="text-white" />
               </button>
@@ -106,7 +106,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
             <p className="text-wa-text-muted mt-1 font-medium" style={{ fontSize: '1rem' }}>{contact.userId}</p>
           )}
           {contact.isGroup && (
-            <p className="text-[#00A884] mt-1 font-bold" style={{ fontSize: '0.85rem' }}>
+            <p className="text-[#4d91fb] mt-1 font-bold" style={{ fontSize: '0.85rem' }}>
               {contact.members?.length} MEMBERS
             </p>
           )}
@@ -131,7 +131,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
 
       {/* ── About ── */}
       <div className="px-5 py-6 border-b border-wa-border/10">
-        <p className="text-[#00A884] mb-2" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
+        <p className="text-[#4d91fb] mb-2" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
           {contact.isGroup ? 'DESCRIPTION' : 'ABOUT'}
         </p>
         <p className="text-wa-primary leading-relaxed" style={{ fontSize: '1rem' }}>{contact.about || 'No description provided.'}</p>
@@ -181,7 +181,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
             <Bell size={20} className="text-wa-text-muted" />
             <span className="text-wa-primary font-medium">Mute notifications</span>
           </div>
-          <div onClick={() => setIsMuted(!isMuted)} className={`relative w-11 h-5 rounded-full transition-colors cursor-pointer ${isMuted ? 'bg-[#00A884]' : 'bg-wa-secondary'}`}>
+          <div onClick={() => setIsMuted(!isMuted)} className={`relative w-11 h-5 rounded-full transition-colors cursor-pointer ${isMuted ? 'bg-[#4d91fb]' : 'bg-wa-secondary'}`}>
             <motion.div animate={{ x: isMuted ? 24 : 2 }} className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm" />
           </div>
         </div>
@@ -231,7 +231,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
 function ActionButton({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {
   return (
     <button onClick={onClick} className="flex flex-col items-center gap-2 group active:opacity-60 transition-opacity">
-      <div className="w-12 h-12 rounded-full flex items-center justify-center text-[#00A884] bg-[#00A884]/10 border border-[#00A884]/20 group-hover:bg-[#00A884]/20 transition-colors">
+      <div className="w-12 h-12 rounded-full flex items-center justify-center text-[#4d91fb] bg-[#4d91fb]/10 border border-[#4d91fb]/20 group-hover:bg-[#4d91fb]/20 transition-colors">
         {icon}
       </div>
       <span className="text-wa-text-muted font-bold" style={{ fontSize: '0.72rem', letterSpacing: '0.3px' }}>{label.toUpperCase()}</span>

@@ -355,14 +355,14 @@ export default function ChatWindow() {
           <>
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="absolute inset-0 z-[100] bg-black/20 backdrop-blur-[2px]"
+              className="absolute inset-0 z-100 bg-black/20 backdrop-blur-[2px]"
               onClick={() => setActiveMenuId(null)}
             />
             <motion.div
               initial={{ scale: 0.8, opacity: 0, y: 10 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: 10 }}
-              className="absolute z-[101] bg-[#233138] rounded-2xl shadow-2xl p-2 min-w-[200px] border border-wa-border"
+              className="absolute z-101 bg-[#233138] rounded-2xl shadow-2xl p-2 min-w-50 border border-wa-border"
               style={{ 
                 left: Math.min(menuPos.x, window.innerWidth - 220), 
                 top: Math.min(menuPos.y, window.innerHeight - 300) 
@@ -430,9 +430,9 @@ export default function ChatWindow() {
         {lightboxImage && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="absolute inset-0 z-[200] bg-black flex flex-col"
+            className="absolute inset-0 z-200 bg-black flex flex-col"
           >
-            <div className="flex items-center gap-3 px-4 py-3 bg-black/60 flex-shrink-0">
+            <div className="flex items-center gap-3 px-4 py-3 bg-black/60 shrink-0">
               <button onClick={() => setLightboxImage(null)} className="text-white p-1 rounded-full hover:bg-white/10">
                 <ArrowLeft size={22} />
               </button>
@@ -453,15 +453,15 @@ export default function ChatWindow() {
           {showSearch && (
             <motion.div
               initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-              className="bg-wa-header border-b border-wa-border flex-shrink-0 overflow-hidden pt-10"
+              className="bg-wa-header border-b border-wa-border shrink-0 overflow-hidden pt-10"
             >
               <div className="flex items-center gap-2 px-3 py-2.5">
-                <button onClick={closeSearch} className="text-[#aebac1] p-1 flex-shrink-0"><ArrowLeft size={20} /></button>
+                <button onClick={closeSearch} className="text-[#aebac1] p-1 shrink-0"><ArrowLeft size={20} /></button>
                 <input
                   ref={msgSearchRef} type="text" value={msgSearch} onChange={e => { setMsgSearch(e.target.value); setMsgSearchIndex(0); }}
                   placeholder="Search messages…" className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]" style={{ fontSize: '0.9rem' }}
                 />
-                {msgSearch && <span className="text-wa-text-muted flex-shrink-0" style={{ fontSize: '0.78rem' }}>{matchedMsgIds.length > 0 ? `${msgSearchIndex + 1}/${matchedMsgIds.length}` : '0/0'}</span>}
+                {msgSearch && <span className="text-wa-text-muted shrink-0" style={{ fontSize: '0.78rem' }}>{matchedMsgIds.length > 0 ? `${msgSearchIndex + 1}/${matchedMsgIds.length}` : '0/0'}</span>}
                 <button onClick={() => navigateSearchResult(-1)} disabled={matchedMsgIds.length === 0} className="text-[#aebac1] p-1 disabled:opacity-30"><ChevronUp size={18} /></button>
                 <button onClick={() => navigateSearchResult(1)} disabled={matchedMsgIds.length === 0} className="text-[#aebac1] p-1 disabled:opacity-30"><ChevronDown size={18} /></button>
               </div>
@@ -469,17 +469,17 @@ export default function ChatWindow() {
           )}
         </AnimatePresence>
 
-        <div className="flex items-center gap-3 px-3 py-2.5 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border/10">
+        <div className="flex items-center gap-3 px-3 py-2.5 pt-10 bg-wa-header shrink-0 border-b border-wa-border/10">
           <button onClick={handleBack} className="text-wa-header-icon hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5"><ArrowLeft size={20} /></button>
           <button onClick={() => setContactInfoOpen(!contactInfoOpen)} className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity">
             <div className="relative">
               <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={40} />
-              {contact.isOnline && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute bottom-0.5 right-0.5 w-2.5 h-2.5 rounded-full bg-[#00A884] border-2 border-wa-header" />}
+              {contact.isOnline && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute bottom-0.5 right-0.5 w-2.5 h-2.5 rounded-full bg-[#4d91fb] border-2 border-wa-header" />}
             </div>
             <div className="min-w-0 text-left">
               <p className="text-wa-primary truncate" style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '-0.2px' }}>{contact.name}</p>
               <AnimatePresence mode="wait">
-                {isTyping ? <motion.p key="typing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-[#00A884] font-bold" style={{ fontSize: '0.78rem' }}>typing...</motion.p>
+                {isTyping ? <motion.p key="typing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-[#4d91fb] font-bold" style={{ fontSize: '0.78rem' }}>typing...</motion.p>
                 : <motion.p key="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-wa-text-muted" style={{ fontSize: '0.78rem' }}>{contact.isGroup ? `${contact.members?.length} members` : contact.isOnline ? 'online' : contact.lastSeen}</motion.p>}
               </AnimatePresence>
             </div>
@@ -522,14 +522,14 @@ export default function ChatWindow() {
 
         <AnimatePresence>
           {replyTo && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-wa-header border-t border-wa-border overflow-hidden flex-shrink-0">
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-wa-header border-t border-wa-border overflow-hidden shrink-0">
               <div className="flex items-center gap-3 px-4 py-2.5">
-                <div className="w-1 h-10 bg-[#00A884] rounded-full flex-shrink-0" />
+                <div className="w-1 h-10 bg-[#4d91fb] rounded-full shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-[#00A884]" style={{ fontSize: '0.78rem', fontWeight: 600 }}>{replyTo.senderId === 'me' ? 'You' : contact.name}</p>
+                  <p className="text-[#4d91fb]" style={{ fontSize: '0.78rem', fontWeight: 600 }}>{replyTo.senderId === 'me' ? 'You' : contact.name}</p>
                   <p className="text-wa-text-muted truncate" style={{ fontSize: '0.82rem' }}>{replyTo.type === 'link' ? '🔗 ' + (replyTo.linkUrl || replyTo.content) : replyTo.content}</p>
                 </div>
-                <button onClick={() => setReplyTo(null)} className="text-wa-text-muted hover:text-wa-primary p-1 flex-shrink-0"><X size={18} /></button>
+                <button onClick={() => setReplyTo(null)} className="text-wa-text-muted hover:text-wa-primary p-1 shrink-0"><X size={18} /></button>
               </div>
             </motion.div>
           )}
@@ -537,7 +537,7 @@ export default function ChatWindow() {
 
         <AnimatePresence>
           {showEmojiPicker && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-wa-header border-t border-wa-border flex-shrink-0 overflow-hidden">
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-wa-header border-t border-wa-border shrink-0 overflow-hidden">
               <div className="px-3 py-3"><div className="grid grid-cols-10 gap-1">{EMOJI_LIST.map(emoji => (
                 <button key={emoji} onClick={() => appendEmoji(emoji)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-wa-secondary transition-colors active:scale-90" style={{ fontSize: '1.25rem' }}>{emoji}</button>
               ))}</div></div>
@@ -547,12 +547,12 @@ export default function ChatWindow() {
 
         <AnimatePresence>
           {showAttachSheet && (
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 28, stiffness: 300 }} className="bg-wa-header border-t border-wa-border flex-shrink-0 overflow-hidden">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 28, stiffness: 300 }} className="bg-wa-header border-t border-wa-border shrink-0 overflow-hidden">
               {showLinkInput ? (
                 <div className="px-4 py-4">
                   <div className="flex items-center gap-2 mb-3"><button onClick={() => setShowLinkInput(false)} className="text-wa-text-muted"><ArrowLeft size={18} /></button><span className="text-wa-primary" style={{ fontWeight: 600 }}>Share a Link</span></div>
-                  <div className="flex items-center gap-2 bg-wa-secondary rounded-xl px-4 py-2.5"><Link size={16} className="text-wa-text-muted flex-shrink-0" /><input type="url" value={linkInput} onChange={e => setLinkInput(e.target.value)} placeholder="https://example.com" className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]" style={{ fontSize: '0.9rem' }} autoFocus onKeyDown={e => e.key === 'Enter' && handleSendLink()} /></div>
-                  <button onClick={handleSendLink} disabled={!linkInput.trim()} className={`w-full mt-3 rounded-full py-3 flex items-center justify-center gap-2 transition-colors ${linkInput.trim() ? 'bg-[#00A884] text-white' : 'bg-wa-secondary text-wa-text-muted'}`} style={{ fontWeight: 600 }}>Send Link <Send size={16} /></button>
+                  <div className="flex items-center gap-2 bg-wa-secondary rounded-xl px-4 py-2.5"><Link size={16} className="text-wa-text-muted shrink-0" /><input type="url" value={linkInput} onChange={e => setLinkInput(e.target.value)} placeholder="https://example.com" className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]" style={{ fontSize: '0.9rem' }} autoFocus onKeyDown={e => e.key === 'Enter' && handleSendLink()} /></div>
+                  <button onClick={handleSendLink} disabled={!linkInput.trim()} className={`w-full mt-3 rounded-full py-3 flex items-center justify-center gap-2 transition-colors ${linkInput.trim() ? 'bg-[#4d91fb] text-white' : 'bg-wa-secondary text-wa-text-muted'}`} style={{ fontWeight: 600 }}>Send Link <Send size={16} /></button>
                 </div>
               ) : (
                 <div className="px-4 py-4"><div className="grid grid-cols-4 gap-3">{[
@@ -570,7 +570,7 @@ export default function ChatWindow() {
           )}
         </AnimatePresence>
 
-        <div className="flex items-end gap-2 px-3 py-3 pb-8 bg-wa-header flex-shrink-0 border-t border-wa-border/5">
+        <div className="flex items-end gap-2 px-3 py-3 pb-8 bg-wa-header shrink-0 border-t border-wa-border/5">
           {sendError && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
@@ -583,14 +583,14 @@ export default function ChatWindow() {
             </motion.div>
           )}
           <div className="flex items-end gap-2 flex-1 bg-wa-secondary/40 rounded-2xl px-3 py-2 border border-wa-border/5">
-            <button onClick={() => { setShowEmojiPicker(v => !v); setShowAttachSheet(false); }} className={`transition-colors flex-shrink-0 mb-0.5 ${showEmojiPicker ? 'text-[#00A884]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Smile size={22} /></button>
+            <button onClick={() => { setShowEmojiPicker(v => !v); setShowAttachSheet(false); }} className={`transition-colors shrink-0 mb-0.5 ${showEmojiPicker ? 'text-[#4d91fb]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Smile size={22} /></button>
             <textarea ref={inputRef} value={text} onChange={e => setText(e.target.value)} onKeyDown={handleKeyDown} placeholder="Message" rows={1} className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted/50 resize-none py-0.5 max-h-32 overflow-y-auto" style={{ fontSize: '0.95rem', lineHeight: '1.4' }} />
-            {!text && <button onClick={() => { setShowAttachSheet(v => !v); setShowLinkInput(false); setShowEmojiPicker(false); }} className={`transition-colors flex-shrink-0 mb-0.5 ${showAttachSheet ? 'text-[#00A884]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Paperclip size={22} /></button>}
-            {!text && <button onClick={() => { setShowAttachSheet(true); setShowLinkInput(false); setShowEmojiPicker(false); }} className="text-wa-header-icon hover:text-wa-primary transition-colors flex-shrink-0 mb-0.5"><Camera size={22} /></button>}
+            {!text && <button onClick={() => { setShowAttachSheet(v => !v); setShowLinkInput(false); setShowEmojiPicker(false); }} className={`transition-colors shrink-0 mb-0.5 ${showAttachSheet ? 'text-[#4d91fb]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Paperclip size={22} /></button>}
+            {!text && <button onClick={() => { setShowAttachSheet(true); setShowLinkInput(false); setShowEmojiPicker(false); }} className="text-wa-header-icon hover:text-wa-primary transition-colors shrink-0 mb-0.5"><Camera size={22} /></button>}
           </div>
           <AnimatePresence mode="wait">
-            {text ? <motion.button key="send" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleSend} disabled={isLoading} className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 transition-all shadow-md active:scale-90 ${isLoading ? 'bg-[#00A884]/50 cursor-not-allowed' : 'bg-[#00A884] hover:bg-[#06cf9c]'}`}><Send size={20} className="text-white ml-0.5" /></motion.button>
-            : <motion.button key="mic" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} className="w-12 h-12 bg-[#00A884] rounded-full flex items-center justify-center flex-shrink-0 hover:bg-[#06cf9c] transition-all shadow-md active:scale-90"><Mic size={20} className="text-white" /></motion.button>}
+            {text ? <motion.button key="send" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleSend} disabled={isLoading} className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all shadow-md active:scale-90 ${isLoading ? 'bg-[#4d91fb]/50 cursor-not-allowed' : 'bg-[#4d91fb] hover:bg-[#3b8eea]'}`}><Send size={20} className="text-white ml-0.5" /></motion.button>
+            : <motion.button key="mic" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} className="w-12 h-12 bg-[#4d91fb] rounded-full flex items-center justify-center shrink-0 hover:bg-[#3b8eea] transition-all shadow-md active:scale-90"><Mic size={20} className="text-white" /></motion.button>}
           </AnimatePresence>
         </div>
       </div>
@@ -644,7 +644,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
     return (
       <div className="flex justify-center my-3">
         <div className="flex items-start gap-1 bg-[#182229] rounded-lg px-3 py-2 max-w-xs">
-          <Lock size={11} className="text-wa-text-muted mt-0.5 flex-shrink-0" />
+          <Lock size={11} className="text-wa-text-muted mt-0.5 shrink-0" />
           <p className="text-wa-text-muted text-center leading-snug" style={{ fontSize: '0.72rem' }}>{message.content}</p>
         </div>
       </div>
@@ -662,13 +662,13 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
       {/* Swipe Reply Visual */}
       <motion.div 
         style={{ opacity: swipeOpacity, scale: swipeScale, x: 0 }}
-        className="absolute left-[-40px] top-1/2 -translate-y-1/2 flex items-center justify-center w-8 h-8 rounded-full bg-wa-header"
+        className="absolute -left-10 top-1/2 -translate-y-1/2 flex items-center justify-center w-8 h-8 rounded-full bg-wa-header"
       >
-        <Reply size={16} className="text-[#00A884]" />
+        <Reply size={16} className="text-[#4d91fb]" />
       </motion.div>
 
       {!isMe && isGroup && (
-        <div className="w-7 flex-shrink-0 self-end mb-0.5">
+        <div className="w-7 shrink-0 self-end mb-0.5">
           {showAvatar && <Avatar src={displayContact.avatar} name={displayContact.name} color={displayContact.avatarColor} size={28} />}
         </div>
       )}
@@ -683,15 +683,15 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         initial={{ opacity: 0, y: 8, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         whileTap={{ scale: 0.995 }}
-        className={`relative max-w-[85%] rounded-2xl shadow-sm transition-all ${isImageOnly ? 'p-0 overflow-hidden' : 'px-3 py-2'} ${isMe ? 'bg-wa-bubble-self text-wa-primary' : 'bg-wa-bubble-other text-wa-primary'} ${isSearchActive ? 'ring-2 ring-[#00A884]' : isSearchHighlight ? 'ring-1 ring-[#00A884]/40' : ''}`}
+        className={`relative max-w-[85%] rounded-2xl shadow-sm transition-all ${isImageOnly ? 'p-0 overflow-hidden' : 'px-3 py-2'} ${isMe ? 'bg-wa-bubble-self text-wa-primary' : 'bg-wa-bubble-other text-wa-primary'} ${isSearchActive ? 'ring-2 ring-[#4d91fb]' : isSearchHighlight ? 'ring-1 ring-[#4d91fb]/40' : ''}`}
       >
-        {!isImageOnly && (isMe ? <div className="absolute bottom-0 right-0 w-0 h-0 border-l-[8px] border-l-transparent border-b-[8px] border-b-wa-bubble-self translate-x-[6px]" /> : <div className="absolute bottom-0 left-0 w-0 h-0 border-r-[8px] border-r-transparent border-b-[8px] border-b-wa-bubble-other -translate-x-[6px]" />)}
+        {!isImageOnly && (isMe ? <div className="absolute bottom-0 right-0 w-0 h-0 border-l-8 border-l-transparent border-b-8 border-b-wa-bubble-self translate-x-1.5" /> : <div className="absolute bottom-0 left-0 w-0 h-0 border-r-8 border-r-transparent border-b-8 border-b-wa-bubble-other -translate-x-1.5" />)}
         
         {showSenderName && senderContact && <p style={{ fontSize: '0.78rem', fontWeight: 600, color: senderContact.avatarColor, marginBottom: '2px' }}>{senderContact.name}</p>}
 
         {message.replyToContent && (
-          <div className={`mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 border-[#00A884] ${isMe ? 'bg-[#00A884]/10' : 'bg-wa-secondary/40'}`}>
-            <p className="text-[#00A884]" style={{ fontSize: '0.72rem', fontWeight: 600 }}>{message.replyToSender}</p>
+          <div className={`mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 border-[#4d91fb] ${isMe ? 'bg-[#4d91fb]/10' : 'bg-wa-secondary/40'}`}>
+            <p className="text-[#4d91fb]" style={{ fontSize: '0.72rem', fontWeight: 600 }}>{message.replyToSender}</p>
             <p className="text-[#aebac1] truncate" style={{ fontSize: '0.78rem' }}>{message.replyToContent}</p>
           </div>
         )}
@@ -708,7 +708,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
           const filename = message.content.replace('📎 ', '');
           return (
             <div className="flex items-center gap-3 py-0.5" style={{ minWidth: '200px', maxWidth: '260px' }}>
-              <div className="w-10 h-10 bg-[#00A884]/20 rounded-xl flex items-center justify-center flex-shrink-0"><FileText size={20} className="text-[#00A884]" /></div>
+              <div className="w-10 h-10 bg-[#4d91fb]/20 rounded-xl flex items-center justify-center shrink-0"><FileText size={20} className="text-[#4d91fb]" /></div>
               <div className="min-w-0 flex-1"><p className="text-wa-primary truncate" style={{ fontSize: '0.84rem', fontWeight: 500 }}>{filename}</p><p className="text-wa-text-muted mt-0.5" style={{ fontSize: '0.7rem' }}>TAP TO OPEN</p></div>
               <Download size={16} className="text-wa-text-muted" />
             </div>
@@ -717,8 +717,8 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
 
         {message.type === 'link' && (
           <a href={message.linkUrl} target="_blank" rel="noopener noreferrer" className="block" onClick={e => e.stopPropagation()}>
-            <div className={`rounded-lg overflow-hidden border ${isMe ? 'border-[#00A884]/30' : 'border-wa-border'}`}>
-              <div className={`px-3 py-2 flex items-center gap-2 ${isMe ? 'bg-[#00A884]/10' : 'bg-wa-secondary/50'}`}><ExternalLink size={14} className="text-[#00A884]" /><div className="min-w-0"><p className="text-wa-primary truncate" style={{ fontSize: '0.85rem', fontWeight: 500 }}>{message.linkTitle || message.linkUrl}</p><p className="text-wa-text-muted truncate" style={{ fontSize: '0.72rem' }}>{message.linkDomain || message.linkUrl}</p></div></div>
+            <div className={`rounded-lg overflow-hidden border ${isMe ? 'border-[#4d91fb]/30' : 'border-wa-border'}`}>
+              <div className={`px-3 py-2 flex items-center gap-2 ${isMe ? 'bg-[#4d91fb]/10' : 'bg-wa-secondary/50'}`}><ExternalLink size={14} className="text-[#4d91fb]" /><div className="min-w-0"><p className="text-wa-primary truncate" style={{ fontSize: '0.85rem', fontWeight: 500 }}>{message.linkTitle || message.linkUrl}</p><p className="text-wa-text-muted truncate" style={{ fontSize: '0.72rem' }}>{message.linkDomain || message.linkUrl}</p></div></div>
               <div className="px-3 py-1.5"><p className="text-[#53bdeb] truncate" style={{ fontSize: '0.78rem' }}>{message.linkUrl}</p></div>
             </div>
           </a>
@@ -771,7 +771,7 @@ function LocalMedia({ fileId, mediaType, senderId, chatId, isImageOnly, message,
     resolve();
   }, [fileId, currentUser, isMe, chatId, senderId, mediaType]);
 
-  if (loading) return <div className="w-full flex items-center justify-center bg-[#1F2C34]" style={{ height: '200px' }}><div className="w-8 h-8 rounded-full border-2 border-[#00A884] border-t-transparent animate-spin" /></div>;
+  if (loading) return <div className="w-full flex items-center justify-center bg-[#1F2C34]" style={{ height: '200px' }}><div className="w-8 h-8 rounded-full border-2 border-[#4d91fb] border-t-transparent animate-spin" /></div>;
   if (!url) return <div className="w-full flex flex-col items-center justify-center bg-[#1F2C34] gap-2" style={{ height: '200px' }}><Image size={32} className="text-[#8696A0]" /><p className="text-[#8696A0]" style={{ fontSize: '0.7rem' }}>Failed to load media</p></div>;
 
   return (

@@ -40,7 +40,7 @@ export default function Avatar({ src, name, color, size = 40, isOnline, classNam
       )}
       {isOnline && (
         <span
-          className="absolute bottom-0 right-0 rounded-full bg-[#00A884] border-2 border-[#111B21]"
+          className="absolute bottom-0 right-0 rounded-full bg-[#4d91fb] border-2 border-[#111B21]"
           style={{ width: size * 0.28, height: size * 0.28 }}
         />
       )}
