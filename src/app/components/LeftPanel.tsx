@@ -60,7 +60,7 @@ export default function LeftPanel() {
 
   const menuItems = [
     { label: 'New Group', action: () => { setShowMenu(false); setShowCreateGroup(true); } },
-    { label: 'Starred messages', action: () => { setShowMenu(false); setActiveTab('settings'); } },
+    { label: 'Starred messages', action: () => { setShowMenu(false); setActiveTab('settings'); setSettingsSubPage('starred'); } },
     { label: 'Settings', action: () => { setShowMenu(false); setActiveTab('settings'); } },
   ];
 

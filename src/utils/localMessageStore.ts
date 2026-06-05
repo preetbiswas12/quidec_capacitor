@@ -422,6 +422,63 @@ export async function updateMessageStatus(
   await writeFileBytes(filename, combined);
 }
 
+/**
+ * Toggle the starred state of a specific message in a chat file.
+ * Rewrites the entire file (same pattern as updateMessageStatus).
+ */
+export async function updateMessageStar(
+  userUid: string,
+  chatId: string,
+  messageId: string,
+  isStarred: boolean
+): Promise<void> {
+  const messages = await loadMessages(userUid, chatId);
+  const updated = messages.map(m => m.id === messageId ? { ...m, isStarred } : m);
+
+  // Rewrite file
+  const { key1, key2 } = await getKeys(userUid, chatId);
+  const filename = chatFilename(chatId);
+
+  let combined = new Uint8Array(0);
+  for (const msg of updated) {
+    const payload = new TextEncoder().encode(JSON.stringify(msg));
+    const { iv1, iv2, ciphertext } = await doubleEncrypt(payload, key1, key2);
+    const chunk = encodeChunk(iv1, iv2, ciphertext);
+    combined = concat(combined, chunk);
+  }
+
+  await writeFileBytes(filename, combined);
+}
+
+/**
+ * Get all starred messages across all chats for a user.
+ * Scans all local chat files and filters for isStarred === true.
+ * Returns messages sorted by timestamp (newest first).
+ */
+export async function getStarredMessages(
+  userUid: string
+): Promise<StoredMessage[]> {
+  try {
+    const chatIds = await listLocalChatIds();
+    const allStarred: StoredMessage[] = [];
+
+    await Promise.all(
+      chatIds.map(async (chatId) => {
+        const messages = await loadMessages(userUid, chatId);
+        const starred = messages.filter(m => m.isStarred);
+        allStarred.push(...starred);
+      })
+    );
+
+    // Sort newest first
+    allStarred.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return allStarred;
+  } catch (err) {
+    logger.error('LocalMessageStore', 'getStarredMessages failed', err);
+    return [];
+  }
+}
+
 /** Clear the key cache (call on logout) */
 export function clearKeyCache(): void {
   keyCache.clear();

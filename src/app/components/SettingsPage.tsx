@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import type { ReactNode } from 'react';
+import { useNavigate } from 'react-router';
 import {
   User, Bell, Lock, MessageSquare, Palette, HelpCircle, LogOut,
   ChevronRight, Star, Download, Globe, Smartphone, ArrowLeft,
@@ -64,7 +65,8 @@ interface SettingsPageProps {
 }
 
 export default function SettingsPage({ onSubPageChange, forcedSubPage }: SettingsPageProps = {}) {
-  const { currentUser, updateCurrentUser, logout, settings, updateSettings, clearAllChats, chats } = useApp();
+  const navigate = useNavigate();
+  const { currentUser, updateCurrentUser, logout, settings, updateSettings, clearAllChats, chats, starredMessages, contacts, setActiveChatId } = useApp();
 
   if (!currentUser) return null;
 
@@ -957,15 +959,56 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
       case 'starred':
         return (
           <SubPageShell title="Starred Messages" onBack={back}>
-            <div className="flex flex-col items-center justify-center py-16 px-8 text-center gap-4">
-              <div className="w-20 h-20 bg-[#f9a825]/10 rounded-full flex items-center justify-center">
-                <Star size={36} className="text-[#f9a825]" />
+            {starredMessages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 px-8 text-center gap-4">
+                <div className="w-20 h-20 bg-[#f9a825]/10 rounded-full flex items-center justify-center">
+                  <Star size={36} className="text-[#f9a825]" />
+                </div>
+                <p className="text-wa-primary" style={{ fontWeight: 600 }}>No starred messages</p>
+                <p className="text-wa-text-muted" style={{ fontSize: '0.85rem' }}>
+                  Star messages you want to find easily later. Long-press a message and tap the ⭐ icon.
+                </p>
               </div>
-              <p className="text-wa-primary" style={{ fontWeight: 600 }}>No starred messages</p>
-              <p className="text-wa-text-muted" style={{ fontSize: '0.85rem' }}>
-                Star messages you want to find easily later. Hold a message and tap the ⭐ icon.
-              </p>
-            </div>
+            ) : (
+              <div className="flex flex-col py-2">
+                {starredMessages.map(msg => {
+                  const chat = chats.find(c => c.id === msg.chatId);
+                  const contact = chat ? contacts.find(c => c.id === chat.contactId) : null;
+                  const senderName = msg.senderId === 'me' ? 'You' : (contact?.name || 'Unknown');
+                  const preview = msg.type === 'image' ? '📷 Photo' : msg.type === 'video' ? '🎥 Video' : msg.type === 'audio' ? '🎵 Audio' : msg.type === 'document' ? (msg.content || '📎 Document') : msg.content;
+                  return (
+                    <button
+                      key={msg.id}
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-wa-secondary/20 transition-colors text-left border-b border-wa-border/5"
+                      onClick={() => {
+                        if (chat) {
+                          setActiveChatId(chat.id);
+                          navigate(`/app/chat/${chat.id}`);
+                        }
+                      }}
+                    >
+                      <Avatar src={contact?.avatar} name={contact?.name || '?'} color={contact?.avatarColor || '#607D8B'} size={44} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-wa-primary truncate" style={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                            {contact?.name || 'Unknown'}
+                          </p>
+                          <span className="text-wa-text-muted flex-shrink-0" style={{ fontSize: '0.7rem' }}>
+                            {formatStarredTime(msg.timestamp)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <Star size={11} className="text-[#f9a825] fill-[#f9a825] flex-shrink-0" />
+                          <p className="text-wa-text-muted truncate" style={{ fontSize: '0.82rem' }}>
+                            <span className="text-wa-text-muted/70">{senderName}: </span>{preview}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </SubPageShell>
         );
 
@@ -1440,4 +1483,20 @@ function SuccessAlert({ message }: { message: string }) {
       <p className="text-[#00A884] text-sm flex-1">{message}</p>
     </motion.div>
   );
+}
+
+function formatStarredTime(timestamp: string): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
 }

@@ -4,7 +4,7 @@ import {
   ArrowLeft, Phone, Video, MoreVertical, Smile, Paperclip,
   Mic, Send, CheckCheck, Check, Lock, FileText, Camera,
   X, Reply, Link, Image, MapPin, User, File,
-  ExternalLink, ChevronDown, ChevronUp, Download, Share2, Save
+  ExternalLink, ChevronDown, ChevronUp, Download, Share2, Save, Star
 } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { useApp } from '../context/AppContext';
@@ -30,7 +30,7 @@ export default function ChatWindow() {
     chats, contacts, messages, sendMessage, typingContacts,
     setActiveChatId, contactInfoOpen, setContactInfoOpen,
     replyTo, setReplyTo, reactToMessage, clearChat,
-    addMessagesToChat
+    addMessagesToChat, toggleStarMessage
   } = useApp();
 
   const [text, setText] = useState('');
@@ -423,8 +423,8 @@ export default function ChatWindow() {
               </div>
               {/* Actions List */}
               <div className="flex flex-col">
-                <button 
-                  onClick={() => { 
+                <button
+                  onClick={() => {
                     const msg = chatMessages.find(m => m.id === activeMenuId);
                     if (msg) setReplyTo(msg);
                     setActiveMenuId(null);
@@ -433,7 +433,17 @@ export default function ChatWindow() {
                 >
                   <Reply size={18} className="text-wa-text-muted" /> Reply
                 </button>
-                <button 
+                <button
+                  onClick={() => {
+                    const msg = chatMessages.find(m => m.id === activeMenuId);
+                    if (msg && chatId) toggleStarMessage(chatId, msg.id);
+                    setActiveMenuId(null);
+                  }}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 text-wa-primary text-sm font-medium"
+                >
+                  <Star size={18} className="text-[#f9a825]" /> {chatMessages.find(m => m.id === activeMenuId)?.isStarred ? 'Unstar' : 'Star'}
+                </button>
+                <button
                   onClick={() => {
                     const msg = chatMessages.find(m => m.id === activeMenuId);
                     if (msg) handleShareMessage(msg);
@@ -805,6 +815,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
                 {message.status === 'read' && <CheckCheck size={13} className="text-[#53bdeb]" />}
               </>
             )}
+            {message.isStarred && <Star size={12} className="text-[#f9a825] fill-[#f9a825]" />}
           </div>
         )}
       </motion.div>

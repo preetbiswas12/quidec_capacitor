@@ -5,7 +5,7 @@ const { messageService, authService, presenceService, friendRequestService, typi
 import { getDoc, doc, query, collection, where, getDocs } from 'firebase/firestore';
 import { db } from '../../utils/firebase';
 import { initializePushNotifications } from '../../utils/fcm';
-import { loadMessages as loadLocalMessages, clearKeyCache, updateMessageReactions } from '../../utils/localMessageStore';
+import { loadMessages as loadLocalMessages, clearKeyCache, updateMessageReactions, updateMessageStar, getStarredMessages } from '../../utils/localMessageStore';
 import { getEncryptionKey } from '../../utils/encryption';
 import { uploadMediaWithProgress, loadMediaWithCache } from '../../utils/mediaUploadHandler';
 import { permissionManager } from '../../utils/permissionManager';
@@ -204,6 +204,11 @@ interface AppContextType {
   activeStatusViewer: { contactId: string; statusIndex: number } | null;
   setActiveStatusViewer: (viewer: { contactId: string; statusIndex: number } | null) => void;
 
+  // Starred Messages
+  starredMessages: Message[];
+  toggleStarMessage: (chatId: string, messageId: string) => Promise<void>;
+  refreshStarredMessages: () => Promise<void>;
+
   // Contact Info
   contactInfoOpen: boolean;
   setContactInfoOpen: (open: boolean) => void;
@@ -307,6 +312,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Call State
   const [activeIncomingCall, setActiveIncomingCall] = useState<CallRecord | null>(null);
+
+  // Starred Messages State
+  const [starredMessages, setStarredMessages] = useState<Message[]>([]);
 
   // Status State
   const [myStatuses, setMyStatuses] = useState<Status[]>([]);
@@ -1595,6 +1603,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setCalls([]);
   }, [currentUser]);
 
+  // ─── Starred Messages ─────────────────────────────────────────────────────
+
+  const refreshStarredMessages = useCallback(async () => {
+    if (!currentUser) return;
+    const starred = await getStarredMessages(currentUser.userId);
+    setStarredMessages(starred);
+  }, [currentUser]);
+
+  const toggleStarMessage = useCallback(
+    async (chatId: string, messageId: string) => {
+      if (!currentUser) return;
+
+      // Find current starred state from messages
+      const chatMsgs = messages[chatId] || [];
+      const msg = chatMsgs.find(m => m.id === messageId);
+      if (!msg) return;
+
+      const newStarred = !msg.isStarred;
+
+      // Update in-memory state
+      setMessages(prev => ({
+        ...prev,
+        [chatId]: (prev[chatId] || []).map(m =>
+          m.id === messageId ? { ...m, isStarred: newStarred } : m
+        ),
+      }));
+
+      // Persist to local store
+      try {
+        await updateMessageStar(currentUser.userId, chatId, messageId, newStarred);
+      } catch (err) {
+        console.error('❌ Failed to persist star toggle:', err);
+      }
+
+      // Refresh starred messages list
+      await refreshStarredMessages();
+    },
+    [currentUser, messages, refreshStarredMessages],
+  );
+
+  // Refresh starred messages on load and when messages change
+  useEffect(() => {
+    if (currentUser) {
+      refreshStarredMessages();
+    }
+  }, [currentUser, refreshStarredMessages]);
+
   // ─── User Discovery (#6) ──────────────────────────────────────────────────
 
   const searchUsers = useCallback(async (query: string) => {
@@ -1693,6 +1748,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     clearIncomingCall,
     saveCallRecord,
     clearAllCalls,
+    starredMessages,
+    toggleStarMessage,
+    refreshStarredMessages,
     statuses,
     searchUsers,
     chatRequests,
