@@ -29,7 +29,8 @@ export default function ChatWindow() {
   const {
     chats, contacts, messages, sendMessage, typingContacts,
     setActiveChatId, contactInfoOpen, setContactInfoOpen,
-    replyTo, setReplyTo, reactToMessage, clearChat
+    replyTo, setReplyTo, reactToMessage, clearChat,
+    addMessagesToChat
   } = useApp();
 
   const [text, setText] = useState('');
@@ -45,6 +46,7 @@ export default function ChatWindow() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState(0);
+  const [activeUploads, setActiveUploads] = useState<Array<{ uploadId: string; name: string; size: number }>>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(true);
   
@@ -110,8 +112,14 @@ export default function ChatWindow() {
             const beforeTimestamp = typeof oldestMessage.timestamp === 'number' 
               ? oldestMessage.timestamp 
               : new Date(oldestMessage.timestamp || Date.now()).getTime();
-            
+
             const result = await idbPaginator.loadBefore(chatId, beforeTimestamp, 50);
+            // Merge paginator results into messages state
+            if (result.items && result.items.length > 0) {
+              // Use context helper to merge older messages
+              addMessagesToChat(chatId, result.items as any);
+            }
+
             if (result.items.length < 50) {
               setHasOlderMessages(false);
             }
@@ -213,8 +221,20 @@ export default function ChatWindow() {
       const uploadId = `upload_${Date.now()}`;
       const abortController = new AbortController();
       mediaValidator.registerUpload(uploadId, abortController, file.size);
+      setActiveUploads(prev => [...prev, { uploadId, name: file.name, size: file.size }]);
 
-      sendMessage(chatId, '', 'image', {}, file);
+      try {
+        await sendMessage(chatId, '', 'image', {}, file);
+      } finally {
+        // Ensure unregister is always called
+        try {
+          mediaValidator.unregisterUpload(uploadId, file.size);
+        } catch (err) {
+          console.warn('Failed to unregister upload:', err);
+        }
+        setActiveUploads(prev => prev.filter(u => u.uploadId !== uploadId));
+      }
+
       setShowAttachSheet(false);
       e.target.value = '';
     } catch (error: any) {
@@ -240,8 +260,19 @@ export default function ChatWindow() {
       const uploadId = `upload_${Date.now()}`;
       const abortController = new AbortController();
       mediaValidator.registerUpload(uploadId, abortController, file.size);
+      setActiveUploads(prev => [...prev, { uploadId, name: file.name, size: file.size }]);
 
-      sendMessage(chatId, `📎 ${file.name}`, 'document', {});
+      try {
+        await sendMessage(chatId, `📎 ${file.name}`, 'document', {}, file);
+      } finally {
+        try {
+          mediaValidator.unregisterUpload(uploadId, file.size);
+        } catch (err) {
+          console.warn('Failed to unregister upload:', err);
+        }
+        setActiveUploads(prev => prev.filter(u => u.uploadId !== uploadId));
+      }
+
       setShowAttachSheet(false);
       e.target.value = '';
     } catch (error: any) {
@@ -254,6 +285,16 @@ export default function ChatWindow() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
     if (e.key === 'Escape') { setReplyTo(null); setShowEmojiPicker(false); }
+  };
+
+  const cancelUpload = (uploadId: string, size: number) => {
+    try {
+      mediaValidator.cancelUpload(uploadId);
+      mediaValidator.unregisterUpload(uploadId, size);
+    } catch (err) {
+      console.warn('Cancel upload failed:', err);
+    }
+    setActiveUploads(prev => prev.filter(u => u.uploadId !== uploadId));
   };
 
   const handleBack = () => {
@@ -506,6 +547,12 @@ export default function ChatWindow() {
           style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E")`, backgroundColor: 'var(--wa-bg-main)' }}
           onClick={() => { setShowAttachSheet(false); setShowEmojiPicker(false); setShowHeaderMenu(false); }}
         >
+          {isLoadingMessages && (
+            <div className="w-full flex items-center justify-center py-2">
+              <div className="h-8 w-8 rounded-full border-4 border-t-transparent border-wa-border animate-spin" />
+            </div>
+          )}
+
           {chatMessages.map((msg, idx) => (
             <MessageBubble
               key={msg.id} message={msg} contact={contact} contacts={contacts}
@@ -569,6 +616,19 @@ export default function ChatWindow() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {activeUploads.length > 0 && (
+          <div className="px-3 py-2 bg-wa-header border-t border-wa-border/5">
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+              {activeUploads.map(u => (
+                <div key={u.uploadId} className="flex items-center gap-2 bg-[#11161a] text-wa-text-muted px-3 py-2 rounded-md border border-wa-border/20">
+                  <div className="min-w-0 truncate text-sm" style={{ maxWidth: 200 }}>{u.name}</div>
+                  <button onClick={() => cancelUpload(u.uploadId, u.size)} className="text-wa-text-muted hover:text-wa-primary p-1">✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex items-end gap-2 px-3 py-3 pb-8 bg-wa-header shrink-0 border-t border-wa-border/5">
           {sendError && (

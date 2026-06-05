@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Phone, MoreVertical, PenSquare, ArrowLeft, X, Search, AtSign, UserPlus, Check, Clock } from 'lucide-react';
+import { MessageSquare, Phone, MoreVertical, PenSquare, ArrowLeft, X, Search, AtSign, UserPlus, Check, Clock, Users, Circle } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import ChatList from './ChatList';
 import CallsTab from './CallsTab';
+import StatusTab from './StatusTab';
 import SettingsPage from './SettingsPage';
 import MessageRequests from './MessageRequests';
 import Avatar from './Avatar';
@@ -19,6 +20,7 @@ export default function LeftPanel() {
     setActiveChatId,
     chatRequests, sendChatRequest,
     showRequests, setShowRequests,
+    createGroup,
   } = useApp();
 
   const [showMenu, setShowMenu] = useState(false);
@@ -28,9 +30,16 @@ export default function LeftPanel() {
   const [idQuery, setIdQuery] = useState('');
   const [idResult, setIdResult] = useState<typeof contacts[0] | null>(null);
   const [idNotFound, setIdNotFound] = useState(false);
-  // Settings subpage state lifted up to LeftPanel so overlay covers full panel
   const [settingsSubPage, setSettingsSubPage] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Group creation state
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupDescription, setGroupDescription] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [groupSearch, setGroupSearch] = useState('');
+  const [creatingGroup, setCreatingGroup] = useState(false);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -45,12 +54,18 @@ export default function LeftPanel() {
 
   const tabs = [
     { id: 'chats', icon: MessageSquare, label: 'Chats' },
+    { id: 'status', icon: Circle, label: 'Status' },
     { id: 'calls', icon: Phone, label: 'Calls' },
   ] as const;
 
   const menuItems = [
-    { label: 'New Group', action: () => { setShowMenu(false); setShowNewChat(true); } },
+    { label: 'New Group', action: () => { setShowMenu(false); setShowCreateGroup(true); } },
     { label: 'Starred messages', action: () => { setShowMenu(false); setActiveTab('settings'); } },
+    { label: 'Settings', action: () => { setShowMenu(false); setActiveTab('settings'); } },
+  ];
+
+  const statusMenuItems = [
+    { label: 'Status privacy', action: () => { setShowMenu(false); setActiveTab('settings'); } },
     { label: 'Settings', action: () => { setShowMenu(false); setActiveTab('settings'); } },
   ];
 
@@ -111,66 +126,108 @@ export default function LeftPanel() {
               </button>
               <h1 className="text-wa-primary ml-2" style={{ fontSize: '1.15rem', fontWeight: 700 }}>Settings</h1>
             </div>
-          ) : (
-          <div className="flex items-center justify-between px-4 py-3">
-            <button onClick={() => setActiveTab('settings')} className="hover:opacity-80 transition-opacity">
-              <div className="w-9 h-9 rounded-full bg-wa-secondary flex items-center justify-center overflow-hidden border border-wa-border/20">
-                {currentUser.avatar ? (
-                  <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-wa-primary" style={{ fontSize: '0.9rem', fontWeight: 700 }}>
-                    {currentUser.name ? currentUser.name[0].toUpperCase() : 'M'}
-                  </span>
-                )}
-              </div>
-            </button>
+          ) : activeTab === 'status' ? (
+            <div className="flex items-center justify-between px-4 py-3">
+              <button onClick={() => setActiveTab('settings')} className="hover:opacity-80 transition-opacity">
+                <div className="w-9 h-9 rounded-full bg-wa-secondary flex items-center justify-center overflow-hidden border border-wa-border/20">
+                  {currentUser.avatar ? (
+                    <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-wa-primary" style={{ fontSize: '0.9rem', fontWeight: 700 }}>
+                      {currentUser.name ? currentUser.name[0].toUpperCase() : 'M'}
+                    </span>
+                  )}
+                </div>
+              </button>
 
-            <h1 className="text-wa-primary" style={{ fontSize: '1.1rem', fontWeight: 700 }}>
-              {activeTab === 'chats' ? 'WhatsApp' : 'Calls'}
-            </h1>
+              <h1 className="text-wa-primary" style={{ fontSize: '1.1rem', fontWeight: 700 }}>Status</h1>
 
-            <div className="flex items-center gap-1">
-              {activeTab === 'chats' && (
-                <button
-                  onClick={() => setShowNewChat(true)}
-                  className="text-wa-header-icon hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"
-                  title="New chat"
-                >
-                  <PenSquare size={18} />
-                </button>
-              )}
-              <div className="relative" ref={menuRef}>
-                <button
-                  onClick={() => setShowMenu(v => !v)}
-                  className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}
-                >
-                  <MoreVertical size={18} />
-                </button>
-                {showMenu && (
-                  <div className="absolute right-0 top-full mt-1 w-52 bg-[#233138] rounded-xl shadow-2xl overflow-hidden z-50 border border-wa-border">
-                    {menuItems.map(item => (
-                      <button
-                        key={item.label}
-                        onClick={item.action}
-                        className="w-full text-left px-5 py-3.5 text-wa-primary hover:bg-[#2A3942] transition-colors"
-                        style={{ fontSize: '0.9rem' }}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+              <div className="flex items-center gap-1">
+                <div className="relative" ref={menuRef}>
+                  <button
+                    onClick={() => setShowMenu(v => !v)}
+                    className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}
+                  >
+                    <MoreVertical size={18} />
+                  </button>
+                  {showMenu && (
+                    <div className="absolute right-0 top-full mt-1 w-52 bg-[#233138] rounded-xl shadow-2xl overflow-hidden z-50 border border-wa-border">
+                      {statusMenuItems.map(item => (
+                        <button
+                          key={item.label}
+                          onClick={item.action}
+                          className="w-full text-left px-5 py-3.5 text-wa-primary hover:bg-[#2A3942] transition-colors"
+                          style={{ fontSize: '0.9rem' }}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-    )}
+          ) : (
+            <div className="flex items-center justify-between px-4 py-3">
+              <button onClick={() => setActiveTab('settings')} className="hover:opacity-80 transition-opacity">
+                <div className="w-9 h-9 rounded-full bg-wa-secondary flex items-center justify-center overflow-hidden border border-wa-border/20">
+                  {currentUser.avatar ? (
+                    <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-wa-primary" style={{ fontSize: '0.9rem', fontWeight: 700 }}>
+                      {currentUser.name ? currentUser.name[0].toUpperCase() : 'M'}
+                    </span>
+                  )}
+                </div>
+              </button>
+
+              <h1 className="text-wa-primary" style={{ fontSize: '1.1rem', fontWeight: 700 }}>
+                {activeTab === 'chats' ? 'WhatsApp' : 'Calls'}
+              </h1>
+
+              <div className="flex items-center gap-1">
+                {activeTab === 'chats' && (
+                  <button
+                    onClick={() => setShowNewChat(true)}
+                    className="text-wa-header-icon hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"
+                    title="New chat"
+                  >
+                    <PenSquare size={18} />
+                  </button>
+                )}
+                <div className="relative" ref={menuRef}>
+                  <button
+                    onClick={() => setShowMenu(v => !v)}
+                    className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}
+                  >
+                    <MoreVertical size={18} />
+                  </button>
+                  {showMenu && (
+                    <div className="absolute right-0 top-full mt-1 w-52 bg-[#233138] rounded-xl shadow-2xl overflow-hidden z-50 border border-wa-border">
+                      {menuItems.map(item => (
+                        <button
+                          key={item.label}
+                          onClick={item.action}
+                          className="w-full text-left px-5 py-3.5 text-wa-primary hover:bg-[#2A3942] transition-colors"
+                          style={{ fontSize: '0.9rem' }}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-hidden relative">
         {activeTab === 'chats' && !showRequests && <ChatList />}
         {activeTab === 'chats' && showRequests && <MessageRequests />}
+        {activeTab === 'status' && <StatusTab />}
         {activeTab === 'calls' && <CallsTab />}
         {activeTab === 'settings' && !settingsSubPage && <SettingsPage onSubPageChange={setSettingsSubPage} />}
       </div>
@@ -423,6 +480,164 @@ export default function LeftPanel() {
                 )}
               </div>
             )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Create Group overlay ── */}
+      <AnimatePresence>
+        {showCreateGroup && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ duration: 0.22, ease: 'easeInOut' }}
+            className="absolute inset-0 bg-wa-main flex flex-col z-40"
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 py-4 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border/10">
+              <button onClick={() => { setShowCreateGroup(false); setGroupName(''); setGroupDescription(''); setSelectedMembers([]); setGroupSearch(''); }} className="text-wa-header-icon hover:text-wa-primary p-1">
+                <ArrowLeft size={20} />
+              </button>
+              <span className="text-wa-primary" style={{ fontSize: '1.05rem', fontWeight: 700 }}>New Group</span>
+            </div>
+
+            {/* Group name & description */}
+            <div className="px-4 py-4 border-b border-wa-border/10">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-12 h-12 rounded-full bg-[#4d91fb]/20 flex items-center justify-center">
+                  <Users size={24} className="text-[#4d91fb]" />
+                </div>
+                <input
+                  type="text"
+                  value={groupName}
+                  onChange={e => setGroupName(e.target.value)}
+                  placeholder="Group name"
+                  className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted/50 font-bold"
+                  style={{ fontSize: '1rem' }}
+                  maxLength={30}
+                />
+              </div>
+              <input
+                type="text"
+                value={groupDescription}
+                onChange={e => setGroupDescription(e.target.value)}
+                placeholder="Group description (optional)"
+                className="w-full bg-transparent outline-none text-wa-text-muted placeholder-wa-text-muted/40"
+                style={{ fontSize: '0.85rem' }}
+                maxLength={100}
+              />
+            </div>
+
+            {/* Selected members chips */}
+            {selectedMembers.length > 0 && (
+              <div className="px-4 py-2 flex gap-2 flex-wrap border-b border-wa-border/10">
+                {selectedMembers.map(memberId => {
+                  const member = contacts.find(c => c.id === memberId);
+                  return (
+                    <button
+                      key={memberId}
+                      onClick={() => setSelectedMembers(prev => prev.filter(id => id !== memberId))}
+                      className="flex items-center gap-1.5 bg-[#4d91fb]/10 text-[#4d91fb] rounded-full px-3 py-1 text-xs font-medium"
+                    >
+                      {member?.name || memberId}
+                      <X size={12} />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Search & member list */}
+            <div className="px-4 py-2">
+              <div className="flex items-center gap-2 bg-wa-header rounded-xl px-4 py-2">
+                <Search size={16} className="text-wa-text-muted" />
+                <input
+                  type="text"
+                  value={groupSearch}
+                  onChange={e => setGroupSearch(e.target.value)}
+                  placeholder="Search contacts to add"
+                  className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]"
+                  style={{ fontSize: '0.9rem' }}
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {contacts.filter(c => !c.isGroup && c.name.toLowerCase().includes(groupSearch.toLowerCase())).map(contact => {
+                const isSelected = selectedMembers.includes(contact.id);
+                return (
+                  <button
+                    key={contact.id}
+                    onClick={() => {
+                      setSelectedMembers(prev =>
+                        isSelected ? prev.filter(id => id !== contact.id) : [...prev, contact.id]
+                      );
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 transition-colors border-b border-wa-border/10 text-left ${isSelected ? 'bg-[#4d91fb]/10' : 'hover:bg-wa-secondary/50'}`}
+                  >
+                    <div className="relative">
+                      <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={44} isOnline={contact.isOnline} />
+                      {isSelected && (
+                        <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-[#4d91fb] rounded-full flex items-center justify-center border-2 border-wa-main">
+                          <Check size={10} className="text-white" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-wa-primary" style={{ fontWeight: 500 }}>{contact.name}</p>
+                      <p className="text-wa-text-muted" style={{ fontSize: '0.75rem' }}>{contact.userId}</p>
+                    </div>
+                  </button>
+                );
+              })}
+              {contacts.filter(c => !c.isGroup).length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 gap-2 text-wa-text-muted">
+                  <Users size={32} className="opacity-30" />
+                  <p style={{ fontSize: '0.9rem' }}>No contacts yet</p>
+                  <p style={{ fontSize: '0.75rem' }}>Add friends first to create a group</p>
+                </div>
+              )}
+            </div>
+
+            {/* Create button */}
+            <div className="px-4 py-4 border-t border-wa-border/10">
+              <button
+                onClick={async () => {
+                  if (!groupName.trim() || selectedMembers.length === 0) return;
+                  setCreatingGroup(true);
+                  try {
+                    const groupId = await createGroup(groupName.trim(), groupDescription.trim(), selectedMembers);
+                    setShowCreateGroup(false);
+                    setGroupName('');
+                    setGroupDescription('');
+                    setSelectedMembers([]);
+                    setGroupSearch('');
+                    setActiveChatId(groupId);
+                    navigate(`/app/chat/${groupId}`);
+                  } catch (err: any) {
+                    alert('Failed to create group: ' + err.message);
+                  } finally {
+                    setCreatingGroup(false);
+                  }
+                }}
+                disabled={!groupName.trim() || selectedMembers.length === 0 || creatingGroup}
+                className={`w-full py-3.5 rounded-full flex items-center justify-center gap-2 font-bold transition-all ${
+                  groupName.trim() && selectedMembers.length > 0 && !creatingGroup
+                    ? 'bg-[#00A884] text-white shadow-lg active:scale-95'
+                    : 'bg-wa-secondary text-wa-text-muted'
+                }`}
+              >
+                {creatingGroup ? (
+                  <div className="w-5 h-5 rounded-full border-2 border-t-transparent border-wa-text-muted animate-spin" />
+                ) : (
+                  <>
+                    <Users size={18} />
+                    Create Group ({selectedMembers.length} member{selectedMembers.length !== 1 ? 's' : ''})
+                  </>
+                )}
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

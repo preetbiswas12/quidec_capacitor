@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import {
   X, Phone, Video, Search, Bell, Trash2, MessageSquare,
   FileText, ExternalLink, Download, Image as ImageIcon, Link as LinkIcon,
-  Camera, Edit3, Check, ChevronRight, ShieldAlert,
+  Camera, Edit3, Check, ChevronRight, ShieldAlert, LogOut, UserPlus,
 } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
@@ -22,13 +22,17 @@ type MediaTab = 'media' | 'docs' | 'links';
 
 export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }: Props) {
   const navigate = useNavigate();
-  const { contacts, messages, updateContact } = useApp();
+  const { contacts, messages, updateContact, updateGroupInfo, addGroupMembers, removeGroupMember, leaveGroup, currentUser } = useApp();
   const contact = contacts.find(c => c.id === contactId);
   const [isMuted, setIsMuted] = useState(false);
   const [mediaTab, setMediaTab] = useState<MediaTab>('media');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [editingGroupName, setEditingGroupName] = useState(false);
   const [groupNameEdit, setGroupNameEdit] = useState('');
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionEdit, setDescriptionEdit] = useState('');
+  const [showAddMembers, setShowAddMembers] = useState(false);
+  const [addMemberSearch, setAddMemberSearch] = useState('');
   const groupIconInputRef = useRef<HTMLInputElement>(null);
 
   if (!contact) return null;
@@ -99,13 +103,41 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
         </div>
 
         <div className="mt-6 text-center">
-          <h2 className="text-wa-primary" style={{ fontSize: '1.6rem', fontWeight: 800, letterSpacing: '-0.5px' }}>
-            {contact.name}
-          </h2>
+          {contact.isGroup && editingGroupName ? (
+            <div className="flex items-center justify-center gap-2">
+              <input
+                value={groupNameEdit}
+                onChange={e => setGroupNameEdit(e.target.value)}
+                className="bg-wa-secondary text-wa-primary rounded-lg px-3 py-1 outline-none border border-[#4d91fb] text-center font-bold"
+                style={{ fontSize: '1.2rem' }}
+                maxLength={30}
+                autoFocus
+              />
+              <button onClick={async () => {
+                if (groupNameEdit.trim() && groupNameEdit !== contact.name) {
+                  await updateGroupInfo(contactId, { name: groupNameEdit.trim() });
+                }
+                setEditingGroupName(false);
+              }} className="w-8 h-8 bg-[#4d91fb] rounded-full flex items-center justify-center">
+                <Check size={14} className="text-white" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center gap-2">
+              <h2 className="text-wa-primary" style={{ fontSize: '1.6rem', fontWeight: 800, letterSpacing: '-0.5px' }}>
+                {contact.name}
+              </h2>
+              {contact.isGroup && (
+                <button onClick={() => { setGroupNameEdit(contact.name); setEditingGroupName(true); }} className="text-wa-text-muted hover:text-wa-primary p-1">
+                  <Edit3 size={16} />
+                </button>
+              )}
+            </div>
+          )}
           {!contact.isGroup && (
             <p className="text-wa-text-muted mt-1 font-medium" style={{ fontSize: '1rem' }}>{contact.userId}</p>
           )}
-          {contact.isGroup && (
+          {contact.isGroup && !editingGroupName && (
             <p className="text-[#4d91fb] mt-1 font-bold" style={{ fontSize: '0.85rem' }}>
               {contact.members?.length} MEMBERS
             </p>
@@ -129,18 +161,178 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
         </div>
       </div>
 
-      {/* ── About ── */}
+      {/* ── About / Description ── */}
       <div className="px-5 py-6 border-b border-wa-border/10">
-        <p className="text-[#4d91fb] mb-2" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
-          {contact.isGroup ? 'DESCRIPTION' : 'ABOUT'}
-        </p>
-        <p className="text-wa-primary leading-relaxed" style={{ fontSize: '1rem' }}>{contact.about || 'No description provided.'}</p>
-        {!contact.isGroup && (
-          <p className="text-wa-text-muted mt-2" style={{ fontSize: '0.8rem' }}>
-            {contact.isOnline ? 'Active now' : `Last seen ${contact.lastSeen}`}
-          </p>
+        {contact.isGroup && editingGroupName ? (
+          <div className="flex items-center gap-2">
+            <input
+              value={groupNameEdit}
+              onChange={e => setGroupNameEdit(e.target.value)}
+              className="flex-1 bg-wa-secondary text-wa-primary rounded-lg px-3 py-2 outline-none border border-[#4d91fb]"
+              style={{ fontSize: '0.95rem' }}
+              maxLength={30}
+              autoFocus
+            />
+            <button onClick={async () => {
+              if (groupNameEdit.trim() && groupNameEdit !== contact.name) {
+                await updateGroupInfo(contactId, { name: groupNameEdit.trim() });
+              }
+              setEditingGroupName(false);
+            }} className="w-9 h-9 bg-[#4d91fb] rounded-full flex items-center justify-center">
+              <Check size={16} className="text-white" />
+            </button>
+          </div>
+        ) : contact.isGroup && editingDescription ? (
+          <div>
+            <input
+              value={descriptionEdit}
+              onChange={e => setDescriptionEdit(e.target.value)}
+              className="w-full bg-wa-secondary text-wa-primary rounded-lg px-3 py-2 outline-none border border-[#4d91fb]"
+              style={{ fontSize: '0.95rem' }}
+              maxLength={100}
+              autoFocus
+            />
+            <div className="flex gap-2 mt-2">
+              <button onClick={async () => {
+                if (descriptionEdit !== contact.about) {
+                  await updateGroupInfo(contactId, { description: descriptionEdit.trim() });
+                }
+                setEditingDescription(false);
+              }} className="px-4 py-1.5 bg-[#4d91fb] text-white rounded-lg text-sm">Save</button>
+              <button onClick={() => setEditingDescription(false)} className="px-4 py-1.5 bg-wa-secondary text-wa-text-muted rounded-lg text-sm">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[#4d91fb]" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                {contact.isGroup ? 'DESCRIPTION' : 'ABOUT'}
+              </p>
+              {contact.isGroup && (
+                <button onClick={() => { setDescriptionEdit(contact.about); setEditingDescription(true); }} className="text-wa-text-muted hover:text-wa-primary">
+                  <Edit3 size={14} />
+                </button>
+              )}
+            </div>
+            <p className="text-wa-primary leading-relaxed" style={{ fontSize: '1rem' }}>{contact.about || 'No description provided.'}</p>
+            {!contact.isGroup && (
+              <p className="text-wa-text-muted mt-2" style={{ fontSize: '0.8rem' }}>
+                {contact.isOnline ? 'Active now' : `Last seen ${contact.lastSeen}`}
+              </p>
+            )}
+          </>
         )}
       </div>
+
+      {/* ── Group Members ── */}
+      {contact.isGroup && (
+        <div className="px-5 py-6 border-b border-wa-border/10">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[#4d91fb]" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
+              {contact.members?.length || 0} MEMBERS
+            </p>
+            <button
+              onClick={() => setShowAddMembers(true)}
+              className="flex items-center gap-1 text-[#4d91fb] text-sm font-medium"
+            >
+              <UserPlus size={14} />
+              Add
+            </button>
+          </div>
+          <div className="space-y-1">
+            {contact.members?.map((memberId: string) => {
+              const member = contacts.find(c => c.id === memberId);
+              const isCurrentUser = memberId === currentUser?.userId;
+              return (
+                <div key={memberId} className="flex items-center gap-3 py-2">
+                  <Avatar src={member?.avatar || null} name={member?.name || 'Unknown'} color={member?.avatarColor || '#8696A0'} size={36} isOnline={member?.isOnline} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-wa-primary text-sm font-medium truncate">
+                      {member?.name || memberId}
+                      {isCurrentUser && <span className="text-wa-text-muted font-normal"> (You)</span>}
+                    </p>
+                    {member?.isOnline && (
+                      <p className="text-[#4d91fb] text-xs">online</p>
+                    )}
+                  </div>
+                  {!isCurrentUser && contact.members!.length > 2 && (
+                    <button
+                      onClick={async () => {
+                        if (window.confirm(`Remove ${member?.name || memberId} from the group?`)) {
+                          await removeGroupMember(contactId, memberId);
+                        }
+                      }}
+                      className="text-wa-text-muted hover:text-red-400 p-1"
+                      title="Remove from group"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Add Members overlay ── */}
+      {showAddMembers && (
+        <div className="fixed inset-0 bg-black/50 flex items-end z-50">
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            className="w-full bg-wa-main rounded-t-2xl p-4 max-h-[70vh] flex flex-col"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-wa-primary font-bold">Add Members</h3>
+              <button onClick={() => { setShowAddMembers(false); setAddMemberSearch(''); }} className="text-wa-text-muted p-1">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 bg-wa-header rounded-xl px-4 py-2 mb-3">
+              <Search size={16} className="text-wa-text-muted" />
+              <input
+                type="text"
+                value={addMemberSearch}
+                onChange={e => setAddMemberSearch(e.target.value)}
+                placeholder="Search contacts"
+                className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]"
+                style={{ fontSize: '0.9rem' }}
+                autoFocus
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {contacts
+                .filter(c => !c.isGroup && !contact.members?.includes(c.id) && c.name.toLowerCase().includes(addMemberSearch.toLowerCase()))
+                .map(contact => (
+                  <button
+                    key={contact.id}
+                    onClick={async () => {
+                      await addGroupMembers(contactId, [contact.id]);
+                      setShowAddMembers(false);
+                      setAddMemberSearch('');
+                    }}
+                    className="w-full flex items-center gap-3 px-2 py-3 hover:bg-wa-secondary/50 transition-colors text-left"
+                  >
+                    <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={40} isOnline={contact.isOnline} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-wa-primary text-sm font-medium">{contact.name}</p>
+                      <p className="text-wa-text-muted text-xs">{contact.userId}</p>
+                    </div>
+                    <UserPlus size={16} className="text-[#4d91fb]" />
+                  </button>
+                ))}
+              {contacts.filter(c => !c.isGroup && !contact.members?.includes(c.id)).length === 0 && (
+                <div className="text-center py-8 text-wa-text-muted text-sm">
+                  All contacts are already in this group
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* ── Media, Docs & Links ── */}
       <div className="px-5 py-6 border-b border-wa-border/10">
@@ -198,17 +390,32 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
           <span className="font-medium">Block {contact.name}</span>
         </div>
 
-        <div
-          onClick={() => {
-            toast.info('Delete chat', {
-              description: 'Chat deletion feature coming soon!',
-            });
-          }}
-          className="flex items-center gap-4 py-4 text-red-500 cursor-pointer hover:bg-wa-secondary/30 transition-colors"
-        >
-          <Trash2 size={20} />
-          <span className="font-medium">Delete chat</span>
-        </div>
+        {contact.isGroup ? (
+          <div
+            onClick={async () => {
+              if (window.confirm('Are you sure you want to leave this group?')) {
+                await leaveGroup(contactId);
+                onClose();
+              }
+            }}
+            className="flex items-center gap-4 py-4 text-red-500 cursor-pointer hover:bg-wa-secondary/30 transition-colors"
+          >
+            <LogOut size={20} />
+            <span className="font-medium">Leave Group</span>
+          </div>
+        ) : (
+          <div
+            onClick={() => {
+              toast.info('Delete chat', {
+                description: 'Chat deletion feature coming soon!',
+              });
+            }}
+            className="flex items-center gap-4 py-4 text-red-500 cursor-pointer hover:bg-wa-secondary/30 transition-colors"
+          >
+            <Trash2 size={20} />
+            <span className="font-medium">Delete chat</span>
+          </div>
+        )}
       </div>
 
       {/* ── Image Lightbox ── */}

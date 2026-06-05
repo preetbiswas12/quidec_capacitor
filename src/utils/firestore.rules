@@ -47,6 +47,26 @@ service cloud.firestore {
         allow write: if isUser(uid);
         allow delete: if isUser(uid);
       }
+
+      // Nested call history subcollection (private to owner)
+      match /callHistory/{callId} {
+        allow read: if isUser(uid);
+        allow create: if isUser(uid);
+        allow delete: if isUser(uid);
+      }
+
+      // Nested statuses subcollection (visible to friends, writable by owner)
+      match /statuses/{statusId} {
+        allow read: if isUser(uid) || isFriend(uid);
+        allow create: if isUser(uid) &&
+                         request.resource.data.uid == uid;
+        allow update: if isUser(uid) || (
+                         // Allow friends to add themselves to viewedBy array
+                         request.auth.uid in resource.data.viewedBy == false &&
+                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewedBy'])
+                       );
+        allow delete: if isUser(uid);
+      }
     }
 
     // ========== FRIENDSHIPS COLLECTION ==========
@@ -90,6 +110,15 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.resource.data.uploadedBy == request.auth.uid;
       allow delete: if isUser(resource.data.uploadedBy);
+    }
+
+    // ========== CALLS COLLECTION ==========
+    // Active call sessions (ringing/accepted) — visible to caller & receiver
+    match /calls/{callId} {
+      allow read: if isUser(resource.data.callerId) || isUser(resource.data.receiverId);
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.callerId;
+      allow update: if isUser(resource.data.callerId) || isUser(resource.data.receiverId);
+      allow delete: if isUser(resource.data.callerId) || isUser(resource.data.receiverId);
     }
 
     // ========== BLOCKED USERS COLLECTION ==========

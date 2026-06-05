@@ -54,12 +54,12 @@ export class PeerServiceImpl {
           },
           {
             urls: [
-              'turn:free.expressturn.com:3478',
-              'turn:free.expressturn.com:3479?transport=tcp',
-              'turns:free.expressturn.com:5349',
+              import.meta.env.VITE_TURN_URL_1 || 'turn:free.expressturn.com:3478',
+              import.meta.env.VITE_TURN_URL_2 || 'turn:free.expressturn.com:3479?transport=tcp',
+              import.meta.env.VITE_TURN_URL_3 || 'turns:free.expressturn.com:5349',
             ],
-            username: '0000000020932600049',
-            credential: 'K8KMvixuaPZkje9gjLJojFTM0+Y=',
+            username: import.meta.env.VITE_TURN_USERNAME || '',
+            credential: import.meta.env.VITE_TURN_CREDENTIAL || '',
           },
         ];
 
@@ -76,9 +76,10 @@ export class PeerServiceImpl {
           key: peerServerKey,
           secure: peerServerSecure,
           config: {
-            // CRITICAL: Force all ICE traffic through TURN relay
-            // This is essential for users 4k-5k km apart on carrier NATs
-            iceTransportPolicy: 'relay',
+            // Use P2P first, fall back to TURN only when direct connection fails.
+            // 'relay' forces all traffic through TURN which overloads free servers.
+            // For 2-4 users, P2P will work in most cases.
+            iceTransportPolicy: 'all',
             iceCandidatePoolSize: 10,
             bundlePolicy: 'max-bundle',
             rtcpMuxPolicy: 'require',

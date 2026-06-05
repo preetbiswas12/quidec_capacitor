@@ -69,5 +69,20 @@ service cloud.firestore {
         isOwner(resource.data.metadata.uploadedBy) || isOwner(resource.data.metadata.intendedFor)
       );
     }
+
+    // ─── Groups ──────────────────────────────────────────────────────────────
+    match /groups/{groupId} {
+      // Members can read group info; only admins can update metadata
+      allow read: if isAuthenticated() && request.auth.uid in resource.data.members;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && request.auth.uid in resource.data.admins;
+      allow delete: if isAuthenticated() && request.auth.uid == resource.data.creatorId;
+
+      // Group messages subcollection
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
+        allow create: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
+      }
+    }
   }
 }

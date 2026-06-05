@@ -23,7 +23,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
   const { id: routeCallId } = useParams<{ id?: string }>();
   const { id: routeRemoteId } = useParams<{ id: string; }>();
   const navigate = useNavigate();
-  const { currentUser, contacts } = useApp();
+  const { currentUser, contacts, saveCallRecord } = useApp();
 
   const callId = props.callId || routeCallId || `call_${Date.now()}`;
   const remoteUserId = props.remotePeerId || routeRemoteId;
@@ -221,6 +221,9 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
               setErrorMessage(err.message);
               setCallState('error');
               await firebaseCallManager.endCall(callId);
+              if (currentUser && remoteUserId) {
+                saveCallRecord(remoteUserId, 'video', 'outgoing', 0).catch(() => {});
+              }
             }
           } else if (callData.status === 'rejected' || callData.status === 'missed') {
             console.log('Call rejected or missed');
@@ -338,8 +341,13 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
       // Stop media tracks
       stopMediaTracks();
 
-      // Update Firestore
+      // Update Firestore call session
       await firebaseCallManager.endCall(callId);
+
+      // Save call history record with duration
+      if (currentUser && remoteUserId) {
+        saveCallRecord(remoteUserId, 'video', isIncoming ? 'incoming' : 'outgoing', duration).catch(() => {});
+      }
 
       // Cleanup
       if (timerRef.current) clearInterval(timerRef.current);

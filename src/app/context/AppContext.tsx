@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import services from '../../utils/firebaseServices';
-const { messageService, authService, presenceService, friendRequestService, typingService, userService } = services;
+const { messageService, authService, presenceService, friendRequestService, typingService, userService, groupService, statusService, callService } = services;
 import { getDoc, doc, query, collection, where, getDocs } from 'firebase/firestore';
 import { db } from '../../utils/firebase';
 import { initializePushNotifications } from '../../utils/fcm';
@@ -149,6 +149,10 @@ interface AppContextType {
   chats: Chat[];
   messages: Record<string, Message[]>;
   calls: CallRecord[];
+  activeIncomingCall: CallRecord | null;
+  clearIncomingCall: () => void;
+  saveCallRecord: (contactId: string, type: 'voice' | 'video', direction: 'incoming' | 'outgoing' | 'missed', duration?: number) => Promise<void>;
+  clearAllCalls: () => Promise<void>;
   statuses: Status[];
 
   // Chat Requests
@@ -159,8 +163,8 @@ interface AppContextType {
   pendingIncomingCount: number;
 
   // UI State
-  activeTab: 'chats' | 'calls' | 'settings';
-  setActiveTab: (tab: 'chats' | 'calls' | 'settings') => void;
+  activeTab: 'chats' | 'calls' | 'status' | 'settings';
+  setActiveTab: (tab: 'chats' | 'calls' | 'status' | 'settings') => void;
   activeChatId: string | null;
   setActiveChatId: (id: string | null) => void;
   showRequests: boolean;
@@ -168,17 +172,37 @@ interface AppContextType {
 
   // Messaging
   sendMessage: (chatId: string, content: string, type?: Message['type'], extra?: Partial<Message>, mediaFile?: File) => Promise<void>;
+  addMessagesToChat: (chatId: string, items: Message[]) => void;
   reactToMessage: (chatId: string, messageId: string, emoji: string) => Promise<void>;
   markAsRead: (chatId: string) => Promise<void>;
   clearAllChats: () => Promise<void>;
   clearChat: (chatId: string) => Promise<void>;
   typingContacts: Record<string, boolean>;
 
+  // Groups
+  groups: any[];
+  groupMessages: Record<string, Message[]>;
+  createGroup: (name: string, description: string, memberIds: string[]) => Promise<string>;
+  sendGroupMessage: (groupId: string, content: string, type?: Message['type'], extra?: Partial<Message>) => Promise<void>;
+  addGroupMembers: (groupId: string, memberIds: string[]) => Promise<void>;
+  removeGroupMember: (groupId: string, memberId: string) => Promise<void>;
+  leaveGroup: (groupId: string) => Promise<void>;
+  updateGroupInfo: (groupId: string, updates: { name?: string; description?: string; avatar?: string }) => Promise<void>;
+  markGroupRead: (groupId: string) => Promise<void>;
+
   // Search & Filters
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   chatFilter: 'all' | 'unread' | 'groups';
   setChatFilter: (f: 'all' | 'unread' | 'groups') => void;
+
+  // Status / Stories
+  myStatuses: Status[];
+  addStatus: (content: string, type: 'text' | 'image', backgroundColor?: string, mediaFile?: File) => Promise<void>;
+  deleteMyStatus: (statusId: string) => Promise<void>;
+  viewStatus: (contactId: string, statusId: string) => void;
+  activeStatusViewer: { contactId: string; statusIndex: number } | null;
+  setActiveStatusViewer: (viewer: { contactId: string; statusIndex: number } | null) => void;
 
   // Contact Info
   contactInfoOpen: boolean;
@@ -274,11 +298,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [statuses, setStatuses] = useState<Status[]>([]);
 
+  // Group Data
+  const [groups, setGroups] = useState<any[]>([]);
+  const [groupMessages, setGroupMessages] = useState<Record<string, Message[]>>({});
+
   // Chat Requests
   const [chatRequests, setChatRequests] = useState<ChatRequest[]>([]);
 
+  // Call State
+  const [activeIncomingCall, setActiveIncomingCall] = useState<CallRecord | null>(null);
+
+  // Status State
+  const [myStatuses, setMyStatuses] = useState<Status[]>([]);
+  const [activeStatusViewer, setActiveStatusViewer] = useState<{ contactId: string; statusIndex: number } | null>(null);
+
   // UI State
-  const [activeTab, setActiveTab] = useState<'chats' | 'calls' | 'settings'>('chats');
+  const [activeTab, setActiveTab] = useState<'chats' | 'calls' | 'status' | 'settings'>('chats');
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [showRequests, setShowRequests] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -308,6 +343,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const friendsUnsubscribeRef = useRef<(() => void) | null>(null);
   const requestsUnsubscribeRef = useRef<(() => void) | null>(null);
   const conversationsUnsubscribeRef = useRef<(() => void) | null>(null);
+  const statusUnsubscribeRef = useRef<(() => void) | null>(null);
+  const statusListenersRef = useRef<Record<string, () => void>>({});
+  const callHistoryUnsubscribeRef = useRef<(() => void) | null>(null);
+  const incomingCallUnsubscribeRef = useRef<(() => void) | null>(null);
+
+  // ─── Helper: merge messages into a chat (used by pagination/local store)
+  const addMessagesToChat = useCallback((chatId: string, items: Message[]) => {
+    if (!chatId || !items || items.length === 0) return;
+    setMessages(prev => {
+      const existing = prev[chatId] || [];
+      // Prepend older items, dedupe by id and sort by timestamp
+      const merged = [...items, ...existing];
+      const map = new Map<string, Message>();
+      merged.forEach((m) => map.set(m.id, m));
+      const combined = Array.from(map.values());
+      combined.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      return { ...prev, [chatId]: combined };
+    });
+  }, []);
 
   // ─── Auth Methods ─────────────────────────────────────────────────────────
 
@@ -686,6 +740,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [currentUser, chats]);
 
+  // ─── Group Messages Listener ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!currentUser || groups.length === 0) return;
+
+    const unsubscribers = groups.map((group) => {
+      return groupService.listenToGroupMessages(group.groupId, (msgs) => {
+        const mappedMessages: Message[] = msgs.map((raw: any) => ({
+          id: raw.messageId || raw.id,
+          chatId: raw.groupId,
+          senderId: raw.senderId,
+          content: raw.content || '',
+          type: raw.messageType || 'text',
+          timestamp: raw.timestamp || new Date().toISOString(),
+          status: 'sent',
+          imageUrl: raw.mediaUrl || undefined,
+          replyToId: raw.replyToId || undefined,
+          replyToContent: raw.replyToContent || undefined,
+          replyToSender: raw.replyToSender || undefined,
+        }));
+
+        setGroupMessages(prev => ({
+          ...prev,
+          [group.groupId]: mappedMessages,
+        }));
+
+        // Also update the main messages map so ChatWindow can render
+        setMessages(prev => ({
+          ...prev,
+          [group.groupId]: mappedMessages,
+        }));
+
+        // Update chat preview
+        if (mappedMessages.length > 0) {
+          const lastMsg = mappedMessages[mappedMessages.length - 1];
+          setChats(prev => prev.map(c =>
+            c.id === group.groupId
+              ? {
+                  ...c,
+                  lastMessage: lastMsg.content,
+                  lastMessageTime: lastMsg.timestamp,
+                  lastMessageSender: lastMsg.senderId,
+                  unreadCount: (activeChatId === group.groupId) ? 0 : (c.unreadCount + 1),
+                }
+              : c
+          ));
+        }
+      });
+    });
+
+    return () => {
+      unsubscribers.forEach(unsub => {
+        try { unsub(); } catch { /* ignore */ }
+      });
+    };
+  }, [currentUser, groups]);
+
   const completeOnboarding = useCallback((user: CurrentUser) => {
     setCurrentUser(user);
     setIsOnboarded(true);
@@ -918,11 +1028,139 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const unsubscribeSignaling = presenceService.listenToSignaling(uid, (data) => {
       if (data.type === 'webrtc-offer') {
         console.log('📞 Incoming call detected from:', data.fromUid);
-        // Automatically navigate to the call screen as the receiver
-        // We'll pass a 'received' flag so the screen knows to accept the offer
         navigate(`/call/${data.callType || 'video'}/${data.fromUid}?received=true`);
       }
     });
+
+    // 7. Listen to user's groups
+    const unsubscribeGroups = groupService.listenToUserGroups(uid, (userGroups) => {
+      setGroups(userGroups);
+      // Sync groups into contacts list so they appear in chat list
+      const groupContacts: Contact[] = userGroups.map((g: any) => ({
+        id: g.groupId,
+        userId: g.groupId,
+        name: g.name,
+        avatar: g.avatar || null,
+        avatarColor: getAvatarColor(g.groupId),
+        initials: getInitials(g.name),
+        isOnline: false,
+        lastSeen: '',
+        about: g.description || '',
+        isGroup: true,
+        members: g.members || [],
+      }));
+      // Merge group contacts with friend contacts (avoid duplicates)
+      setContacts(prev => {
+        const friendContacts = prev.filter(c => !c.isGroup);
+        const existingGroupIds = new Set(prev.filter(c => c.isGroup).map(c => c.id));
+        const newGroups = groupContacts.filter(gc => !existingGroupIds.has(gc.id));
+        // Update existing group contacts with fresh data
+        const updatedGroups = prev.filter(c => c.isGroup).map(c => {
+          const fresh = groupContacts.find(gc => gc.id === c.id);
+          return fresh || c;
+        });
+        return [...friendContacts, ...updatedGroups, ...newGroups];
+      });
+      // Create chat entries for groups that don't have one yet
+      setChats(prev => {
+        const existingGroupChatIds = new Set(prev.filter(c => {
+          const contact = contacts.find(ct => ct.id === c.contactId);
+          return contact?.isGroup;
+        }).map(c => c.id));
+        const newChatEntries: Chat[] = userGroups
+          .filter((g: any) => !existingGroupChatIds.has(g.groupId))
+          .map((g: any) => ({
+            id: g.groupId,
+            contactId: g.groupId,
+            lastMessage: g.lastMessage || '',
+            lastMessageTime: g.lastMessageTime ? new Date(g.lastMessageTime.seconds * 1000).toLocaleTimeString() : '',
+            lastMessageSender: g.lastMessageSender || '',
+            unreadCount: 0,
+          }));
+        return [...prev, ...newChatEntries];
+      });
+    });
+
+    // 8. Listen to my own statuses
+    statusUnsubscribeRef.current = statusService.listenToUserStatuses(uid, (rawStatuses) => {
+      const mapped: Status[] = rawStatuses.map((s: any) => ({
+        id: s.statusId || s.id,
+        contactId: uid,
+        content: s.content || '',
+        type: s.type || 'text',
+        backgroundColor: s.backgroundColor || '#00A884',
+        timestamp: normalizeFirestoreTimestamp(s.createdAt),
+        viewed: true, // my own statuses are always "viewed"
+      }));
+      setMyStatuses(mapped);
+    });
+
+    // 9. Listen to call history
+    callHistoryUnsubscribeRef.current = callService.listenToCallHistory(uid, (records) => {
+      const mapped: CallRecord[] = records.map((r: any) => ({
+        id: r.callId || r.id,
+        contactId: r.contactId,
+        type: r.type || 'voice',
+        direction: r.direction || 'outgoing',
+        duration: r.duration ? `${Math.floor(r.duration / 60)}:${(r.duration % 60).toString().padStart(2, '0')}` : undefined,
+        timestamp: normalizeFirestoreTimestamp(r.timestamp),
+      }));
+      setCalls(mapped);
+    });
+
+    // 10. Listen for incoming calls (ringing)
+    incomingCallUnsubscribeRef.current = callService.listenToIncomingCalls(uid, (call) => {
+      if (!call) {
+        setActiveIncomingCall(null);
+        return;
+      }
+      const incoming: CallRecord = {
+        id: call.callId || call.id,
+        contactId: call.callerId,
+        type: call.callType || 'voice',
+        direction: 'incoming',
+        duration: undefined,
+        timestamp: new Date().toISOString(),
+      };
+      setActiveIncomingCall(incoming);
+    });
+
+    // 11. Listen to each friend's statuses
+    const friendUids: string[] = [];
+    const unsubFriendStatuses: Record<string, () => void> = {};
+
+    const setupFriendStatusListeners = (friendsList: string[]) => {
+      // Unsubscribe from old listeners that are no longer friends
+      Object.keys(statusListenersRef.current).forEach(friendUid => {
+        if (!friendsList.includes(friendUid)) {
+          statusListenersRef.current[friendUid]?.();
+          delete statusListenersRef.current[friendUid];
+        }
+      });
+      // Add listeners for new friends
+      friendsList.forEach(friendUid => {
+        if (statusListenersRef.current[friendUid]) return; // already listening
+        statusListenersRef.current[friendUid] = statusService.listenToUserStatuses(friendUid, (rawStatuses) => {
+          const mapped: Status[] = rawStatuses.map((s: any) => ({
+            id: s.statusId || s.id,
+            contactId: friendUid,
+            content: s.content || '',
+            type: s.type || 'text',
+            backgroundColor: s.backgroundColor || '#00A884',
+            timestamp: normalizeFirestoreTimestamp(s.createdAt),
+            viewed: (s.viewedBy || []).includes(uid),
+          }));
+          // Merge into the statuses state, replacing this friend's statuses
+          setStatuses(prev => {
+            const others = prev.filter(s => s.contactId !== friendUid);
+            return [...others, ...mapped];
+          });
+        });
+      });
+    };
+
+    // Initial setup from current contacts
+    setupFriendStatusListeners(friendUids);
 
     // Cleanup all listeners on unmount or user change
     return () => {
@@ -931,8 +1169,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       friendsUnsubscribeRef.current?.();
       requestsUnsubscribeRef.current?.();
       conversationsUnsubscribeRef.current?.();
+      statusUnsubscribeRef.current?.();
+      Object.values(statusListenersRef.current).forEach(unsub => unsub());
+      statusListenersRef.current = {};
+      callHistoryUnsubscribeRef.current?.();
+      incomingCallUnsubscribeRef.current?.();
       unsubscribeReceipts?.();
       unsubscribeSignaling();
+      unsubscribeGroups();
       unsubscribeAndroidSettings?.();
     };
   }, [currentUser, isOnboarded, navigate]);
@@ -956,12 +1200,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // ─── Group Methods (must be before sendMessage) ──────────────────────────
+
+  const sendGroupMessage = useCallback(
+    async (groupId: string, content: string, type: Message['type'] = 'text', extra?: Partial<Message>) => {
+      if (!currentUser) return;
+
+      const msgId = `gmsg-${Date.now()}`;
+      const msg: Message = {
+        id: msgId,
+        chatId: groupId,
+        senderId: currentUser.userId,
+        content,
+        type,
+        timestamp: new Date().toISOString(),
+        status: 'sent',
+        ...extra,
+      };
+
+      // Optimistic update
+      setMessages(prev => ({
+        ...prev,
+        [groupId]: [...(prev[groupId] || []), msg],
+      }));
+      setGroupMessages(prev => ({
+        ...prev,
+        [groupId]: [...(prev[groupId] || []), msg],
+      }));
+
+      // Send to Firestore
+      await groupService.sendGroupMessage(groupId, currentUser.userId, content, {
+        messageType: type,
+        mediaUrl: extra?.imageUrl || null,
+        replyToId: extra?.replyToId,
+        replyToContent: extra?.replyToContent,
+        replyToSender: extra?.replyToSender,
+      });
+    },
+    [currentUser]
+  );
+
   // ─── Chat Methods ─────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(
     async (chatId: string, content: string, type: Message['type'] = 'text', extra?: Partial<Message>, mediaFile?: File) => {
       if (!currentUser) return;
 
+      // Check if this is a group chat
+      const isGroupChat = groups.some(g => g.groupId === chatId);
+
+      if (isGroupChat) {
+        // Route to group messaging
+        await sendGroupMessage(chatId, content, type, extra);
+        return;
+      }
+
+      // ─── 1-on-1 messaging via RTDB transient pipe ───
       const msgId = `msg-${Date.now()}`;
       let finalImageUrl = extra?.imageUrl;
 
@@ -975,7 +1269,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             currentUser.userId,
             chatId
           );
-          finalImageUrl = mediaRef.fileId; // The hash reference
+          finalImageUrl = mediaRef.fileId;
         } catch (err) {
           console.error('❌ Media chunking failed:', err);
         }
@@ -999,8 +1293,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         [chatId]: [...(prev[chatId] || []), msg],
       }));
 
-      // 3. Persist locally (LOCAL-ONLY storage - .bin files)
-      // recordMessage saves to local .bin files only, NO Firebase storage
+      // 3. Persist locally
       messageService.recordMessage(currentUser.userId, chatId, content, {
         messageId: msgId,
         messageType: type,
@@ -1009,11 +1302,60 @@ export function AppProvider({ children }: { children: ReactNode }) {
         status: 'sent',
       }).catch(err => console.warn('⚠️ Local record failed:', err));
 
-      // 4. Push notification to recipient (FCM only)
+      // 4. Push notification to recipient
       messageService.sendPushNotification(chatId, currentUser.userId, content, type)
         .catch(err => console.warn('⚠️ Push notification failed:', err));
 
       console.log('📤 Message delivered via RTDB transient pipe + FCM notification');
+    },
+    [currentUser, groups, sendGroupMessage]
+  );
+
+  // ─── Group Methods ────────────────────────────────────────────────────────
+
+  const createGroup = useCallback(
+    async (name: string, description: string, memberIds: string[]): Promise<string> => {
+      if (!currentUser) throw new Error('Not authenticated');
+      const groupId = await groupService.createGroup(name, description, currentUser.userId, memberIds);
+      return groupId;
+    },
+    [currentUser]
+  );
+
+  const addGroupMembers = useCallback(
+    async (groupId: string, memberIds: string[]) => {
+      await groupService.addMembers(groupId, memberIds);
+    },
+    []
+  );
+
+  const removeGroupMember = useCallback(
+    async (groupId: string, memberId: string) => {
+      await groupService.removeMember(groupId, memberId);
+    },
+    []
+  );
+
+  const leaveGroup = useCallback(
+    async (groupId: string) => {
+      if (!currentUser) return;
+      await groupService.leaveGroup(groupId, currentUser.userId);
+    },
+    [currentUser]
+  );
+
+  const updateGroupInfo = useCallback(
+    async (groupId: string, updates: { name?: string; description?: string; avatar?: string }) => {
+      await groupService.updateGroup(groupId, updates);
+    },
+    []
+  );
+
+  const markGroupRead = useCallback(
+    async (groupId: string) => {
+      if (!currentUser) return;
+      await groupService.markGroupMessagesRead(groupId, currentUser.userId);
+      setChats(prev => prev.map(c => c.id === groupId ? { ...c, unreadCount: 0 } : c));
     },
     [currentUser]
   );
@@ -1064,17 +1406,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const markAsRead = useCallback(async (chatId: string) => {
     if (!currentUser) return;
-    const contactId = chats.find(c => c.id === chatId)?.contactId || chatId;
-    await messageService.markAllMessagesAsRead(chatId, currentUser.userId, contactId);
 
-    setChats((prev) =>
-      prev.map((c) =>
-        c.id === chatId
-          ? { ...c, unreadCount: 0 }
-          : c
-      )
-    );
-  }, [currentUser, chats]);
+    const isGroupChat = groups.some(g => g.groupId === chatId);
+
+    if (isGroupChat) {
+      await markGroupRead(chatId);
+    } else {
+      const contactId = chats.find(c => c.id === chatId)?.contactId || chatId;
+      await messageService.markAllMessagesAsRead(chatId, currentUser.userId, contactId);
+      setChats((prev) => prev.map(c => c.id === chatId ? { ...c, unreadCount: 0 } : c));
+    }
+  }, [currentUser, chats, groups, markGroupRead]);
 
   const clearAllChats = useCallback(async () => {
     if (!window.confirm('Are you sure you want to delete all messages? This cannot be undone.')) return;
@@ -1172,6 +1514,87 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }, [currentUser]);
 
+  // ─── Status Methods ──────────────────────────────────────────────────────
+
+  const addStatus = useCallback(
+    async (content: string, type: 'text' | 'image' = 'text', backgroundColor: string = '#00A884', mediaFile?: File) => {
+      if (!currentUser) return;
+
+      let mediaUrl: string | null = null;
+      if (mediaFile && type === 'image') {
+        try {
+          const mediaRef = await uploadMediaWithProgress(mediaFile, 'image', currentUser.userId, currentUser.userId);
+          mediaUrl = mediaRef.fileId;
+        } catch (err) {
+          console.error('❌ Media upload for status failed:', err);
+        }
+      }
+
+      await statusService.createStatus(currentUser.userId, content, type, backgroundColor, mediaUrl);
+
+      // Optimistically add to local state
+      const newStatus: Status = {
+        id: `status_${Date.now()}`,
+        contactId: currentUser.userId,
+        content,
+        type,
+        backgroundColor,
+        timestamp: new Date().toISOString(),
+        viewed: true,
+      };
+      setMyStatuses(prev => [newStatus, ...prev]);
+    },
+    [currentUser],
+  );
+
+  const deleteMyStatus = useCallback(async (statusId: string) => {
+    if (!currentUser) return;
+    await statusService.deleteStatus(currentUser.userId, statusId);
+    setMyStatuses(prev => prev.filter(s => s.id !== statusId));
+    setStatuses(prev => prev.filter(s => !(s.contactId === currentUser.userId && s.id === statusId)));
+  }, [currentUser]);
+
+  const viewStatus = useCallback((contactId: string, statusId: string) => {
+    if (!currentUser) return;
+    // Mark as viewed in Firestore
+    statusService.markStatusViewed(contactId, statusId, currentUser.userId);
+    // Update local state
+    setStatuses(prev =>
+      prev.map(s => (s.id === statusId && s.contactId === contactId ? { ...s, viewed: true } : s))
+    );
+  }, [currentUser]);
+
+  // ─── Call Methods ────────────────────────────────────────────────────────
+
+  const clearIncomingCall = useCallback(() => {
+    setActiveIncomingCall(null);
+  }, []);
+
+  const saveCallRecord = useCallback(
+    async (contactId: string, type: 'voice' | 'video', direction: 'incoming' | 'outgoing' | 'missed', duration?: number) => {
+      if (!currentUser) return;
+      const contact = contacts.find(c => c.id === contactId);
+      await callService.saveCallRecord(currentUser.userId, {
+        callId: `call_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        contactId,
+        contactName: contact?.name || 'Unknown',
+        contactAvatar: contact?.avatar || undefined,
+        type,
+        direction,
+        duration,
+        timestamp: new Date().toISOString(),
+      });
+    },
+    [currentUser, contacts],
+  );
+
+  const clearAllCalls = useCallback(async () => {
+    if (!currentUser) return;
+    if (!window.confirm('Clear all call history? This cannot be undone.')) return;
+    await callService.clearCallHistory(currentUser.userId);
+    setCalls([]);
+  }, [currentUser]);
+
   // ─── User Discovery (#6) ──────────────────────────────────────────────────
 
   const searchUsers = useCallback(async (query: string) => {
@@ -1266,6 +1689,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     chats,
     messages,
     calls,
+    activeIncomingCall,
+    clearIncomingCall,
+    saveCallRecord,
+    clearAllCalls,
     statuses,
     searchUsers,
     chatRequests,
@@ -1284,17 +1711,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
     markAsRead,
     clearAllChats,
     clearChat,
+    addMessagesToChat,
     typingContacts,
     searchQuery,
     setSearchQuery,
     chatFilter,
     setChatFilter,
+    myStatuses,
+    addStatus,
+    deleteMyStatus,
+    viewStatus,
+    activeStatusViewer,
+    setActiveStatusViewer,
     contactInfoOpen,
     setContactInfoOpen,
     replyTo,
     setReplyTo,
     settings,
     updateSettings,
+    groups,
+    groupMessages,
+    createGroup,
+    sendGroupMessage,
+    addGroupMembers,
+    removeGroupMember,
+    leaveGroup,
+    updateGroupInfo,
+    markGroupRead,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

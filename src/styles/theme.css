@@ -51,19 +51,19 @@
 
 .dark {
   /* WhatsApp Dark Theme */
-  --wa-bg-main: #0B141A;
-  --wa-bg-secondary: #111B21;
-  --wa-bg-header: #202C33;
-  --wa-bg-chat: #0B141A;
+  --wa-bg-main: #000000;
+  --wa-bg-secondary: #000000;
+  --wa-bg-header: #000000;
+  --wa-bg-chat: #000000;
   --wa-bg-bubble-self: #005C4B;
-  --wa-bg-bubble-other: #202C33;
+  --wa-bg-bubble-other: #050505;
   --wa-text-primary: #E9EDEF;
   --wa-text-secondary: #AEBAC1;
   --wa-text-muted: #8696A0;
-  --wa-border: #2A3942;
+  --wa-border: #0F0F0F;
   --wa-accent: #4d91fb;
   --wa-header-icon: #AEBAC1;
-  --wa-input-bg: #2A3942;
+  --wa-input-bg: #050505;
 
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);

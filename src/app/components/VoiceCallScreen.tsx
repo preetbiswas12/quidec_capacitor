@@ -12,7 +12,7 @@ import services from '../../utils/firebaseServices';
 export default function VoiceCallScreen() {
   const { id: contactId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { contacts, currentUser } = useApp();
+  const { contacts, currentUser, saveCallRecord } = useApp();
   const contact = contacts.find(c => c.id === contactId) || (contactId === currentUser?.userId && currentUser ? {
     id: currentUser.userId,
     userId: currentUser.userId,
@@ -67,9 +67,12 @@ export default function VoiceCallScreen() {
           iceServers: [
             { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
             {
-              urls: ['turn:free.expressturn.com:3478', 'turn:free.expressturn.com:3479?transport=tcp'],
-              username: '0000000020932600049',
-              credential: 'K8KMvixuaPZkje9gjLJojFTM0+Y=',
+              urls: [
+                import.meta.env.VITE_TURN_URL_1 || 'turn:free.expressturn.com:3478',
+                import.meta.env.VITE_TURN_URL_2 || 'turn:free.expressturn.com:3479?transport=tcp',
+              ],
+              username: import.meta.env.VITE_TURN_USERNAME || '',
+              credential: import.meta.env.VITE_TURN_CREDENTIAL || '',
             },
           ],
         });
@@ -187,6 +190,13 @@ export default function VoiceCallScreen() {
   const handleEndCall = () => {
     setCallState('ended');
     clearInterval(timerRef.current);
+
+    // Save call record (even if duration is 0 — it's still a call attempt)
+    if (currentUser && contactId) {
+      const isReceiver = new URLSearchParams(window.location.search || window.location.hash.split('?')[1]).get('received') === 'true';
+      saveCallRecord(contactId, 'voice', isReceiver ? 'incoming' : 'outgoing', duration).catch(() => {});
+    }
+
     setTimeout(() => navigate(-1), 1500);
   };
 

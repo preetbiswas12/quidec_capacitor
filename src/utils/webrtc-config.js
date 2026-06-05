@@ -21,16 +21,15 @@ export const WEBRTC_CONFIG = {
       ],
     },
     // TURN servers for relay (when direct connection impossible)
-    // Express TURN - FREE tier
-    // https://expressturn.com/
+    // Configure via environment variables — do NOT hardcode credentials
     {
       urls: [
-        'turn:free.expressturn.com:3478',
-        'turn:free.expressturn.com:3479?transport=tcp',
-        'turns:free.expressturn.com:5349',
+        import.meta.env.VITE_TURN_URL_1 || 'turn:free.expressturn.com:3478',
+        import.meta.env.VITE_TURN_URL_2 || 'turn:free.expressturn.com:3479?transport=tcp',
+        import.meta.env.VITE_TURN_URL_3 || 'turns:free.expressturn.com:5349',
       ],
-      username: '0000000020932600049',
-      credential: 'K8KMvixuaPZkje9gjLJojFTM0+Y=',
+      username: import.meta.env.VITE_TURN_USERNAME || '',
+      credential: import.meta.env.VITE_TURN_CREDENTIAL || '',
     },
   ],
 

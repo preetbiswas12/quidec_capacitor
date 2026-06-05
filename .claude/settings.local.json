@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Skill(superpowers:systematic-debugging)"
+      "Skill(superpowers:systematic-debugging)",
+      "Bash(dir C:UserspreetDownloadsquide_devquidec_capacitor *)",
+      "WebSearch"
     ]
   }
 }

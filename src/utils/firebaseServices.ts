@@ -99,6 +99,18 @@ function sanitizePathComponent(component: string): string {
 }
 
 /**
+ * Normalize Firestore timestamps to ISO strings
+ */
+function normalizeFirestoreTimestamp(value: any): string {
+  if (!value) return new Date().toISOString();
+  if (typeof value === 'string') return value;
+  if (typeof value.toDate === 'function') return value.toDate().toISOString();
+  if (typeof value.seconds === 'number') return new Date(value.seconds * 1000).toISOString();
+  if (value instanceof Date) return value.toISOString();
+  return new Date(value).toISOString();
+}
+
+/**
  * Get the custom username (document ID) by Firebase UID
  * This is needed because user documents are keyed by custom username,
  * but we need to bind them with the Firebase UID
@@ -2390,6 +2402,509 @@ export const analyticsService = {
   },
 };
 
+// ============ GROUP SERVICES ============
+
+export const groupService = {
+  /**
+   * Create a new group
+   */
+  async createGroup(
+    groupName: string,
+    description: string,
+    creatorId: string,
+    memberIds: string[]
+  ): Promise<string> {
+    try {
+      const groupId = `group_${Date.now()}`;
+      const allMemberIds = [creatorId, ...memberIds.filter(id => id !== creatorId)];
+
+      await setDoc(doc(db, 'groups', groupId), {
+        groupId,
+        name: groupName,
+        description: description || '',
+        avatar: null,
+        creatorId,
+        members: allMemberIds,
+        admins: [creatorId],  // creator is admin
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      console.log(`✅ Group created: ${groupId}`);
+      return groupId;
+    } catch (error: any) {
+      console.error('❌ Error creating group:', error.message);
+      throw new Error(`Failed to create group: ${error.message}`);
+    }
+  },
+
+  /**
+   * Get group info
+   */
+  async getGroup(groupId: string): Promise<any> {
+    try {
+      const snap = await getDoc(doc(db, 'groups', groupId));
+      if (!snap.exists()) return null;
+      return { id: snap.id, ...snap.data() };
+    } catch (error: any) {
+      console.error('❌ Error getting group:', error.message);
+      return null;
+    }
+  },
+
+  /**
+   * Update group info (name, description, avatar)
+   */
+  async updateGroup(groupId: string, updates: { name?: string; description?: string; avatar?: string }): Promise<void> {
+    try {
+      await updateDoc(doc(db, 'groups', groupId), {
+        ...updates,
+        updatedAt: serverTimestamp(),
+      });
+      console.log(`✅ Group updated: ${groupId}`);
+    } catch (error: any) {
+      console.error('❌ Error updating group:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Add members to a group
+   */
+  async addMembers(groupId: string, memberIds: string[]): Promise<void> {
+    try {
+      const groupRef = doc(db, 'groups', groupId);
+      const groupSnap = await getDoc(groupRef);
+      if (!groupSnap.exists()) throw new Error('Group not found');
+
+      const existingMembers = groupSnap.data().members || [];
+      const newMembers = memberIds.filter(id => !existingMembers.includes(id));
+
+      if (newMembers.length > 0) {
+        await updateDoc(groupRef, {
+          members: arrayUnion(...newMembers),
+          updatedAt: serverTimestamp(),
+        });
+        console.log(`✅ Added ${newMembers.length} members to ${groupId}`);
+      }
+    } catch (error: any) {
+      console.error('❌ Error adding members:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Remove a member from a group
+   */
+  async removeMember(groupId: string, memberId: string): Promise<void> {
+    try {
+      const groupRef = doc(db, 'groups', groupId);
+      const groupSnap = await getDoc(groupRef);
+      if (!groupSnap.exists()) throw new Error('Group not found');
+
+      const data = groupSnap.data();
+      const updatedMembers = (data.members || []).filter((id: string) => id !== memberId);
+      const updatedAdmins = (data.admins || []).filter((id: string) => id !== memberId);
+
+      await updateDoc(groupRef, {
+        members: updatedMembers,
+        admins: updatedAdmins,
+        updatedAt: serverTimestamp(),
+      });
+      console.log(`✅ Removed member ${memberId} from ${groupId}`);
+    } catch (error: any) {
+      console.error('❌ Error removing member:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Leave group (remove self)
+   */
+  async leaveGroup(groupId: string, userId: string): Promise<void> {
+    await this.removeMember(groupId, userId);
+  },
+
+  /**
+   * Listen to groups that the user belongs to
+   */
+  listenToUserGroups(userId: string, callback: (groups: any[]) => void) {
+    const q = query(
+      collection(db, 'groups'),
+      where('members', 'array-contains', userId),
+      orderBy('updatedAt', 'desc')
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      const groups = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(groups);
+    }, (err) => {
+      console.error('❌ Error listening to groups:', err);
+      callback([]);
+    });
+  },
+
+  /**
+   * Send a message to a group
+   */
+  async sendGroupMessage(
+    groupId: string,
+    senderId: string,
+    content: string,
+    options: {
+      messageType?: string;
+      mediaUrl?: string | null;
+      replyToId?: string;
+      replyToContent?: string;
+      replyToSender?: string;
+    } = {}
+  ): Promise<string> {
+    try {
+      const messageId = `gmsg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+
+      const messageData = {
+        messageId,
+        groupId,
+        senderId,
+        content,
+        messageType: options.messageType || 'text',
+        mediaUrl: options.mediaUrl || null,
+        replyToId: options.replyToId || null,
+        replyToContent: options.replyToContent || null,
+        replyToSender: options.replyToSender || null,
+        timestamp: serverTimestamp(),
+        readBy: [senderId],
+      };
+
+      await setDoc(doc(db, 'groups', groupId, 'messages', messageId), messageData);
+
+      // Update group's last message
+      await updateDoc(doc(db, 'groups', groupId), {
+        lastMessage: content,
+        lastMessageSender: senderId,
+        lastMessageTime: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      console.log(`📤 Group message sent: ${messageId}`);
+      return messageId;
+    } catch (error: any) {
+      console.error('❌ Error sending group message:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Listen to group messages in real-time
+   */
+  listenToGroupMessages(groupId: string, callback: (messages: any[]) => void) {
+    const q = query(
+      collection(db, 'groups', groupId, 'messages'),
+      orderBy('timestamp', 'asc')
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      const messages = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          timestamp: normalizeFirestoreTimestamp(data.timestamp),
+        };
+      });
+      callback(messages);
+    }, (err) => {
+      console.error('❌ Error listening to group messages:', err);
+      callback([]);
+    });
+  },
+
+  /**
+   * Mark group messages as read
+   */
+  async markGroupMessagesRead(groupId: string, userId: string): Promise<void> {
+    try {
+      const q = query(
+        collection(db, 'groups', groupId, 'messages'),
+        orderBy('timestamp', 'desc'),
+        limit(50)
+      );
+      const snapshot = await getDocs(q);
+      const batch = writeBatch(db);
+
+      snapshot.docs.forEach(docSnap => {
+        const data = docSnap.data();
+        if (!data.readBy?.includes(userId)) {
+          batch.update(docSnap.ref, {
+            readBy: arrayUnion(userId),
+          });
+        }
+      });
+
+      await batch.commit();
+    } catch (err) {
+      console.warn('⚠️ Error marking group messages read:', err);
+    }
+  },
+};
+
+// ============ STATUS / STORIES SERVICES ============
+
+export const statusService = {
+  /**
+   * Post a new status for the current user.
+   * Stores in a top-level `statuses` sub-collection on the user doc:
+   *   users/{uid}/statuses/{statusId}
+   */
+  async createStatus(
+    uid: string,
+    content: string,
+    type: 'text' | 'image' = 'text',
+    backgroundColor: string = '#00A884',
+    mediaUrl: string | null = null,
+  ) {
+    try {
+      const statusId = `status_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const now = serverTimestamp();
+
+      const statusData: any = {
+        statusId,
+        uid,
+        content,
+        type,
+        backgroundColor,
+        createdAt: now,
+        expiresAt: Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000), // 24 h
+        viewedBy: [],
+      };
+
+      if (type === 'image' && mediaUrl) {
+        statusData.mediaUrl = mediaUrl;
+      }
+
+      await setDoc(doc(db, 'users', uid, 'statuses', statusId), statusData);
+      console.log(`✅ Status created: ${statusId}`);
+      return { success: true, statusId };
+    } catch (error: any) {
+      console.error('❌ Error creating status:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Fetch active (non-expired) statuses for a specific user.
+   */
+  async getUserStatuses(uid: string) {
+    try {
+      const now = Timestamp.now();
+      const q = query(
+        collection(db, 'users', uid, 'statuses'),
+        where('expiresAt', '>', now),
+        orderBy('createdAt', 'desc'),
+      );
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (error: any) {
+      console.error('❌ Error fetching user statuses:', error.message);
+      return [];
+    }
+  },
+
+  /**
+   * Listen to a user's active statuses in real-time.
+   */
+  listenToUserStatuses(uid: string, callback: (statuses: any[]) => void) {
+    const now = Timestamp.now();
+    const q = query(
+      collection(db, 'users', uid, 'statuses'),
+      where('expiresAt', '>', now),
+      orderBy('createdAt', 'desc'),
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      const statuses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      callback(statuses);
+    }, (err) => {
+      console.error('❌ Error listening to user statuses:', err);
+      callback([]);
+    });
+  },
+
+  /**
+   * Mark a status as viewed by the current user.
+   */
+  async markStatusViewed(statusOwnerUid: string, statusId: string, viewerUid: string) {
+    try {
+      const statusRef = doc(db, 'users', statusOwnerUid, 'statuses', statusId);
+      await updateDoc(statusRef, {
+        viewedBy: arrayUnion(viewerUid),
+      });
+    } catch (error: any) {
+      console.error('❌ Error marking status viewed:', error.message);
+    }
+  },
+
+  /**
+   * Delete a status (owner only).
+   */
+  async deleteStatus(uid: string, statusId: string) {
+    try {
+      await deleteDoc(doc(db, 'users', uid, 'statuses', statusId));
+      console.log(`✅ Status deleted: ${statusId}`);
+    } catch (error: any) {
+      console.error('❌ Error deleting status:', error.message);
+    }
+  },
+
+  /**
+   * Delete all expired statuses for a user (cleanup).
+   */
+  async deleteExpiredStatuses(uid: string) {
+    try {
+      const now = Timestamp.now();
+      const q = query(
+        collection(db, 'users', uid, 'statuses'),
+        where('expiresAt', '<=', now),
+      );
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) return;
+
+      const batch = writeBatch(db);
+      snapshot.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      console.log(`🧹 Deleted ${snapshot.size} expired statuses for ${uid}`);
+    } catch (error: any) {
+      console.error('❌ Error deleting expired statuses:', error.message);
+    }
+  },
+};
+
+// ============ CALL SERVICES ============
+
+export const callService = {
+  /**
+   * Save a call record to Firestore call history.
+   * Stores in users/{uid}/callHistory/{callId} so each user has their own history.
+   */
+  async saveCallRecord(uid: string, callData: {
+    callId: string;
+    contactId: string;
+    contactName: string;
+    contactAvatar?: string;
+    type: 'voice' | 'video';
+    direction: 'incoming' | 'outgoing' | 'missed';
+    duration?: number;
+    timestamp: any;
+  }) {
+    try {
+      const record: any = {
+        callId: callData.callId,
+        contactId: callData.contactId,
+        contactName: callData.contactName,
+        contactAvatar: callData.contactAvatar || null,
+        type: callData.type,
+        direction: callData.direction,
+        duration: callData.duration || 0,
+        timestamp: callData.timestamp || serverTimestamp(),
+      };
+      await setDoc(doc(db, 'users', uid, 'callHistory', callData.callId), record);
+    } catch (error: any) {
+      console.error('❌ Error saving call record:', error.message);
+    }
+  },
+
+  /**
+   * Fetch call history for a user (most recent first).
+   */
+  async getCallHistory(uid: string, limitCount: number = 50) {
+    try {
+      const q = query(
+        collection(db, 'users', uid, 'callHistory'),
+        orderBy('timestamp', 'desc'),
+        limit(limitCount),
+      );
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (error: any) {
+      console.error('❌ Error fetching call history:', error.message);
+      return [];
+    }
+  },
+
+  /**
+   * Listen to call history in real-time.
+   */
+  listenToCallHistory(uid: string, callback: (records: any[]) => void) {
+    const q = query(
+      collection(db, 'users', uid, 'callHistory'),
+      orderBy('timestamp', 'desc'),
+      limit(100),
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      const records = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      callback(records);
+    }, (err) => {
+      console.error('❌ Error listening to call history:', err);
+      callback([]);
+    });
+  },
+
+  /**
+   * Listen for incoming calls (ringing) directed at the current user.
+   * Watches the top-level `calls` collection for documents where receiverId == uid and status == 'ringing'.
+   */
+  listenToIncomingCalls(uid: string, callback: (call: any | null) => void) {
+    const q = query(
+      collection(db, 'calls'),
+      where('receiverId', '==', uid),
+      where('status', '==', 'ringing'),
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      if (snapshot.empty) {
+        callback(null);
+        return;
+      }
+      // Return the most recent ringing call
+      const calls: any[] = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      calls.sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
+      callback(calls[0]);
+    }, (err) => {
+      console.error('❌ Error listening to incoming calls:', err);
+      callback(null);
+    });
+  },
+
+  /**
+   * Delete a call record from history.
+   */
+  async deleteCallRecord(uid: string, callId: string) {
+    try {
+      await deleteDoc(doc(db, 'users', uid, 'callHistory', callId));
+    } catch (error: any) {
+      console.error('❌ Error deleting call record:', error.message);
+    }
+  },
+
+  /**
+   * Clear all call history for a user.
+   */
+  async clearCallHistory(uid: string) {
+    try {
+      const q = query(collection(db, 'users', uid, 'callHistory'));
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) return;
+      const batch = writeBatch(db);
+      snapshot.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      console.log(`🧹 Cleared ${snapshot.size} call records for ${uid}`);
+    } catch (error: any) {
+      console.error('❌ Error clearing call history:', error.message);
+    }
+  },
+};
+
 export default {
   authService,
   presenceService,
@@ -2400,5 +2915,8 @@ export default {
   userService,
   conversationService,
   analyticsService,
+  groupService,
+  statusService,
+  callService,
   generateUniqueUserId,
 };
