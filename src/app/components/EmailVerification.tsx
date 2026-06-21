@@ -200,7 +200,7 @@ export default function EmailVerification() {
           <LogOut size={16} />
           Use a different account
         </button>
-        <p className="text-[10px] uppercase tracking-widest font-black text-wa-text-muted">Quidec Secure Messaging</p>
+        <p className="text-[10px] uppercase tracking-widest font-black text-wa-text-muted">Veill Secure Messaging</p>
       </div>
     </div>
   );

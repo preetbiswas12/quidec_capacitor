@@ -450,7 +450,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
       const exportData = {
         version: '1.0',
         exportedAt: new Date().toISOString(),
-        app: 'Quidec',
+        app: 'Veill',
         chatCount: exported,
         failedChats: failed,
         chats: allChats
@@ -548,7 +548,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
             </div>
 
             {/* User ID - Sleek WhatsApp Style */}
-            <Section label="YOUR QUIDEC ID">
+            <Section label="YOUR VEILL ID">
               <div className="px-4 py-3.5 flex items-center justify-between gap-4 group">
                 <div className="flex items-center gap-4 min-w-0">
                   <div className="w-10 h-10 rounded-full bg-[#4d91fb]/10 flex items-center justify-center flex-shrink-0 border border-[#4d91fb]/20">
@@ -647,7 +647,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 <span>Delete Account</span>
               </button>
               <div className="text-center opacity-30">
-                <p className="text-wa-text-muted" style={{ fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>QUIDEC STABLE v1.0.0</p>
+                <p className="text-wa-text-muted" style={{ fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>VEILL STABLE v1.0.0</p>
               </div>
             </div>
             </Section>

@@ -159,7 +159,7 @@ jobs:
         id: release_notes
         run: |
           {
-            echo "## 🎉 Quidec v${{ needs.prepare.outputs.version }}"
+            echo "## 🎉 Veill v${{ needs.prepare.outputs.version }}"
             echo ""
             echo "### 📋 Release Information"
             echo "- **Version:** ${{ needs.prepare.outputs.version }}"
@@ -219,7 +219,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "❌ Release failed for Quidec v${{ needs.prepare.outputs.version }}",
+              "text": "❌ Release failed for Veill v${{ needs.prepare.outputs.version }}",
               "blocks": [
                 {
                   "type": "section",
@@ -239,7 +239,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "✅ Release successful for Quidec v${{ needs.prepare.outputs.version }}",
+              "text": "✅ Release successful for Veill v${{ needs.prepare.outputs.version }}",
               "blocks": [
                 {
                   "type": "section",

@@ -366,7 +366,7 @@ export default function LeftPanel() {
                 {/* Search input */}
                 <div className="px-4 pt-4 pb-3 flex-shrink-0">
                   <div className="bg-wa-secondary/30 rounded-2xl px-4 py-3">
-                    <p className="text-wa-text-muted mb-2" style={{ fontSize: '0.75rem', fontWeight: 600 }}>ENTER QUIDEC ID</p>
+                    <p className="text-wa-text-muted mb-2" style={{ fontSize: '0.75rem', fontWeight: 600 }}>ENTER VEILL ID</p>
                     <div className="flex items-center gap-2">
                       <AtSign size={16} className="text-[#4D91FB] flex-shrink-0" />
                       <input
@@ -427,7 +427,7 @@ export default function LeftPanel() {
                     </div>
                     <p className="text-wa-primary" style={{ fontSize: '1.2rem', fontWeight: 700 }}>No user found</p>
                     <p className="text-wa-text-muted" style={{ fontSize: '0.9rem', lineHeight: '1.5' }}>
-                      We couldn't find a Quidec user with the ID <span className="text-wa-primary font-bold">@{idQuery}</span>. Please verify the spelling and try again.
+                      We couldn't find a Veill user with the ID <span className="text-wa-primary font-bold">@{idQuery}</span>. Please verify the spelling and try again.
                     </p>
                   </div>
                 )}

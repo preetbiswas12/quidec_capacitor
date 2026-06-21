@@ -625,7 +625,7 @@ export default function ChatWindow() {
           break;
       }
       await Share.share({
-        title: 'Quidec Message',
+        title: 'Veill Message',
         text,
         url: msg.type === 'link' ? msg.linkUrl || undefined : (msg.imageUrl ? msg.imageUrl : undefined),
         dialogTitle: 'Share with friends',

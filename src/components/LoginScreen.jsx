@@ -84,7 +84,7 @@ export default function LoginScreen({ onLogin, onRegister, loading }) {
     <div className="login-screen">
       <div className="login-container">
         <div className="login-header">
-          <h1 className="login-title">🎭 Quidec</h1>
+          <h1 className="login-title">🎭 Veill</h1>
           <p className="login-subtitle">Encrypted Real-time Chat</p>
         </div>
 

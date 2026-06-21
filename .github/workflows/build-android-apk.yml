@@ -105,10 +105,17 @@ jobs:
           VITE_NOTIFY_URL: ${{ secrets.VITE_NOTIFY_URL }}
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
 
-      # ─── Sync Capacitor ──────────────────────────────────────────────────────
+      # ─── Create local.properties ─────────────────────────────────────────────
+      - name: Create local.properties
+        run: |
+          echo "sdk.dir=${{ env.ANDROID_HOME }}" > android/local.properties
+          echo "✅ local.properties created"
+
+      # ─── Clean old web assets ───────────────────────────────────────────────
       - name: Clean old web assets
         run: rm -rf android/app/src/main/assets/public
 
+      # ─── Sync Capacitor ──────────────────────────────────────────────────────
       - name: Sync Capacitor
         run: pnpm exec cap sync android
 
@@ -149,6 +156,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       # ─── Locate APK ──────────────────────────────────────────────────────────
       - name: Find APK

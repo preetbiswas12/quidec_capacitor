@@ -178,7 +178,7 @@ export default function Onboarding() {
           </svg>
         </div>
         <div className="text-center">
-          <h1 className="text-wa-primary mb-3" style={{ fontSize: '1.75rem', fontWeight: 700 }}>Welcome to Quidec</h1>
+          <h1 className="text-wa-primary mb-3" style={{ fontSize: '1.75rem', fontWeight: 700 }}>Welcome to Veill</h1>
           <p className="text-wa-text-secondary leading-relaxed" style={{ fontSize: '0.9rem' }}>
             Secure messaging powered by Firebase. Tap "Get Started" to create your account or login.
           </p>
@@ -214,7 +214,7 @@ export default function Onboarding() {
             {isLogin ? 'Welcome back' : 'Create account'}
           </h2>
           <p className="text-wa-text-secondary" style={{ fontSize: '0.875rem' }}>
-            {isLogin ? 'Login to your Quidec account' : 'Sign up for secure messaging'}
+            {isLogin ? 'Login to your Veill account' : 'Sign up for secure messaging'}
           </p>
         </div>
 
@@ -320,7 +320,7 @@ export default function Onboarding() {
         </form>
 
         <p className="text-wa-text-secondary text-sm pt-2">
-          {isLogin ? "New to Quidec?" : "Have an account?"}{' '}
+          {isLogin ? "New to Veill?" : "Have an account?"}{' '}
           <span
             className="text-[#4D91FB] font-semibold cursor-pointer"
             onClick={() => setIsLogin(!isLogin)}
@@ -375,7 +375,7 @@ export default function Onboarding() {
               <ul className="text-wa-text-secondary text-sm space-y-2.5">
                 <li className="flex gap-2">
                   <span className="w-5 h-5 rounded-full bg-[#4D91FB] text-white text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
-                  <span>Open your email app and find the mail from <b>Quidec</b>.</span>
+                  <span>Open your email app and find the mail from <b>Veill</b>.</span>
                 </li>
                 <li className="flex gap-2">
                   <span className="w-5 h-5 rounded-full bg-[#4D91FB] text-white text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
@@ -435,7 +435,7 @@ export default function Onboarding() {
         <div className="text-center">
           <h2 className="text-wa-primary mb-2" style={{ fontSize: '1.4rem', fontWeight: 700 }}>Almost there</h2>
           <p className="text-wa-text-secondary" style={{ fontSize: '0.875rem' }}>
-            Set your display name and your unique Quidec ID will be ready.
+            Set your display name and your unique Veill ID will be ready.
           </p>
         </div>
         <div className="w-full space-y-5">

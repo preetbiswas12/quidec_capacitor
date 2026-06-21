@@ -1,6 +1,6 @@
 /**
  * Firebase Messaging Service Worker
- * Handles background push notifications for Quidec.
+ * Handles background push notifications for Veill.
  *
  * The Render relay sends FCM with both `notification` (for display) and `data` (for app logic).
  * This service worker shows the notification and handles click-to-open.
@@ -35,7 +35,7 @@ messaging.onBackgroundMessage((payload) => {
     body,
     icon: '/manifest.json',
     badge: '/manifest.json',
-    tag: 'quidec-message',
+    tag: 'veill-message',
     requireInteraction: true,
     data: payload.data || {},  // { type: "new_video", fromName: "Preet" }
   };

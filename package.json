@@ -2,7 +2,7 @@
   "type": "module",
   "name": "octate-wee-web",
   "version": "1.0.0",
-  "description": "Free Cluely - Web version (React)",
+  "description": "Veill - Encrypted Real-time Messaging",
   "private": true,
   "engines": {
     "node": ">=22.0.0",

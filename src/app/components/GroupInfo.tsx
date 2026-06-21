@@ -105,8 +105,8 @@ export default function GroupInfo() {
     try {
       const { Share } = await import('@capacitor/share');
       await Share.share({
-        title: `Join ${group.name} on Quidec`,
-        text: `Join my Quidec group "${group.name}" using code: ${code}`,
+        title: `Join ${group.name} on Veill`,
+        text: `Join my Veill group "${group.name}" using code: ${code}`,
         dialogTitle: 'Invite to group',
       });
     } catch {

@@ -92,7 +92,7 @@ export default function SplashScreen() {
               transition={{ duration: 1.5, ease: "easeOut" }}
               className="flex items-center gap-3"
             >
-              <h1 className="text-wa-primary text-4xl font-black mb-1">QUIDEC</h1>
+              <h1 className="text-wa-primary text-4xl font-black mb-1">VEILL</h1>
             </motion.div>
             <motion.div 
               initial={{ width: 0 }}

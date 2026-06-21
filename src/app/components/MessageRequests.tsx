@@ -111,7 +111,7 @@ export default function MessageRequests() {
             <div>
               <p className="text-wa-primary font-bold" style={{ fontSize: '1.2rem' }}>No requests</p>
               <p className="text-wa-text-muted mt-2" style={{ fontSize: '0.9rem' }}>
-                When someone messages you using your Quidec ID, requests will appear here.
+                When someone messages you using your Veill ID, requests will appear here.
               </p>
             </div>
           </div>

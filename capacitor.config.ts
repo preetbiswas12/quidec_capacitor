@@ -1,5 +1,5 @@
 /**
- * Capacitor configuration for Quidec mobile app (iOS & Android)
+ * Capacitor configuration for Veill mobile app (iOS & Android)
  * See https://capacitorjs.com/docs/config
  * Build commands:
  *   pnpm build:web          - Build web app
@@ -14,7 +14,7 @@ import { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
   appId: 'com.quidec.chat',
-  appName: 'Quidec',
+  appName: 'Veill',
   webDir: 'dist',
   server: {
     androidScheme: 'https',

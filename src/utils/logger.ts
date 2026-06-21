@@ -1,5 +1,5 @@
 /**
- * Centralized Logger for Quidec
+ * Centralized Logger for Veill
  * - Log levels for filtering in production
  * - Automatic PII/sensitive data sanitization
  * - Timestamps and structured output

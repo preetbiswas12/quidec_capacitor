@@ -105,7 +105,7 @@ export default function Sidebar({
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h2>🎭 Quidec</h2>
+        <h2>🎭 Veill</h2>
       </div>
 
       <div className="user-info">

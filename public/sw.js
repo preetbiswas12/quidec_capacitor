@@ -1,4 +1,4 @@
-const CACHE_NAME = 'quidec-v2'
+const CACHE_NAME = 'veill-v1'
 const URLS_TO_CACHE = [
   '/',
   '/manifest.json',
@@ -110,13 +110,13 @@ self.addEventListener('push', (event) => {
     body: data.body,
     icon: '/icon-192x192.png',
     badge: '/icon-96x96.png',
-    tag: 'quidec-notification',
+    tag: 'veill-notification',
     requireInteraction: false,
     silent: false,
   }
 
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Quidec', options)
+    self.registration.showNotification(data.title || 'Veill', options)
   )
 })
 

@@ -1,6 +1,6 @@
 {
-  "name": "Quidec Chat",
-  "short_name": "Quidec",
+  "name": "Veill",
+  "short_name": "Veill",
   "description": "A real-time encrypted chat application",
   "start_url": "/",
   "display": "standalone",
