@@ -1154,48 +1154,78 @@ export function AppProvider({ children }: { children: ReactNode }) {
     initNotify();
 
     // 0.1 Initialize Android Settings Systems
+    // Each step is isolated so one failure doesn't crash the whole chain
     const initAndroidSettings = async () => {
+      let unsubscribeDevices: (() => void) | undefined;
+
       try {
         // Initialize notification channels for Android
-        await initializeNotificationChannels();
-        console.log('✅ Android notification channels initialized');
+        try {
+          await initializeNotificationChannels();
+          console.log('✅ Android notification channels initialized');
+        } catch (err) {
+          console.warn('⚠️ Notification channels init failed (non-fatal):', err);
+        }
 
         // Request notification permissions
-        const hasPermission = await requestNotificationPermissions();
-        console.log(`✅ Notification permission: ${hasPermission ? 'granted' : 'denied'}`);
+        try {
+          const hasPermission = await requestNotificationPermissions();
+          console.log(`✅ Notification permission: ${hasPermission ? 'granted' : 'denied'}`);
+        } catch (err) {
+          console.warn('⚠️ Notification permission request failed (non-fatal):', err);
+        }
 
         // Initialize settings persistence (load from native storage + Firebase)
-        const loadedSettings = await initSettingsPersistence(uid);
-        setSettings(prev => ({ ...prev, ...loadedSettings }));
-        console.log('✅ Settings loaded from native storage and Firebase');
+        try {
+          const loadedSettings = await initSettingsPersistence(uid);
+          setSettings(prev => ({ ...prev, ...loadedSettings }));
+          console.log('✅ Settings loaded from native storage and Firebase');
+        } catch (err) {
+          console.warn('⚠️ Settings persistence init failed (non-fatal):', err);
+        }
 
         // Load privacy settings
-        const privacySettings = await getPrivacySettings(uid);
-        console.log('✅ Privacy settings loaded');
+        try {
+          const privacySettings = await getPrivacySettings(uid);
+          console.log('✅ Privacy settings loaded');
+        } catch (err) {
+          console.warn('⚠️ Privacy settings load failed (non-fatal):', err);
+        }
 
         // Load account security settings
-        const securitySettings = await getAccountSecuritySettings(uid);
-        console.log('✅ Account security settings loaded');
+        try {
+          const securitySettings = await getAccountSecuritySettings(uid);
+          console.log('✅ Account security settings loaded');
+        } catch (err) {
+          console.warn('⚠️ Security settings load failed (non-fatal):', err);
+        }
 
         // Create device session for linked devices tracking
-        const pushToken = localStorage.getItem('fcm_token');
-        await createDeviceSession(uid, 'mobile', pushToken || undefined);
-        console.log('✅ Device session created for linked devices');
+        try {
+          const pushToken = localStorage.getItem('fcm_token');
+          await createDeviceSession(uid, 'mobile', pushToken || undefined);
+          console.log('✅ Device session created for linked devices');
+        } catch (err) {
+          console.warn('⚠️ Device session creation failed (non-fatal):', err);
+        }
 
         // Listen to device sessions for real-time updates
-        const unsubscribeDevices = listenToDeviceSessions(uid, (sessions) => {
-          console.log(`📱 Active devices: ${sessions.length}`);
-          // Could update app state with device list here
-        });
+        try {
+          unsubscribeDevices = listenToDeviceSessions(uid, (sessions) => {
+            console.log(`📱 Active devices: ${sessions.length}`);
+          });
+        } catch (err) {
+          console.warn('⚠️ Device session listener failed (non-fatal):', err);
+        }
 
-        // Cleanup device listeners on unmount
-        return unsubscribeDevices;
       } catch (err) {
-        console.warn('⚠️ Android settings init failed:', err);
+        console.error('❌ Unexpected error in Android settings init:', err);
       }
+
+      return unsubscribeDevices;
     };
 
-    // Execute async initialization
+    // Execute async initialization (errors are handled inside initAndroidSettings)
     let unsubscribeAndroidSettings: (() => void) | undefined;
     initAndroidSettings().then(unsubscribe => {
       unsubscribeAndroidSettings = unsubscribe;

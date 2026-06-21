@@ -43,7 +43,7 @@ const config: CapacitorConfig = {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
     LocalNotifications: {
-      smallIcon: 'ic_stat_icon_config_sample',
+      smallIcon: 'ic_stat_quidec_logo',
       iconColor: '#4d91fb',
       sound: 'beep.wav',
     },

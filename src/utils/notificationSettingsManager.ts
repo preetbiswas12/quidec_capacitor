@@ -37,6 +37,8 @@ export async function initializeNotificationChannels(): Promise<void> {
 
 /**
  * Create all required notification channels for Android
+ * Notification channels are only supported on Android 8+ (API 26+).
+ * Each channel is created independently so one failure doesn't break the others.
  */
 async function createNotificationChannels(): Promise<void> {
   const channels: NotificationChannelConfig[] = [
@@ -82,25 +84,42 @@ async function createNotificationChannels(): Promise<void> {
     },
   ];
 
+  // Notification channels are only available on Android 8+ (API 26+)
   try {
-    // Create channels on Android
-    if (LocalNotifications.createChannel) {
-      for (const channel of channels) {
-        await LocalNotifications.createChannel({
-          id: channel.id,
-          name: channel.name,
-          importance: getChannelImportance(channel.importance),
-          sound: channel.sound,
-          vibration: channel.vibration,
-          lightColor: channel.lightColor,
-          bypassDnd: channel.bypassDnd || false,
-        } as any);
-      }
-      console.log(`✅ Created ${channels.length} notification channels`);
+    const { Device } = await import('@capacitor/device');
+    const info = await Device.getInfo();
+    const apiLevel = (info as any).androidSDKVersion || 0;
+    if (apiLevel > 0 && apiLevel < 26) {
+      console.log(`📱 Android API ${apiLevel} (< 26): notification channels not supported, skipping`);
+      return;
     }
-  } catch (error) {
-    console.error('❌ Failed to create notification channels:', error);
+  } catch {
+    // If we can't detect API level, proceed anyway
   }
+
+  if (!LocalNotifications.createChannel) {
+    console.log('ℹ️ LocalNotifications.createChannel not available, skipping channel creation');
+    return;
+  }
+
+  let created = 0;
+  for (const channel of channels) {
+    try {
+      await LocalNotifications.createChannel({
+        id: channel.id,
+        name: channel.name,
+        importance: getChannelImportance(channel.importance),
+        sound: channel.sound,
+        vibration: channel.vibration,
+        lightColor: channel.lightColor,
+        bypassDnd: channel.bypassDnd || false,
+      } as any);
+      created++;
+    } catch (err) {
+      console.warn(`⚠️ Failed to create notification channel "${channel.id}":`, err);
+    }
+  }
+  console.log(`✅ Created ${created}/${channels.length} notification channels`);
 }
 
 /**
@@ -206,6 +225,8 @@ export async function getNotificationPermissionStatus(): Promise<'granted' | 'de
 
 /**
  * Request notification permissions on Android
+ * On Android 12 (API 32) and below, notifications are granted by default.
+ * On Android 13+ (API 33+), POST_NOTIFICATIONS permission must be requested at runtime.
  */
 export async function requestNotificationPermissions(): Promise<boolean> {
   try {
@@ -218,6 +239,18 @@ export async function requestNotificationPermissions(): Promise<boolean> {
       return true;
     }
 
+    // Check Android API level — POST_NOTIFICATIONS is only needed on API 33+
+    const { Device } = await import('@capacitor/device');
+    const info = await Device.getInfo();
+    const apiLevel = (info as any).androidSDKVersion || 0;
+
+    if (apiLevel > 0 && apiLevel < 33) {
+      // Android 12 and below: notifications are granted by default
+      console.log(`📱 Android API ${apiLevel} (< 33): notifications granted by default`);
+      return true;
+    }
+
+    // Android 13+: need to request POST_NOTIFICATIONS at runtime
     const result = await LocalNotifications.requestPermissions();
     const granted = result.display === 'granted';
     console.log(`${granted ? '✅' : '❌'} Notification permission: ${result.display}`);

@@ -38,43 +38,71 @@ export function setNotificationsEnabled(enabled) {
 
 /**
  * Initialize push notifications
+ * Each step is isolated so a failure in one doesn't prevent the others.
  */
 export async function initializePushNotifications(userId, key) {
   if (Capacitor.getPlatform() === 'web') {
     console.log('🌐 Web platform: push handled by service worker');
     return;
   }
+  encryptionKey = key;
+
+  // Step 1: Request permissions (safe — may already be granted)
   try {
-    encryptionKey = key;
-
     await PushNotifications.requestPermissions();
-    await PushNotifications.register();
+    console.log('✅ Push notification permissions requested');
+  } catch (err) {
+    console.warn('⚠️ Push notification permission request failed:', err);
+  }
 
+  // Step 2: Register for push (safe — may fail if permissions denied)
+  try {
+    await PushNotifications.register();
+    console.log('✅ Push notifications register called');
+  } catch (err) {
+    console.warn('⚠️ Push notification register failed:', err);
+  }
+
+  // Step 3: Listen for registration token
+  try {
     PushNotifications.addListener('registration', (token) => {
       console.log('✅ FCM Registration token:', token.value);
       sendTokenToBackend(userId, token.value);
     });
+  } catch (err) {
+    console.warn('⚠️ Failed to add registration listener:', err);
+  }
 
+  // Step 4: Listen for registration errors
+  try {
     PushNotifications.addListener('registrationError', (error) => {
       console.error('❌ FCM Registration error:', error.error);
     });
+  } catch (err) {
+    console.warn('⚠️ Failed to add registration error listener:', err);
+  }
 
-    // Foreground notification received
+  // Step 5: Listen for foreground notifications
+  try {
     PushNotifications.addListener('pushNotificationReceived', (notification) => {
       console.log('📬 Notification received in foreground:', notification);
       handleIncomingNotification(notification);
     });
+  } catch (err) {
+    console.warn('⚠️ Failed to add foreground notification listener:', err);
+  }
 
-    // User tapped notification
+  // Step 6: Listen for notification tap actions
+  try {
     PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
       console.log('🔔 Notification tapped:', notification);
       handleNotificationAction(notification);
     });
-
-    console.log('✅ Push notifications initialized');
   } catch (err) {
-    console.error('❌ Push notifications init failed:', err);
+    console.warn('⚠️ Failed to add notification action listener:', err);
   }
+
+  console.log('✅ Push notifications initialization complete');
 }
 
 /**
@@ -128,7 +156,7 @@ async function handleIncomingNotification(notification) {
       id: Date.now() % 100000,
       title: fromName,
       body,
-      smallIcon: 'ic_launcher',
+      smallIcon: 'ic_stat_quidec_logo',
       sound: true,
       vibrate: [200],
       extra: data,
@@ -170,7 +198,7 @@ export async function showLocalNotification(title, body, notificationId = null) 
         id: notificationId || (Date.now() % 100000),
         title,
         body,
-        smallIcon: 'ic_launcher',
+        smallIcon: 'ic_stat_quidec_logo',
       }],
     });
   } catch (err) {

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Shield, Lock, Cpu, Globe } from 'lucide-react';
 
 export default function SplashScreen() {
+  const [progress, setProgress] = useState(0);
   const [statusIdx, setStatusIdx] = useState(0);
   const statuses = [
     "Establishing Secure Connection",
@@ -12,11 +13,29 @@ export default function SplashScreen() {
     "Synchronizing Workspace"
   ];
 
+  // Simulate progressive loading that completes near the 2.5s mark
+  // but doesn't jump to 100% instantly — eases in as auth resolves
   useEffect(() => {
     const interval = setInterval(() => {
       setStatusIdx(prev => (prev + 1) % statuses.length);
     }, 600);
     return () => clearInterval(interval);
+  }, []);
+
+  // Gradual progress: climbs to ~80% over 2.5s, never pretends to be exact
+  useEffect(() => {
+    const startTime = Date.now();
+    const duration = 2500;
+    const tick = () => {
+      const elapsed = Date.now() - startTime;
+      const pct = Math.min(80, Math.round((elapsed / duration) * 80));
+      setProgress(pct);
+      if (elapsed < duration) {
+        requestAnimationFrame(tick);
+      }
+    };
+    const raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   return (
@@ -120,16 +139,14 @@ export default function SplashScreen() {
           {/* Precision Progress Bar */}
           <div className="w-64 flex flex-col gap-2">
             <div className="h-1 bg-wa-secondary/20 rounded-full overflow-hidden relative backdrop-blur-sm border border-wa-border/5">
-              <motion.div
-                initial={{ width: "0%" }}
-                animate={{ width: "100%" }}
-                transition={{ duration: 2.5, ease: "easeInOut" }}
-                className="h-full bg-gradient-to-r from-[#4D91FB]/50 to-[#4D91FB] shadow-[0_0_10px_#4D91FB]"
+              <div
+                style={{ width: `${progress}%` }}
+                className="h-full bg-gradient-to-r from-[#4D91FB]/50 to-[#4D91FB] shadow-[0_0_10px_#4D91FB] transition-width duration-100 ease-linear"
               />
             </div>
             <div className="flex justify-between px-1">
               <span className="text-wa-text-muted text-[8px] font-bold">SECURE_INIT_SEQ</span>
-              <motion.span 
+              <motion.span
                 animate={{ opacity: [1, 0.4, 1] }}
                 transition={{ duration: 0.5, repeat: Infinity }}
                 className="text-[#4D91FB] text-[8px] font-bold"
