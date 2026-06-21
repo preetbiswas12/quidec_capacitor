@@ -1,7 +1,7 @@
 /**
  * Error Monitoring with Sentry
  * Captures and reports all errors to Sentry for production debugging
- * 
+ *
  * Integration Points:
  * - All thrown exceptions caught
  * - React error boundaries
@@ -9,9 +9,22 @@
  * - Firebase errors
  * - Network failures
  * - User actions with breadcrumbs
+ *
+ * Safe to import even if @sentry/react is not installed — all Sentry
+ * calls are guarded and become no-ops when the SDK is absent.
  */
 
-import * as Sentry from '@sentry/react';
+// ─── Lazy Sentry import (optional dependency) ────────────────────────────────
+// @sentry/react is NOT a required dependency. If it's missing, every function
+// here degrades to a no-op so the app still builds and runs.
+let Sentry: typeof import('@sentry/react') | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  Sentry = require('@sentry/react');
+} catch {
+  // Package not installed — Sentry stays null, all calls below become no-ops.
+}
+
 import logger from './logger';
 
 /**
@@ -19,14 +32,19 @@ import logger from './logger';
  * Call this in main.tsx before rendering React
  */
 export function initializeSentry() {
+  if (!Sentry) {
+    logger.debug('errorMonitoring', '@sentry/react not installed — error monitoring disabled');
+    return;
+  }
+
   const isDevelopment = import.meta.env.MODE === 'development';
   const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
   const environment = import.meta.env.VITE_ENVIRONMENT || 'development';
-  
+
   // Only initialize in production or if DSN is explicitly set
   if (!sentryDsn) {
     if (!isDevelopment) {
-      logger.warn('errorMonitoring', 'Sentry DSN not configured - error monitoring disabled');
+      logger.warn('errorMonitoring', 'Sentry DSN not configured — error monitoring disabled');
     }
     return;
   }
@@ -35,12 +53,9 @@ export function initializeSentry() {
     Sentry.init({
       dsn: sentryDsn,
       environment,
-      tracesSampleRate: isDevelopment ? 1.0 : 0.1, // 10% in production, 100% in dev
-      integrations: [], // Minimal integrations for Sentry v10 compatibility
-      
-      // Don't capture errors from localhost/development
+      tracesSampleRate: isDevelopment ? 1.0 : 0.1,
+      integrations: [],
       ignoreErrors: isDevelopment ? [] : [
-        // Ignore known non-critical errors
         'ResizeObserver loop limit exceeded',
         'Non-Error promise rejection captured',
       ],
@@ -57,13 +72,9 @@ export function initializeSentry() {
  * Call this after user authentication
  */
 export function setUserContext(userId: string, username?: string, email?: string) {
+  if (!Sentry) return;
   try {
-    Sentry.setUser({
-      id: userId,
-      username: username || 'unknown',
-      email: email,
-    });
-
+    Sentry.setUser({ id: userId, username: username || 'unknown', email });
     logger.info('errorMonitoring', `User context set: ${username || userId}`);
   } catch (err) {
     logger.warn('errorMonitoring', `Failed to set user context: ${err}`);
@@ -74,6 +85,7 @@ export function setUserContext(userId: string, username?: string, email?: string
  * Clear user context on logout
  */
 export function clearUserContext() {
+  if (!Sentry) return;
   try {
     Sentry.setUser(null);
     logger.info('errorMonitoring', 'User context cleared');
@@ -89,20 +101,19 @@ export function addBreadcrumb(
   message: string,
   category: string = 'user-action',
   level: 'fatal' | 'error' | 'warning' | 'info' | 'debug' = 'info',
-  data?: Record<string, any>
+  data?: Record<string, unknown>
 ) {
+  if (!Sentry) return;
   try {
-    // In Sentry v10, use addBreadcrumb method directly
     Sentry.addBreadcrumb({
       category,
-      level: level as any,
+      level: level as string,
       message,
       data,
       timestamp: Date.now() / 1000,
     });
-  } catch (err) {
-    // Silently fail - don't break app on breadcrumb errors
-    console.debug('Failed to add breadcrumb:', err);
+  } catch {
+    // Silently fail — don't break app on breadcrumb errors
   }
 }
 
@@ -116,12 +127,12 @@ export function reportError(
     operation?: string;
     severity?: 'fatal' | 'error' | 'warning' | 'info';
     tags?: Record<string, string>;
-    extra?: Record<string, any>;
+    extra?: Record<string, unknown>;
   }
 ) {
+  if (!Sentry) return;
   try {
     const errorObj = typeof error === 'string' ? new Error(error) : error;
-    
     Sentry.captureException(errorObj, {
       level: context?.severity || 'error',
       tags: {
@@ -131,7 +142,6 @@ export function reportError(
       },
       extra: context?.extra,
     });
-
     logger.error(
       context?.component || 'errorMonitoring',
       `Error reported to Sentry: ${errorObj.message}`
@@ -143,16 +153,14 @@ export function reportError(
 
 /**
  * Start a transaction for performance monitoring
- * Note: Sentry v10 has limited performance monitoring support
  */
 export function startTransaction(
   name: string,
   operation: string = 'http.client'
 ): { finish: () => void } | null {
+  if (!Sentry) return null;
   try {
-    // In Sentry v10, we just log the transaction
     logger.debug('errorMonitoring', `Transaction started: ${name} (op: ${operation})`);
-    // Return a dummy transaction object for compatibility
     return {
       finish: () => {
         logger.debug('errorMonitoring', `Transaction finished: ${name}`);
@@ -171,6 +179,7 @@ export function captureMessage(
   message: string,
   level: 'fatal' | 'error' | 'warning' | 'info' | 'debug' = 'info'
 ) {
+  if (!Sentry) return;
   try {
     Sentry.captureMessage(message, level);
   } catch (err) {
@@ -179,30 +188,21 @@ export function captureMessage(
 }
 
 /**
- * Get current platform
- */
-function getPlatform(): string {
-  if (typeof window === 'undefined') return 'unknown';
-  
-  const ua = navigator.userAgent.toLowerCase();
-  if (ua.includes('android')) return 'android';
-  if (ua.includes('iphone') || ua.includes('ipad')) return 'ios';
-  if (ua.includes('windows')) return 'windows';
-  if (ua.includes('mac')) return 'macos';
-  if (ua.includes('linux')) return 'linux';
-  return 'web';
-}
-
-/**
  * React Error Boundary Higher-Order Component
+ * Only works when @sentry/react is installed; otherwise returns the component as-is.
  */
-export const withErrorBoundary = <P extends object>(
+export const withErrorBoundary = <P extends Record<string, unknown>>(
   Component: React.ComponentType<P>,
   componentName: string
 ) => {
+  if (!Sentry?.ErrorBoundary) {
+    // Sentry not installed — return component unchanged
+    return Component;
+  }
+
   const Wrapped = (props: P) => (
-    <Sentry.ErrorBoundary
-      onError={(error: unknown, componentStack: string, eventId: string) => {
+    <Sentry!.ErrorBoundary
+      onError={(error: unknown, componentStack: string | undefined, eventId: string) => {
         reportError(error instanceof Error ? error : String(error), {
           component: componentName,
           severity: 'fatal',
@@ -211,11 +211,9 @@ export const withErrorBoundary = <P extends object>(
       }}
     >
       <Component {...props} />
-    </Sentry.ErrorBoundary>
+    </Sentry!.ErrorBoundary>
   );
-  
+
   Wrapped.displayName = `withErrorBoundary(${componentName})`;
   return Wrapped;
 };
-
-
