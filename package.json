@@ -19,7 +19,7 @@
     "open:ios": "cap open ios",
     "open:android": "cap open android",
     "build:android": "pnpm build:web && cap sync android && cd android && ./gradlew assembleRelease",
-    "build:android:apk": "pnpm build:web && cap sync android && cd android && ./gradlew assembleDebug",
+    "build:android:apk": "pnpm build:web && cap sync android && cd android && ./gradlew assembleRelease",
     "build:android:aab": "pnpm build:web && cap sync android && cd android && ./gradlew bundleRelease",
     "type-check": "tsc --noEmit",
     "lint": "eslint src",

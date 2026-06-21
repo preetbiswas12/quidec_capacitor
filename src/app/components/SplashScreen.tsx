@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Shield, Lock, Cpu, Globe } from 'lucide-react';
 
 export default function SplashScreen() {
-  const [progress, setProgress] = useState(0);
   const [statusIdx, setStatusIdx] = useState(0);
   const statuses = [
     "Establishing Secure Connection",
@@ -13,29 +12,11 @@ export default function SplashScreen() {
     "Synchronizing Workspace"
   ];
 
-  // Simulate progressive loading that completes near the 2.5s mark
-  // but doesn't jump to 100% instantly — eases in as auth resolves
   useEffect(() => {
     const interval = setInterval(() => {
       setStatusIdx(prev => (prev + 1) % statuses.length);
     }, 600);
     return () => clearInterval(interval);
-  }, []);
-
-  // Gradual progress: climbs to ~80% over 2.5s, never pretends to be exact
-  useEffect(() => {
-    const startTime = Date.now();
-    const duration = 2500;
-    const tick = () => {
-      const elapsed = Date.now() - startTime;
-      const pct = Math.min(80, Math.round((elapsed / duration) * 80));
-      setProgress(pct);
-      if (elapsed < duration) {
-        requestAnimationFrame(tick);
-      }
-    };
-    const raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
   }, []);
 
   return (
@@ -136,12 +117,13 @@ export default function SplashScreen() {
             </AnimatePresence>
           </div>
 
-          {/* Precision Progress Bar */}
+          {/* Indeterminate Progress Bar — shows activity, never "completes" */}
           <div className="w-64 flex flex-col gap-2">
             <div className="h-1 bg-wa-secondary/20 rounded-full overflow-hidden relative backdrop-blur-sm border border-wa-border/5">
-              <div
-                style={{ width: `${progress}%` }}
-                className="h-full bg-gradient-to-r from-[#4D91FB]/50 to-[#4D91FB] shadow-[0_0_10px_#4D91FB] transition-width duration-100 ease-linear"
+              <motion.div
+                className="h-full w-1/3 bg-gradient-to-r from-transparent via-[#4D91FB] to-transparent rounded-full"
+                animate={{ x: ['-100%', '400%'] }}
+                transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
               />
             </div>
             <div className="flex justify-between px-1">

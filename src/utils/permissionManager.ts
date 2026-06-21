@@ -12,9 +12,13 @@ export interface PermissionStatus {
   notifications: boolean;
 }
 
-// Storage key for tracking first-launch permission request
+// Storage keys for tracking permission and onboarding state
 const PERMISSIONS_ASKED_KEY = 'quidec_permissions_asked';
 const PERMISSIONS_GRANTED_KEY = 'quidec_permissions_granted';
+const ONBOARDING_COMPLETE_KEY = 'quidec_onboarding_complete';
+
+/** Small delay between sequential permission requests to avoid overwhelming Android */
+const PERMISSION_REQUEST_DELAY_MS = 300;
 
 export const permissionManager = {
   /**
@@ -51,6 +55,32 @@ export const permissionManager = {
    */
   async markAskedPermissions(): Promise<void> {
     await Preferences.set({ key: PERMISSIONS_ASKED_KEY, value: 'true' });
+  },
+
+  /**
+   * Check if onboarding (including permissions) was fully completed in a previous session.
+   * Used for crash recovery — if true, skip re-requesting permissions.
+   */
+  async hasCompletedOnboarding(): Promise<boolean> {
+    const { value } = await Preferences.get({ key: ONBOARDING_COMPLETE_KEY });
+    return value === 'true';
+  },
+
+  /**
+   * Mark onboarding as fully completed. Call this ONLY after all initialization
+   * (permissions, listeners, etc.) has succeeded.
+   */
+  async markOnboardingComplete(): Promise<void> {
+    await Preferences.set({ key: ONBOARDING_COMPLETE_KEY, value: 'true' });
+  },
+
+  /**
+   * Reset onboarding state (for logout / account switch)
+   */
+  async resetOnboardingState(): Promise<void> {
+    await Preferences.remove({ key: ONBOARDING_COMPLETE_KEY });
+    await Preferences.remove({ key: PERMISSIONS_ASKED_KEY });
+    await Preferences.remove({ key: PERMISSIONS_GRANTED_KEY });
   },
 
   /**
@@ -200,15 +230,25 @@ export const permissionManager = {
   },
 
   /**
-   * Request all required permissions with user interaction
-   * (for first-time login/registration)
+   * Request all required permissions sequentially with delays.
+   * Sequential requests avoid overwhelming the Android permission system
+   * and prevent crashes from competing permission dialogs.
    */
   async requestAllPermissions(): Promise<PermissionStatus> {
-    const [camera, microphone, storage] = await Promise.all([
-      this.requestPermission('camera'),
-      this.requestPermission('microphone'),
-      this.requestPermission('storage'),
-    ]);
+    // Request camera first
+    const camera = await this.requestPermission('camera');
+
+    // Small delay before next permission
+    await new Promise(resolve => setTimeout(resolve, PERMISSION_REQUEST_DELAY_MS));
+
+    // Request microphone
+    const microphone = await this.requestPermission('microphone');
+
+    // Small delay before next permission
+    await new Promise(resolve => setTimeout(resolve, PERMISSION_REQUEST_DELAY_MS));
+
+    // Request storage
+    const storage = await this.requestPermission('storage');
 
     const status: PermissionStatus = {
       camera,

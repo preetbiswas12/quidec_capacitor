@@ -9,17 +9,17 @@ on:
         description: 'Build type (debug or release)'
         required: false
         type: string
-        default: 'debug'
+        default: 'release'
   workflow_dispatch:
     inputs:
       build_type:
         description: 'Build type'
         required: false
         type: choice
-        default: 'debug'
+        default: 'release'
         options:
-          - debug
           - release
+          - debug
 
 jobs:
   build:
@@ -112,19 +112,43 @@ jobs:
       - name: Sync Capacitor
         run: pnpm exec cap sync android
 
+      # ─── Decode keystore (release builds) ────────────────────────────────────
+      - name: Decode keystore
+        if: inputs.build_type == 'release' || inputs.build_type == ''
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "❌ KEYSTORE_BASE64 secret is not set — cannot build release APK"
+            echo "Set the following secrets in GitHub:"
+            echo "  - KEYSTORE_BASE64  (base64-encoded .keystore file)"
+            echo "  - KEYSTORE_PASSWORD"
+            echo "  - KEY_ALIAS"
+            echo "  - KEY_PASSWORD"
+            exit 1
+          fi
+          mkdir -p android/keystore-dir
+          echo "$KEYSTORE_BASE64" | base64 -d > android/keystore-dir/release.jks
+          echo "✅ Keystore decoded"
+
       # ─── Build APK ───────────────────────────────────────────────────────────
-      - name: Build APK (${{ inputs.build_type || 'debug' }})
+      - name: Build APK (${{ inputs.build_type || 'release' }})
         run: |
           cd android
           chmod +x gradlew
-          BUILD_TYPE="${{ inputs.build_type || 'debug' }}"
+          BUILD_TYPE="${{ inputs.build_type || 'release' }}"
           if [ "$BUILD_TYPE" = "release" ]; then
-            echo "🔒 Building release APK (requires KEYSTORE_* secrets)..."
+            echo "🔒 Building release APK..."
             ./gradlew assembleRelease --no-daemon --stacktrace --max-workers 1
           else
             echo "🔧 Building debug APK..."
             ./gradlew assembleDebug --no-daemon --stacktrace --max-workers 1
           fi
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/android/keystore-dir/release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       # ─── Locate APK ──────────────────────────────────────────────────────────
       - name: Find APK
@@ -161,7 +185,7 @@ jobs:
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Status | ${{ job.status == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Type | ${{ inputs.build_type || 'debug' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Type | ${{ inputs.build_type || 'release' }} |" >> $GITHUB_STEP_SUMMARY
           if [ -n "${{ steps.apk.outputs.apk_name }}" ]; then
             echo "| APK | ${{ steps.apk.outputs.apk_name }} |" >> $GITHUB_STEP_SUMMARY
             echo "| Size | ${{ steps.apk.outputs.apk_size }} |" >> $GITHUB_STEP_SUMMARY

@@ -375,6 +375,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const statusListenersRef = useRef<Record<string, () => void>>({});
   const callHistoryUnsubscribeRef = useRef<(() => void) | null>(null);
   const incomingCallUnsubscribeRef = useRef<(() => void) | null>(null);
+  const deviceSessionUnsubscribeRef = useRef<(() => void) | null>(null);
 
   // ─── Helper: merge messages into a chat (used by pagination/local store)
   const addMessagesToChat = useCallback((chatId: string, items: Message[]) => {
@@ -451,14 +452,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         initializeProductionCollections().catch(err => console.warn('⚠️ Collection init skipped:', err));
       }
 
-      // ── Request Android system permissions after successful login ──
-      try {
-        const { permissionManager } = await import('../../utils/permissionManager');
-        const permissions = await permissionManager.requestAllPermissions();
-        console.log('📱 Permissions granted:', permissions);
-      } catch (permErr) {
-        console.warn('⚠️ Permission request skipped:', permErr);
-      }
+      // NOTE: Permission requests for returning users are handled by the
+      // Native Permissions useEffect below (triggered by isOnboarded change).
 
       // ── Load locally stored messages for all known chats ──
       try {
@@ -506,14 +501,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setNeedsVerification(true);
       setIsOnboarded(false);
 
-      // ── Request Android system permissions after registration ──
-      try {
-        const { permissionManager } = await import('../../utils/permissionManager');
-        const permissions = await permissionManager.requestAllPermissions();
-        console.log('📱 Permissions granted:', permissions);
-      } catch (permErr) {
-        console.warn('⚠️ Permission request skipped:', permErr);
-      }
+      // NOTE: Permission requests are deferred until after email verification
+      // (see the Native Permissions useEffect). Requesting here is too early
+      // and causes crashes when combined with the post-verification flow.
 
       return { success: true, emailVerified: false, user: result.user };
     } catch (err) {
@@ -543,6 +533,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       conversationsUnsubscribeRef.current?.();
 
       clearKeyCache(); // Clear encryption keys on logout
+
+      // Reset onboarding state so next login goes through full flow
+      permissionManager.resetOnboardingState().catch(() => {});
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
@@ -767,11 +760,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           
           // Stop checking
           if (verificationCheckInterval) clearInterval(verificationCheckInterval);
-          
+
           // Initialize background services
           initializeProductionCollections().catch(() => {});
+
+          // Initialize push notifications (non-blocking, with its own error handling)
           getEncryptionKey(userId).then(key => initializePushNotifications(userId, key)).catch(() => {});
-          
+
+          // Mark onboarding complete for crash recovery
+          permissionManager.markOnboardingComplete().catch(() => {});
+
           console.log('🚀 Email verified! User is now onboarded');
         }
       } catch (err) {
@@ -827,17 +825,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [currentUser, isOnboarded]);
 
   // ─── Native Permissions Initialization ────────────────────────────────────
+  // Runs when isOnboarded becomes true (after email verification or returning user).
+  // Uses crash recovery: if onboarding was already completed in a previous session,
+  // skip re-requesting permissions to avoid infinite crash loops.
   useEffect(() => {
-    if (isOnboarded && currentUser) {
-      const requestNativePermissions = async () => {
-        console.log('🛡️ Checking & requesting missing Android permissions...');
-        // This checks current status and only prompts for denied/missing permissions
-        // Works for both new and returning users
-        const result = await permissionManager.requestMissingPermissions();
-        console.log('📱 Permission status:', result);
-      };
-      requestNativePermissions();
-    }
+    if (!isOnboarded || !currentUser) return;
+
+    const requestNativePermissions = async () => {
+      try {
+        // Crash recovery: if onboarding was already completed, skip permissions
+        const alreadyCompleted = await permissionManager.hasCompletedOnboarding();
+        if (alreadyCompleted) {
+          console.log('✅ Onboarding already completed in previous session — skipping permission requests');
+          return;
+        }
+
+        console.log('🛡️ First-time onboarding: requesting Android permissions...');
+
+        // Check if we've asked before (but maybe didn't complete)
+        const hasAsked = await permissionManager.hasAskedPermissions();
+
+        if (!hasAsked) {
+          // First time: request all permissions sequentially
+          const result = await permissionManager.requestAllPermissions();
+          console.log('📱 Permissions granted:', result);
+        } else {
+          // Asked before but onboarding wasn't completed (possible crash):
+          // only request missing permissions
+          console.log('⚠️ Permissions were asked but onboarding did not complete — requesting missing only');
+          const result = await permissionManager.requestMissingPermissions();
+          console.log('📱 Permission status:', result);
+        }
+      } catch (err) {
+        console.warn('⚠️ Permission initialization error (non-fatal):', err);
+      }
+    };
+
+    requestNativePermissions();
   }, [isOnboarded, currentUser]);
 
   useEffect(() => {
@@ -1130,107 +1154,101 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [currentUser, isOnboarded]);
 
   // ─── Initialize Real-time Listeners ───────────────────────────────────────
+  // This is the main initialization that runs after isOnboarded becomes true.
+  // It sets up push notifications, Android settings, and all Firebase listeners.
+  // On success, it marks onboarding as complete for crash recovery.
   useEffect(() => {
     if (!currentUser || !isOnboarded) {
       return;
     }
 
     const uid = currentUser.userId;
-    // uid = custom handle (e.g. "preetb.5815") — used for friendships, presence, user doc paths
-    // authUid = Firebase Auth UID — stored internally, not used for Firestore doc paths
     console.log('🔗 Establishing real-time Firebase listeners for', uid);
 
-    // 0. Initialize Push Notifications & Action Groups
-    const initNotify = async () => {
+    // Small delay to let any in-flight permission dialogs settle
+    // before starting async initialization
+    const INIT_DELAY_MS = 500;
+    let onboardingMarkedComplete = false;
+
+    const initializeAll = async () => {
+      await new Promise(resolve => setTimeout(resolve, INIT_DELAY_MS));
+
+      // 0. Initialize Push Notifications & Action Groups
       try {
         const { initializePushNotifications, setupNotificationActions, setNotificationsEnabled } = await import('../../utils/fcm');
         await setupNotificationActions();
         await initializePushNotifications(uid, null);
         setNotificationsEnabled(settings.notifications);
+        console.log('✅ Push notifications initialized');
       } catch (err) {
-        console.warn('⚠️ Notification init failed:', err);
+        console.warn('⚠️ Notification init failed (non-fatal):', err);
       }
-    };
-    initNotify();
 
-    // 0.1 Initialize Android Settings Systems
-    // Each step is isolated so one failure doesn't crash the whole chain
-    const initAndroidSettings = async () => {
-      let unsubscribeDevices: (() => void) | undefined;
-
+      // 0.1 Initialize notification channels (Android 8+)
       try {
-        // Initialize notification channels for Android
-        try {
-          await initializeNotificationChannels();
-          console.log('✅ Android notification channels initialized');
-        } catch (err) {
-          console.warn('⚠️ Notification channels init failed (non-fatal):', err);
-        }
-
-        // Request notification permissions
-        try {
-          const hasPermission = await requestNotificationPermissions();
-          console.log(`✅ Notification permission: ${hasPermission ? 'granted' : 'denied'}`);
-        } catch (err) {
-          console.warn('⚠️ Notification permission request failed (non-fatal):', err);
-        }
-
-        // Initialize settings persistence (load from native storage + Firebase)
-        try {
-          const loadedSettings = await initSettingsPersistence(uid);
-          setSettings(prev => ({ ...prev, ...loadedSettings }));
-          console.log('✅ Settings loaded from native storage and Firebase');
-        } catch (err) {
-          console.warn('⚠️ Settings persistence init failed (non-fatal):', err);
-        }
-
-        // Load privacy settings
-        try {
-          const privacySettings = await getPrivacySettings(uid);
-          console.log('✅ Privacy settings loaded');
-        } catch (err) {
-          console.warn('⚠️ Privacy settings load failed (non-fatal):', err);
-        }
-
-        // Load account security settings
-        try {
-          const securitySettings = await getAccountSecuritySettings(uid);
-          console.log('✅ Account security settings loaded');
-        } catch (err) {
-          console.warn('⚠️ Security settings load failed (non-fatal):', err);
-        }
-
-        // Create device session for linked devices tracking
-        try {
-          const pushToken = localStorage.getItem('fcm_token');
-          await createDeviceSession(uid, 'mobile', pushToken || undefined);
-          console.log('✅ Device session created for linked devices');
-        } catch (err) {
-          console.warn('⚠️ Device session creation failed (non-fatal):', err);
-        }
-
-        // Listen to device sessions for real-time updates
-        try {
-          unsubscribeDevices = listenToDeviceSessions(uid, (sessions) => {
-            console.log(`📱 Active devices: ${sessions.length}`);
-          });
-        } catch (err) {
-          console.warn('⚠️ Device session listener failed (non-fatal):', err);
-        }
-
+        await initializeNotificationChannels();
+        console.log('✅ Android notification channels initialized');
       } catch (err) {
-        console.error('❌ Unexpected error in Android settings init:', err);
+        console.warn('⚠️ Notification channels init failed (non-fatal):', err);
       }
 
-      return unsubscribeDevices;
+      // 0.2 Initialize settings persistence (load from native storage + Firebase)
+      try {
+        const loadedSettings = await initSettingsPersistence(uid);
+        setSettings(prev => ({ ...prev, ...loadedSettings }));
+        console.log('✅ Settings loaded from native storage and Firebase');
+      } catch (err) {
+        console.warn('⚠️ Settings persistence init failed (non-fatal):', err);
+      }
+
+      // 0.3 Load privacy settings
+      try {
+        await getPrivacySettings(uid);
+        console.log('✅ Privacy settings loaded');
+      } catch (err) {
+        console.warn('⚠️ Privacy settings load failed (non-fatal):', err);
+      }
+
+      // 0.4 Load account security settings
+      try {
+        await getAccountSecuritySettings(uid);
+        console.log('✅ Account security settings loaded');
+      } catch (err) {
+        console.warn('⚠️ Security settings load failed (non-fatal):', err);
+      }
+
+      // 0.5 Create device session and listen for linked devices
+      try {
+        const pushToken = localStorage.getItem('fcm_token');
+        await createDeviceSession(uid, 'mobile', pushToken || undefined);
+        console.log('✅ Device session created for linked devices');
+      } catch (err) {
+        console.warn('⚠️ Device session creation failed (non-fatal):', err);
+      }
+
+      // 0.6 Listen to device sessions for real-time updates
+      try {
+        deviceSessionUnsubscribeRef.current = listenToDeviceSessions(uid, (sessions) => {
+          console.log('📱 Active devices: ' + sessions.length);
+        });
+      } catch (err) {
+        console.warn('⚠️ Device session listener failed (non-fatal):', err);
+      }
+
+      // 0.7 Mark onboarding as complete ONLY after all initialization succeeded
+      // This is the crash-recovery flag that prevents re-requesting permissions
+      try {
+        await permissionManager.markOnboardingComplete();
+        onboardingMarkedComplete = true;
+        console.log('✅ Onboarding marked complete');
+      } catch (err) {
+        console.warn('⚠️ Failed to mark onboarding complete:', err);
+      }
     };
 
-    // Execute async initialization (errors are handled inside initAndroidSettings)
-    let unsubscribeAndroidSettings: (() => void) | undefined;
-    initAndroidSettings().then(unsubscribe => {
-      unsubscribeAndroidSettings = unsubscribe;
-    }).catch(err => {
-      console.error('❌ Failed to initialize Android settings:', err);
+    // Run initialization in background (don't block listener setup)
+    initializeAll().catch(err => {
+      console.error('❌ Unexpected error during initialization:', err);
     });
 
     // 1. Listen to Friends List — friendships doc is keyed by custom handle
@@ -1466,7 +1484,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       unsubscribeReceipts?.();
       unsubscribeSignaling();
       unsubscribeGroups();
-      unsubscribeAndroidSettings?.();
+      deviceSessionUnsubscribeRef.current?.();
     };
   }, [currentUser, isOnboarded, navigate]);
 

@@ -98,6 +98,8 @@ jobs:
   build-android-apk:
     needs: test
     uses: ./.github/workflows/build-android-apk.yml
+    with:
+      build_type: release
     secrets: inherit
 
   build-android-aab:
@@ -165,7 +167,7 @@ jobs:
             echo "- **Pre-release:** ${{ needs.prepare.outputs.is_prerelease }}"
             echo ""
             echo "### 📦 Builds Included"
-            [ -f "artifacts/"*.apk ] && echo "- ✅ Android Debug APK" || echo "- ⚠️ Android Debug APK"
+            [ -f "artifacts/"*.apk ] && echo "- ✅ Android Release APK" || echo "- ⚠️ Android Release APK"
             [ -f "artifacts/"*.aab ] && echo "- ✅ Android App Bundle (Play Store)" || echo "- ⚠️ Android App Bundle"
             [ -f "artifacts/"*.ipa ] && echo "- ✅ iOS App Archive (TestFlight)" || echo "- ⚠️ iOS App Archive"
             echo ""
