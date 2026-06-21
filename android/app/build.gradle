@@ -61,8 +61,8 @@ dependencies {
 
     // Firebase BOM — manages versions of all Firebase libraries
     implementation platform('com.google.firebase:firebase-bom:33.7.0')
-    // Firebase core — required for FirebaseApp.initializeApp()
-    implementation 'com.google.firebase:firebase-core'
+    // Firebase Analytics — provides FirebaseApp.initializeApp() in modern Firebase
+    implementation 'com.google.firebase:firebase-analytics'
     // Firebase Cloud Messaging — required by capacitor-push-notifications
     implementation 'com.google.firebase:firebase-messaging'
 
