@@ -14,11 +14,11 @@ import EmailVerification from './components/EmailVerification';
 // ─── Protected Route ─────────────────────────────────────────────────────────
 
 function ProtectedRoute() {
-  const { isOnboarded, isAuthenticating, needsVerification } = useApp();
+  const { isOnboarded, isAuthenticating, showSplash, needsVerification } = useApp();
 
   return (
     <AnimatePresence mode="wait">
-      {isAuthenticating ? (
+      {showSplash || isAuthenticating ? (
         <motion.div
           key="splash-protected"
           initial={{ opacity: 1 }}
@@ -64,11 +64,11 @@ function ProtectedRoute() {
 // ─── Auth Route ──────────────────────────────────────────────────────────────
 
 function AuthRoute() {
-  const { isOnboarded, isAuthenticating, needsVerification } = useApp();
+  const { isOnboarded, isAuthenticating, showSplash, needsVerification } = useApp();
 
   return (
     <AnimatePresence mode="wait">
-      {isAuthenticating ? (
+      {showSplash || isAuthenticating ? (
         <motion.div
           key="splash"
           initial={{ opacity: 1 }}

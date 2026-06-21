@@ -21,6 +21,7 @@ export default function LeftPanel() {
     chatRequests, sendChatRequest,
     showRequests, setShowRequests,
     createGroup,
+    searchUsers,
   } = useApp();
 
   const [showMenu, setShowMenu] = useState(false);
@@ -86,13 +87,28 @@ export default function LeftPanel() {
     setNewChatSearch('');
   };
 
-  // Find by ID
-  const handleSearchId = () => {
+  // Find by ID — search locally first, then query Firestore
+  const handleSearchId = async () => {
     const q = idQuery.trim().toLowerCase().replace(/^@/, '');
     if (!q) return;
-    const match = allSearchable.find(c => c.userId.toLowerCase().replace(/^@/, '') === q || c.userId.toLowerCase() === `@${q}`);
-    if (match) { setIdResult(match); setIdNotFound(false); }
-    else { setIdResult(null); setIdNotFound(true); }
+    // First check local contacts
+    const localMatch = allSearchable.find(c => c.userId.toLowerCase().replace(/^@/, '') === q || c.userId.toLowerCase() === `@${q}`);
+    if (localMatch) { setIdResult(localMatch); setIdNotFound(false); return; }
+    // Then search Firestore
+    if (searchUsers) {
+      try {
+        await searchUsers(q);
+        // After search, check if the query matches any discoverable contact
+        const firestoreMatch = discoverableContacts.find(c => c.userId.toLowerCase().replace(/^@/, '') === q || c.userId.toLowerCase() === `@${q}`);
+        if (firestoreMatch) { setIdResult(firestoreMatch); setIdNotFound(false); }
+        else { setIdResult(null); setIdNotFound(true); }
+      } catch (err) {
+        console.error('❌ Search failed:', err);
+        setIdResult(null); setIdNotFound(true);
+      }
+    } else {
+      setIdResult(null); setIdNotFound(true);
+    }
   };
 
   const requestStatus = (contactId: string) => {

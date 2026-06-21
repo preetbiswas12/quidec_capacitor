@@ -53,7 +53,7 @@ const config: CapacitorConfig = {
     StatusBar: {
       style: 'dark',
       backgroundColor: '#111B21',
-      overlaysWebView: false,
+      overlaysWebView: true,
     },
     SplashScreen: {
       launchAutoHide: true,

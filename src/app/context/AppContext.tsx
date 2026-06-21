@@ -137,6 +137,7 @@ interface AppContextType {
   currentUser: CurrentUser | null;
   authUid: string | null;       // Firebase Auth UID — for PeerJS ID, never for Firestore paths
   isAuthenticating: boolean;
+  showSplash: boolean;
   needsVerification: boolean;
   completeOnboarding: (user: CurrentUser) => void;
   updateCurrentUser: (updates: Partial<CurrentUser>) => void;
@@ -308,6 +309,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState(true);
+  const [showSplash, setShowSplash] = useState(true);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [isConnected, setIsConnected] = useState(true); // Always true for Firebase as it manages its own connection
 
@@ -546,6 +548,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const initialAuthChecked = useRef(false);
   const loginInProgress = useRef(false);
+
+  // ─── Splash Screen Timer ──────────────────────────────────────────────────
+  // Always show splash screen for minimum 2.5s on every app open (like WhatsApp)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, []);
 
   // ─── Initialize Auth State on Mount ───────────────────────────────────────
   useEffect(() => {
@@ -2178,6 +2189,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     currentUser: currentUser ? { ...currentUser, avatar: currentUserAvatarUrl } : null,
     authUid,
     isAuthenticating,
+    showSplash,
     needsVerification,
     completeOnboarding,
     updateCurrentUser,

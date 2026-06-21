@@ -150,10 +150,25 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Compress image before storing to avoid oversized data URLs
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      updateCurrentUser({ avatar: dataUrl });
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 256;
+        let w = img.width;
+        let h = img.height;
+        if (w > h) { if (w > MAX_SIZE) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; } }
+        else { if (h > MAX_SIZE) { w = Math.round(w * MAX_SIZE / h); h = MAX_SIZE; } }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, w, h);
+        const compressed = canvas.toDataURL('image/jpeg', 0.8);
+        updateCurrentUser({ avatar: compressed });
+      };
+      img.src = ev.target?.result as string;
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -1151,8 +1166,8 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
     </div>
   ) : (
     <div className="flex flex-col h-full overflow-y-auto relative bg-wa-main text-wa-primary transition-colors duration-200 no-scrollbar pb-10">
-      {/* Hidden avatar input */}
-      <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarSelect} />
+      {/* Hidden avatar input — capture attribute enables camera on Android */}
+      <input ref={avatarInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleAvatarSelect} />
 
       {/* Profile section - Sleek & Flat */}
       <div className="flex flex-col items-center pt-10 pb-8 flex-shrink-0 border-b border-wa-border/10 bg-transparent">

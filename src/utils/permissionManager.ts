@@ -250,11 +250,25 @@ export const permissionManager = {
     // Request storage
     const storage = await this.requestPermission('storage');
 
+    // Small delay before notification permission
+    await new Promise(resolve => setTimeout(resolve, PERMISSION_REQUEST_DELAY_MS));
+
+    // Request notification permission (Android 13+ / API 33+)
+    let notifications = true;
+    try {
+      const { PushNotifications } = await import('@capacitor/push-notifications');
+      const result = await PushNotifications.requestPermissions();
+      notifications = result.receive === 'granted';
+      console.log(`📱 Notification permission: ${notifications ? 'granted' : 'denied'}`);
+    } catch (err) {
+      console.warn('⚠️ Notification permission request failed (non-fatal):', err);
+    }
+
     const status: PermissionStatus = {
       camera,
       microphone,
       storage,
-      notifications: true,
+      notifications,
     };
 
     // Save status and mark as asked
