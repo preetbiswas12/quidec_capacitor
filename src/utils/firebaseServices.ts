@@ -46,6 +46,7 @@ import {
   collectionGroup,
   orderBy,
   limit,
+  documentId,
 } from 'firebase/firestore';
 import {
   getDatabase,
@@ -93,7 +94,7 @@ export const MESSAGE_STATUS = {
  * Firebase paths cannot contain: . # $ [ ]
  * Replace invalid characters with underscores
  */
-function sanitizePathComponent(component: string): string {
+export function sanitizePathComponent(component: string): string {
   if (!component) return 'unknown';
   return component.replace(/[.#$\[\]@]/g, '_');
 }
@@ -227,15 +228,16 @@ export const authService = {
       );
       const user = userCredential.user;
 
-      // Update profile with username
-      await updateProfile(user, { displayName: username });
+      // Create user document in Firestore - Use Handle as Document ID
+      const generatedUserId = await generateUniqueUserId(username);
+
+      // Update profile with the HANDLE (not the original username) so we can
+      // resolve it during login without needing a Firestore query
+      await updateProfile(user, { displayName: generatedUserId });
 
       // Send verification email
       await sendEmailVerification(user);
       console.log(`📧 Verification email sent to ${email}`);
-
-      // Create user document in Firestore - Use Handle as Document ID
-      const generatedUserId = await generateUniqueUserId(username);
       await setDoc(doc(db, 'users', generatedUserId), {
         uid: user.uid,
         username: generatedUserId,
@@ -258,8 +260,8 @@ export const authService = {
         username,
       });
 
-      // Initialize friend list
-      await setDoc(doc(db, 'friendships', user.uid), {
+      // Initialize friend list — doc ID = custom handle, NOT auth UID
+      await setDoc(doc(db, 'friendships', generatedUserId), {
         uid: user.uid,
         friends: [],
         blockedUsers: [],
@@ -373,17 +375,14 @@ export const authService = {
         emailVerified: true,
       }, { merge: true });
 
-      // Get and save FCM token if not already saved
+      // Always refresh FCM token on login (tokens can expire/change)
       try {
-        const userDoc = await getDoc(doc(db, 'users', customUsername));
-        if (!userDoc.data()?.fcmToken) {
-          const fcmToken = await getFCMToken();
-          if (fcmToken) {
-            await setDoc(doc(db, 'users', customUsername), {
-              fcmToken: fcmToken,
-            }, { merge: true });
-            console.log('✅ FCM token saved');
-          }
+        const fcmToken = await getFCMToken();
+        if (fcmToken) {
+          await setDoc(doc(db, 'users', customUsername), {
+            fcmToken: fcmToken,
+          }, { merge: true });
+          console.log('✅ FCM token saved');
         }
       } catch (fcmErr) {
         console.warn('⚠️ FCM token setup skipped:', fcmErr);
@@ -761,7 +760,18 @@ export const authService = {
    * but we need to bind them with the Firebase UID
    */
   async getCustomUsernameByFirebaseUid(firebaseUid: string): Promise<string | null> {
-    return getCustomUsernameByFirebaseUid(firebaseUid);
+    try {
+      const q = query(collection(db, 'users'), where('uid', '==', firebaseUid));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        const userDoc = snapshot.docs[0];
+        return userDoc.data().username || userDoc.id;
+      }
+      return null;
+    } catch (err) {
+      console.warn('⚠️ Failed to fetch custom username:', err);
+      return null;
+    }
   },
 };
 
@@ -919,24 +929,28 @@ export const presenceService = {
   listenToFriends(uid: string, callback: (friends: any[]) => void) {
     const friendshipRef = doc(db, 'friendships', uid);
     return onSnapshot(friendshipRef, async (snapshot) => {
-      const friendUids = snapshot.data()?.friends || [];
-      if (friendUids.length === 0) {
+      const friendHandles = snapshot.data()?.friends || [];
+      if (friendHandles.length === 0) {
         callback([]);
         return;
       }
 
-      // Fetch user details for each friend in batches
+      // Fetch user details for each friend in batches.
+      // friendHandles = custom handles (e.g. "preet.5815") — stored in friendships doc
+      // and also stored as the `username` field and doc ID in the users collection.
       const usersRef = collection(db, 'users');
       const chunks = [];
-      for (let i = 0; i < friendUids.length; i += 30) {
-        chunks.push(friendUids.slice(i, i + 30));
+      for (let i = 0; i < friendHandles.length; i += 30) {
+        chunks.push(friendHandles.slice(i, i + 30));
       }
 
       const allFriends: any[] = [];
       for (const chunk of chunks) {
-        const q = query(usersRef, where('uid', 'in', chunk));
+        // friendHandles are custom handles = doc IDs in the users collection.
+        // Use documentId() to query by doc ID directly (no 'username' field needed).
+        const q = query(usersRef, where(documentId(), 'in', chunk));
         const userSnapshots = await getDocs(q);
-        userSnapshots.forEach(doc => allFriends.push(doc.data()));
+        userSnapshots.forEach(d => allFriends.push({ id: d.id, ...d.data() }));
       }
       callback(allFriends);
     });
@@ -998,6 +1012,10 @@ export const messageService = {
       messageId?: string;
       timestamp?: any;
       status?: string;
+      replyToId?: string;
+      replyToContent?: string;
+      replyToSender?: string;
+      expiresAt?: number;
     } = {}
   ) {
     const startTime = Date.now();
@@ -1030,18 +1048,22 @@ export const messageService = {
         readAt: null,
         typing: false,
         isEncrypted: true,
+        replyToId: options.replyToId || null,
+        replyToContent: options.replyToContent || null,
+        replyToSender: options.replyToSender || null,
       };
 
       // TRANSIENT DELIVERY PIPE (Zero Persistence)
       // Messages stored temporarily in RTDB only for delivery - IMMEDIATELY deleted after recipient receives
-      // This keeps Firebase storage usage near zero while enabling real-time delivery
+      // _createdAt is used for TTL cleanup of undelivered messages (> 24h old)
       const deliveryRef = ref(realtimeDb, `delivery/${sanitizePathComponent(toUid)}/${messageId}`);
-      
+
       try {
         await set(deliveryRef, {
           ...messageData,
           fromUid,
-          conversationId
+          conversationId,
+          _createdAt: rtdbServerTimestamp(),
         });
       } catch (rtdbErr) {
         logger.error('recordMessage', `RTDB delivery failed: ${rtdbErr}`);
@@ -1058,6 +1080,10 @@ export const messageService = {
           type: (options.messageType as any) || 'text',
           timestamp: new Date().toISOString(),
           status: (options.status as any) || 'sent',
+          replyToId: options.replyToId || undefined,
+          replyToContent: options.replyToContent || undefined,
+          replyToSender: options.replyToSender || undefined,
+          expiresAt: options.expiresAt || undefined,
         });
       } catch (localErr) {
         logger.warn('recordMessage', `Local persistence failed: ${localErr}`);
@@ -1296,13 +1322,36 @@ export const messageService = {
         // Don't fail message send if presence check fails
       }
 
+      // Notify recipient via Render FCM relay (fire-and-forget, non-blocking)
+      const notifyUrl = import.meta.env.VITE_NOTIFY_URL;
+      if (notifyUrl) {
+        // Determine notification type
+        const notifyType = (messageType === 'image' || messageType === 'video' || messageType === 'audio' || messageType === 'document')
+          ? messageType
+          : 'text';
+        // Get sender name — if this fails, fall back to "Someone"
+        getDoc(doc(db, 'users', fromUid))
+          .then(senderDoc => {
+            const senderName = senderDoc.data()?.displayName || 'Someone';
+            return fetch(`${notifyUrl}/notify`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ to: toUid, fromName: senderName, type: notifyType }),
+            });
+          })
+          .catch(() => {
+            // Non-critical: message was already saved locally and in RTDB
+            logger.warn('sendMessage', 'Notification relay skipped (name lookup or fetch failed)');
+          });
+      }
+
       const duration = Date.now() - startTime;
       logger.info('sendMessage', `Message sent successfully in ${duration}ms`);
       return { ...result, status: MESSAGE_STATUS.SENT };
     } catch (error: any) {
       const duration = Date.now() - startTime;
       logger.error('sendMessage', `Failed after ${duration}ms: ${error.message}`);
-      
+
       // Queue message for retry on reconnect
       const conversationId = this.getConversationId(fromUid, toUid);
       const messageId = messageQueue.addMessage({
@@ -1314,9 +1363,9 @@ export const messageService = {
         timestamp: new Date().toISOString(),
         maxRetries: 10
       });
-      
+
       logger.info('sendMessage', `Message queued for retry: ${messageId}`);
-      
+
       throw new Error(`Failed to send message: ${error.message}`);
     }
   },
@@ -1643,6 +1692,40 @@ export const messageService = {
   },
 
   /**
+   * Clean up undelivered messages older than 24 hours from the RTDB delivery pipe.
+   * Prevents stale messages from accumulating when a recipient is offline/uninstalled.
+   * Call this on app startup.
+   */
+  async cleanupDeliveryPipe(uid: string): Promise<void> {
+    try {
+      const deliveryRef = ref(realtimeDb, `delivery/${sanitizePathComponent(uid)}`);
+      const snapshot = await get(deliveryRef);
+      if (!snapshot.exists()) return;
+
+      const now = Date.now();
+      const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+      const deletes: Promise<void>[] = [];
+
+      snapshot.forEach((child) => {
+        const data = child.val();
+        const createdAt = data?._createdAt;
+        // RTDB server timestamps resolve to millis on client
+        const ts = typeof createdAt === 'number' ? createdAt : 0;
+        if (ts > 0 && now - ts > TTL_MS) {
+          deletes.push(remove(child.ref));
+        }
+      });
+
+      if (deletes.length > 0) {
+        await Promise.all(deletes);
+        logger.info('cleanupDeliveryPipe', `Cleaned up ${deletes.length} stale delivery nodes`);
+      }
+    } catch (err) {
+      logger.warn('cleanupDeliveryPipe', `Cleanup failed: ${err}`);
+    }
+  },
+
+  /**
    * List all chat IDs that have local data on this device
    */
   async getChatsForUser(userId: string): Promise<string[]> {
@@ -1668,7 +1751,7 @@ export const messageService = {
 
 export const typingService = {
   /**
-   * Set typing status with error handling
+   * Set typing status with error handling (1:1).
    */
   async setTyping(
     fromUid: string,
@@ -1695,6 +1778,31 @@ export const typingService = {
     } catch (error: any) {
       logger.warn('setTyping', `Failed to update typing status: ${error.message}`);
       // Non-critical, don't throw
+    }
+  },
+
+  /**
+   * Set typing status for a group chat. groupId is used as-is (not a sorted pair).
+   */
+  async setGroupTyping(
+    groupId: string,
+    userId: string,
+    isTyping: boolean
+  ) {
+    try {
+      const typingRef = ref(realtimeDb, `typing/${sanitizePathComponent(groupId)}/${sanitizePathComponent(userId)}`);
+      if (isTyping) {
+        await set(typingRef, {
+          isTyping: true,
+          timestamp: rtdbServerTimestamp(),
+        });
+        logger.info('setGroupTyping', `User ${userId} typing in group ${groupId}`);
+      } else {
+        await remove(typingRef);
+        logger.info('setGroupTyping', `User ${userId} stopped typing in group ${groupId}`);
+      }
+    } catch (error: any) {
+      logger.warn('setGroupTyping', `Failed to update group typing: ${error.message}`);
     }
   },
 
@@ -2328,6 +2436,36 @@ export const conversationService = {
   },
 
   /**
+   * Create a new 1-on-1 conversation between two users.
+   * Uses a deterministic ID (sorted uid1_uid2) so both users get the same document.
+   * Returns the conversationId.
+   */
+  async createConversation(uid1: string, uid2: string): Promise<string> {
+    try {
+      const conversationId = [uid1, uid2].sort().join('_');
+      const convRef = doc(db, 'conversations', conversationId);
+      const existing = await getDoc(convRef);
+      if (existing.exists()) {
+        console.log(`ℹ️ Conversation already exists: ${conversationId}`);
+        return conversationId;
+      }
+      await setDoc(convRef, {
+        participants: [uid1, uid2],
+        createdAt: serverTimestamp(),
+        lastMessageTime: serverTimestamp(),
+        lastMessage: '',
+        lastMessageSender: '',
+        type: 'direct',
+      });
+      console.log(`✅ Conversation created: ${conversationId}`);
+      return conversationId;
+    } catch (error: any) {
+      console.error('❌ Error creating conversation:', error.message);
+      throw error;
+    }
+  },
+
+  /**
    * Delete conversation
    */
   async deleteConversation(conversationId: string) {
@@ -2404,6 +2542,52 @@ export const analyticsService = {
 
 // ============ GROUP SERVICES ============
 
+/**
+ * Derive a per-group E2E encryption key.
+ * Same key for all members so anyone in the group can encrypt/decrypt.
+ */
+let groupKeyCache = new Map<string, CryptoKey>();
+
+export async function getGroupKey(groupId: string): Promise<CryptoKey> {
+  if (groupKeyCache.has(groupId)) return groupKeyCache.get(groupId)!;
+
+  // Dynamic import to avoid circular deps — encryption.js imports from firebaseServices
+  const { deriveKey } = await import('./encryption');
+  const key = await deriveKey(`group:${groupId}|e2e`);
+  groupKeyCache.set(groupId, key);
+  return key;
+}
+
+/** Assert caller is an admin of the group. Throws on failure. */
+async function assertAdmin(groupId: string, callerId: string) {
+  const snap = await getDoc(doc(db, 'groups', groupId));
+  if (!snap.exists()) throw new Error('Group not found');
+  const admins = snap.data().admins || [];
+  if (!admins.includes(callerId)) {
+    throw new Error('Only group admins can perform this action');
+  }
+}
+
+/** Assert caller is a member of the group (or the group exists for invite join). */
+async function assertMember(groupId: string, userId: string) {
+  const snap = await getDoc(doc(db, 'groups', groupId));
+  if (!snap.exists()) throw new Error('Group not found');
+  const members = snap.data().members || [];
+  if (!members.includes(userId)) {
+    throw new Error('You are not a member of this group');
+  }
+}
+
+/** Generate a random alphanumeric invite code. */
+function generateInviteCode(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 10; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
 export const groupService = {
   /**
    * Create a new group
@@ -2417,6 +2601,7 @@ export const groupService = {
     try {
       const groupId = `group_${Date.now()}`;
       const allMemberIds = [creatorId, ...memberIds.filter(id => id !== creatorId)];
+      const inviteCode = generateInviteCode();
 
       await setDoc(doc(db, 'groups', groupId), {
         groupId,
@@ -2426,15 +2611,50 @@ export const groupService = {
         creatorId,
         members: allMemberIds,
         admins: [creatorId],  // creator is admin
+        inviteCode,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
-      console.log(`✅ Group created: ${groupId}`);
+      console.log(`✅ Group created: ${groupId} (invite: ${inviteCode})`);
       return groupId;
     } catch (error: any) {
       console.error('❌ Error creating group:', error.message);
       throw new Error(`Failed to create group: ${error.message}`);
+    }
+  },
+
+  /**
+   * Join a group using an invite code. Returns the groupId on success.
+   */
+  async joinByInviteCode(inviteCode: string, userId: string): Promise<string> {
+    try {
+      const q = query(
+        collection(db, 'groups'),
+        where('inviteCode', '==', inviteCode),
+        limit(1)
+      );
+      const snap = await getDocs(q);
+      if (snap.empty) throw new Error('Invalid invite code');
+
+      const groupDoc = snap.docs[0];
+      const groupId = groupDoc.id;
+      const data = groupDoc.data();
+
+      if (data.members?.includes(userId)) {
+        return groupId; // already a member
+      }
+
+      await updateDoc(doc(db, 'groups', groupId), {
+        members: arrayUnion(userId),
+        updatedAt: serverTimestamp(),
+      });
+
+      console.log(`✅ User ${userId} joined group ${groupId} via invite code`);
+      return groupId;
+    } catch (error: any) {
+      console.error('❌ Error joining by invite code:', error.message);
+      throw error;
     }
   },
 
@@ -2453,10 +2673,11 @@ export const groupService = {
   },
 
   /**
-   * Update group info (name, description, avatar)
+   * Update group info (name, description, avatar). Admin only.
    */
-  async updateGroup(groupId: string, updates: { name?: string; description?: string; avatar?: string }): Promise<void> {
+  async updateGroup(groupId: string, updates: { name?: string; description?: string; avatar?: string }, callerId?: string): Promise<void> {
     try {
+      if (callerId) await assertAdmin(groupId, callerId);
       await updateDoc(doc(db, 'groups', groupId), {
         ...updates,
         updatedAt: serverTimestamp(),
@@ -2469,10 +2690,11 @@ export const groupService = {
   },
 
   /**
-   * Add members to a group
+   * Add members to a group. Admin only (unless callerId omitted for backward-compat; new callers should pass it).
    */
-  async addMembers(groupId: string, memberIds: string[]): Promise<void> {
+  async addMembers(groupId: string, memberIds: string[], callerId?: string): Promise<void> {
     try {
+      if (callerId) await assertAdmin(groupId, callerId);
       const groupRef = doc(db, 'groups', groupId);
       const groupSnap = await getDoc(groupRef);
       if (!groupSnap.exists()) throw new Error('Group not found');
@@ -2494,10 +2716,21 @@ export const groupService = {
   },
 
   /**
-   * Remove a member from a group
+   * Remove a member from a group. Admin only.
+   * Admins cannot remove other admins (prevents orphan group).
    */
-  async removeMember(groupId: string, memberId: string): Promise<void> {
+  async removeMember(groupId: string, memberId: string, callerId?: string): Promise<void> {
     try {
+      if (callerId) {
+        await assertAdmin(groupId, callerId);
+        // Prevent admins from removing other admins
+        const targetSnap = await getDoc(doc(db, 'groups', groupId));
+        const targetData = targetSnap.data();
+        if (targetData?.admins?.includes(memberId)) {
+          throw new Error('Cannot remove another admin. Transfer ownership first.');
+        }
+      }
+
       const groupRef = doc(db, 'groups', groupId);
       const groupSnap = await getDoc(groupRef);
       if (!groupSnap.exists()) throw new Error('Group not found');
@@ -2519,10 +2752,39 @@ export const groupService = {
   },
 
   /**
-   * Leave group (remove self)
+   * Leave group (remove self). Any member can leave.
    */
   async leaveGroup(groupId: string, userId: string): Promise<void> {
     await this.removeMember(groupId, userId);
+  },
+
+  /**
+   * Transfer ownership / admin role to another member. Admin only.
+   */
+  async transferOwnership(groupId: string, newOwnerId: string, callerId: string): Promise<void> {
+    try {
+      await assertAdmin(groupId, callerId);
+
+      const groupRef = doc(db, 'groups', groupId);
+      const groupSnap = await getDoc(groupRef);
+      if (!groupSnap.exists()) throw new Error('Group not found');
+
+      const members = groupSnap.data().members || [];
+      if (!members.includes(newOwnerId)) {
+        throw new Error('New owner must be a group member');
+      }
+
+      await updateDoc(groupRef, {
+        creatorId: newOwnerId,
+        admins: [newOwnerId],
+        updatedAt: serverTimestamp(),
+      });
+
+      console.log(`✅ Ownership of ${groupId} transferred to ${newOwnerId}`);
+    } catch (error: any) {
+      console.error('❌ Error transferring ownership:', error.message);
+      throw error;
+    }
   },
 
   /**
@@ -2545,7 +2807,7 @@ export const groupService = {
   },
 
   /**
-   * Send a message to a group
+   * Send a message to a group. Content is E2E-encrypted before storage.
    */
   async sendGroupMessage(
     groupId: string,
@@ -2557,30 +2819,47 @@ export const groupService = {
       replyToId?: string;
       replyToContent?: string;
       replyToSender?: string;
+      expiresAt?: number;
     } = {}
   ): Promise<string> {
     try {
       const messageId = `gmsg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
-      const messageData = {
+      // Encrypt content for E2E — skip for non-text or empty content
+      let encryptedContent = content;
+      let isEncrypted = false;
+      if (content && (!options.messageType || options.messageType === 'text')) {
+        try {
+          const groupKey = await getGroupKey(groupId);
+          const { encryptMessage } = await import('./encryption');
+          encryptedContent = await encryptMessage(content, groupKey);
+          isEncrypted = true;
+        } catch (encErr) {
+          console.warn('⚠️ Group message encryption failed, storing plaintext:', encErr);
+        }
+      }
+
+      const messageData: any = {
         messageId,
         groupId,
         senderId,
-        content,
+        content: encryptedContent,
+        isEncrypted,
         messageType: options.messageType || 'text',
         mediaUrl: options.mediaUrl || null,
         replyToId: options.replyToId || null,
         replyToContent: options.replyToContent || null,
         replyToSender: options.replyToSender || null,
+        expiresAt: options.expiresAt || null,
         timestamp: serverTimestamp(),
         readBy: [senderId],
       };
 
       await setDoc(doc(db, 'groups', groupId, 'messages', messageId), messageData);
 
-      // Update group's last message
+      // Update group's last message (use plaintext for preview;Firestore rules should restrict reads)
       await updateDoc(doc(db, 'groups', groupId), {
-        lastMessage: content,
+        lastMessage: content.substring(0, 100),
         lastMessageSender: senderId,
         lastMessageTime: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -2595,7 +2874,7 @@ export const groupService = {
   },
 
   /**
-   * Listen to group messages in real-time
+   * Listen to group messages in real-time. Decrypts E2E content.
    */
   listenToGroupMessages(groupId: string, callback: (messages: any[]) => void) {
     const q = query(
@@ -2603,15 +2882,28 @@ export const groupService = {
       orderBy('timestamp', 'asc')
     );
 
-    return onSnapshot(q, (snapshot) => {
-      const messages = snapshot.docs.map(doc => {
+    return onSnapshot(q, async (snapshot) => {
+      const { decryptMessage } = await import('./encryption');
+      const groupKey = await getGroupKey(groupId);
+
+      const messages = await Promise.all(snapshot.docs.map(async doc => {
         const data = doc.data();
+        let decryptedContent = data.content;
+        if (data.isEncrypted) {
+          try {
+            decryptedContent = await decryptMessage(data.content, groupKey);
+          } catch (decErr) {
+            console.warn('⚠️ Failed to decrypt group message:', doc.id, decErr);
+            decryptedContent = '[Encrypted message]';
+          }
+        }
         return {
           id: doc.id,
           ...data,
+          content: decryptedContent,
           timestamp: normalizeFirestoreTimestamp(data.timestamp),
         };
-      });
+      }));
       callback(messages);
     }, (err) => {
       console.error('❌ Error listening to group messages:', err);
@@ -2646,6 +2938,33 @@ export const groupService = {
       console.warn('⚠️ Error marking group messages read:', err);
     }
   },
+
+  /**
+   * Send push notification to a specific group member.
+   */
+  async sendGroupNotification(
+    groupId: string,
+    memberId: string,
+    groupName: string,
+    senderName: string,
+    content: string,
+  ): Promise<void> {
+    try {
+      const notifRef = ref(realtimeDb, `notifications/${memberId}/${Date.now()}`);
+      await set(notifRef, {
+        type: 'group_message',
+        groupId,
+        groupName,
+        fromName: senderName,
+        body: `${senderName}: ${content.substring(0, 80)}`,
+        messageType: 'text',
+        timestamp: Date.now(),
+      });
+      console.log(`📬 Group notification queued for ${memberId}`);
+    } catch (err) {
+      console.warn('⚠️ Failed to queue group notification:', err);
+    }
+  },
 };
 
 // ============ STATUS / STORIES SERVICES ============
@@ -2660,7 +2979,7 @@ export const statusService = {
     uid: string,
     content: string,
     type: 'text' | 'image' = 'text',
-    backgroundColor: string = '#00A884',
+    backgroundColor: string = '#4D91FB',
     mediaUrl: string | null = null,
   ) {
     try {
@@ -2794,10 +3113,11 @@ export const callService = {
     type: 'voice' | 'video';
     direction: 'incoming' | 'outgoing' | 'missed';
     duration?: number;
-    timestamp: any;
+    timestamp?: any;
   }) {
     try {
       const record: any = {
+        uid: uid,
         callId: callData.callId,
         contactId: callData.contactId,
         contactName: callData.contactName,
@@ -2805,11 +3125,16 @@ export const callService = {
         type: callData.type,
         direction: callData.direction,
         duration: callData.duration || 0,
-        timestamp: callData.timestamp || serverTimestamp(),
+        // Always use serverTimestamp for consistent Firestore ordering
+        timestamp: serverTimestamp(),
       };
-      await setDoc(doc(db, 'users', uid, 'callHistory', callData.callId), record);
+      const ref = doc(db, 'users', uid, 'callHistory', callData.callId);
+      await setDoc(ref, record);
+      console.log(`✅ Call record saved: ${callData.callId} → users/${uid}/callHistory`);
     } catch (error: any) {
-      console.error('❌ Error saving call record:', error.message);
+      console.error('❌ Error saving call record:', error.message, error.code);
+      // Re-throw so callers know it failed (they can decide to silence)
+      throw error;
     }
   },
 
@@ -2835,6 +3160,7 @@ export const callService = {
    * Listen to call history in real-time.
    */
   listenToCallHistory(uid: string, callback: (records: any[]) => void) {
+    console.log(`📞 Setting up call history listener for ${uid}`);
     const q = query(
       collection(db, 'users', uid, 'callHistory'),
       orderBy('timestamp', 'desc'),
@@ -2843,9 +3169,14 @@ export const callService = {
 
     return onSnapshot(q, (snapshot) => {
       const records = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      console.log(`📞 Call history snapshot: ${records.length} records for ${uid}`);
       callback(records);
     }, (err) => {
-      console.error('❌ Error listening to call history:', err);
+      // Firestore often requires a composite index for subcollection queries — log a hint
+      if (err.code === 'failed-precondition' || err.message?.includes('index')) {
+        console.error('🔥 Firestore index required for call history! Create an index for collection "callHistory" with field "timestamp" DESC. See: https://console.firebase.google.com/_/firestore/index-composite');
+      }
+      console.error('❌ Error listening to call history:', err.code, err.message);
       callback([]);
     });
   },

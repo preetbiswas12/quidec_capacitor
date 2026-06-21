@@ -25,8 +25,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+
     permissions:
       contents: read
+
     env:
       GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=4 -Dorg.gradle.vfs.watch=false"
 
@@ -36,6 +38,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ─── Java ────────────────────────────────────────────────────────────────
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      # ─── Node ────────────────────────────────────────────────────────────────
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -47,13 +58,7 @@ jobs:
           node-version: '22'
           cache: 'pnpm'
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'gradle'
-
+      # ─── Android SDK ─────────────────────────────────────────────────────────
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
@@ -62,9 +67,30 @@ jobs:
           yes | sdkmanager --licenses
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
-      - name: Install dependencies
-        run: pnpm install
+      # ─── Validate .env ───────────────────────────────────────────────────────
+      - name: Validate .env placeholders replaced
+        run: |
+          ERRORS=0
+          if grep -q "your-app.onrender.com" .env 2>/dev/null; then
+            echo "❌ VITE_NOTIFY_URL still has placeholder value"
+            ERRORS=1
+          fi
+          if grep -q "YOUR_EXPRESSTURN" .env 2>/dev/null; then
+            echo "❌ TURN placeholder found in .env"
+            ERRORS=1
+          fi
+          if [ "$ERRORS" = "1" ]; then exit 1; fi
+          echo "✅ .env validated"
 
+      # ─── Install dependencies ────────────────────────────────────────────────
+      - name: Install dependencies
+        run: |
+          NODE_ENV=development pnpm install --frozen-lockfile || (
+            echo "⚠️ Frozen lockfile failed, installing with updates"
+            NODE_ENV=development pnpm install
+          )
+
+      # ─── Build web app ───────────────────────────────────────────────────────
       - name: Build web app
         run: pnpm run build
         env:
@@ -76,61 +102,48 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
           VITE_VAPID_KEY: ${{ secrets.VITE_VAPID_KEY }}
+          VITE_NOTIFY_URL: ${{ secrets.VITE_NOTIFY_URL }}
           VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
 
-      - name: Clean Android artifacts
-        run: rm -rf android/app/src/main/assets/public 2>/dev/null || true
+      # ─── Sync Capacitor ──────────────────────────────────────────────────────
+      - name: Clean old web assets
+        run: rm -rf android/app/src/main/assets/public
 
       - name: Sync Capacitor
         run: pnpm exec cap sync android
 
-      - name: Update Gradle wrapper
-        run: sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
-
-      - name: Build APK
+      # ─── Build APK ───────────────────────────────────────────────────────────
+      - name: Build APK (${{ inputs.build_type || 'debug' }})
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean
           BUILD_TYPE="${{ inputs.build_type || 'debug' }}"
           if [ "$BUILD_TYPE" = "release" ]; then
-            ./gradlew assembleRelease --no-daemon --stacktrace --info --max-workers 1 2>&1
+            echo "🔒 Building release APK (requires KEYSTORE_* secrets)..."
+            ./gradlew assembleRelease --no-daemon --stacktrace --max-workers 1
           else
-            ./gradlew assembleDebug --no-daemon --stacktrace --info --max-workers 1 2>&1
+            echo "🔧 Building debug APK..."
+            ./gradlew assembleDebug --no-daemon --stacktrace --max-workers 1
           fi
-        env:
-          KEYSTORE_PATH: ${{ github.workspace }}/android/app/my-release-key.keystore
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Show Kotlin compiler errors
-        if: failure()
-        run: |
-          echo "=== Searching for Kotlin compiler output files ==="
-          find android -name "*.log" -o -name "kotlin-compiler*.txt" 2>/dev/null | head -20
-          echo "=== Searching build reports ==="
-          find android -path "*/build/reports/*" -type f 2>/dev/null | head -20
-          echo "=== Looking for filesystem compile errors specifically ==="
-          find android -path "*capacitor-filesystem*" -path "*/build/*" -name "*.log" -type f 2>/dev/null | xargs cat 2>/dev/null || true
-          echo "=== Kotlin daemon logs ==="
-          find /tmp -name "kotlin-daemon*" -type f 2>/dev/null | xargs tail -50 2>/dev/null || true
-          find ~/.gradle -name "kotlin-daemon*" -type f 2>/dev/null | xargs tail -50 2>/dev/null || true
-
+      # ─── Locate APK ──────────────────────────────────────────────────────────
       - name: Find APK
         id: apk
         run: |
-          echo "=== Searching entire android directory for APKs ==="
-          find android -name "*.apk" -type f 2>/dev/null || echo "No APKs found anywhere in android/"
-          echo "=== Done searching ==="
           APK_PATH=$(find android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null | head -1)
           if [ -z "$APK_PATH" ]; then
-            echo "APK not found in expected location"
+            echo "❌ No APK found in android/app/build/outputs/apk/"
+            echo "=== Searching entire android directory ==="
+            find android -name "*.apk" -type f 2>/dev/null || echo "No APKs found anywhere"
             exit 1
           fi
+          APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
           echo "apk_name=$(basename "$APK_PATH")" >> $GITHUB_OUTPUT
+          echo "apk_size=$APK_SIZE" >> $GITHUB_OUTPUT
+          echo "✅ APK found: $APK_PATH ($APK_SIZE)"
 
+      # ─── Upload artifact ─────────────────────────────────────────────────────
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -139,9 +152,17 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      # ─── Summary ─────────────────────────────────────────────────────────────
       - name: Build summary
         if: always()
         run: |
-          echo "## Android APK Build" >> $GITHUB_STEP_SUMMARY
-          echo "Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "APK: ${{ steps.apk.outputs.apk_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "## 📱 Android APK Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | ${{ job.status == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Type | ${{ inputs.build_type || 'debug' }} |" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.apk.outputs.apk_name }}" ]; then
+            echo "| APK | ${{ steps.apk.outputs.apk_name }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Size | ${{ steps.apk.outputs.apk_size }} |" >> $GITHUB_STEP_SUMMARY
+          fi

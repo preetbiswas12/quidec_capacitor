@@ -1,321 +1,198 @@
 /**
  * Firebase Cloud Messaging (FCM) integration
- * Handles push notifications for incoming calls and messages
+ * Handles push notifications for incoming messages and calls.
+ *
+ * Flow:
+ * 1. Sender writes to RTDB → calls Render /notify → Render sends FCM
+ * 2. Recipient's device receives FCM (foreground or background)
+ * 3. On tap: app opens, RTDB listener reconnects, drains delivery pipe
+ *
+ * Privacy: FCM payload contains ONLY sender name + message type.
+ * Actual message content travels exclusively through RTDB delivery pipe.
  */
 
-import { PushNotifications } from '@capacitor/push-notifications'
-import { LocalNotifications } from '@capacitor/local-notifications'
-import { Capacitor } from '@capacitor/core'
-import { decryptMessage } from './encryption'
+import { PushNotifications } from '@capacitor/push-notifications';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { Capacitor } from '@capacitor/core';
+import { decryptMessage } from './encryption';
 
-let encryptionKey = null
-let notificationsEnabled = true
+let encryptionKey = null;
+let notificationsEnabled = true;
+let onMessageCallback = null;  // Set by AppContext to trigger RTDB pipe drain
+
+/**
+ * Set callback that fires when a message notification is received.
+ * Used by AppContext to trigger RTDB reconnection + pipe drain.
+ */
+export function setOnMessageCallback(cb) {
+  onMessageCallback = cb;
+}
 
 /**
  * Enable or disable all notifications (Mute)
  */
 export function setNotificationsEnabled(enabled) {
-  notificationsEnabled = enabled
-  console.log(`🔔 Notifications ${enabled ? 'enabled' : 'MUTED'}`)
+  notificationsEnabled = enabled;
+  console.log(`🔔 Notifications ${enabled ? 'enabled' : 'MUTED'}`);
 }
 
 /**
- * Initialize push notifications (requires Firebase configured)
+ * Initialize push notifications
  */
 export async function initializePushNotifications(userId, key) {
   if (Capacitor.getPlatform() === 'web') {
-    console.log('🌐 Web platform: Skipping native push notifications initialization');
+    console.log('🌐 Web platform: push handled by service worker');
     return;
   }
   try {
-    encryptionKey = key
+    encryptionKey = key;
 
-    // Request notification permission first
-    await PushNotifications.requestPermissions()
+    await PushNotifications.requestPermissions();
+    await PushNotifications.register();
 
-    // Register for push notifications
-    await PushNotifications.register()
-
-    // Listen for incoming notifications
     PushNotifications.addListener('registration', (token) => {
-      console.log('✅ FCM Registration token:', token.value)
-      // Send this token to your backend for cloud messaging
-      sendTokenToBackend(userId, token.value)
-    })
+      console.log('✅ FCM Registration token:', token.value);
+      sendTokenToBackend(userId, token.value);
+    });
 
     PushNotifications.addListener('registrationError', (error) => {
-      console.error('❌ FCM Registration error:', error.error)
-    })
+      console.error('❌ FCM Registration error:', error.error);
+    });
 
+    // Foreground notification received
     PushNotifications.addListener('pushNotificationReceived', (notification) => {
-      console.log('📬 Notification received:', notification)
-      handleIncomingNotification(notification)
-    })
+      console.log('📬 Notification received in foreground:', notification);
+      handleIncomingNotification(notification);
+    });
 
+    // User tapped notification
     PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
-      console.log('🔔 Notification action:', notification)
-      handleNotificationAction(notification)
-    })
+      console.log('🔔 Notification tapped:', notification);
+      handleNotificationAction(notification);
+    });
 
-    console.log('✅ Push notifications initialized')
+    console.log('✅ Push notifications initialized');
   } catch (err) {
-    console.error('❌ Push notifications init failed:', err)
+    console.error('❌ Push notifications init failed:', err);
   }
 }
 
 /**
- * Send FCM token to backend
+ * Send FCM token to Firestore (saved by login flow in firebaseServices.ts)
+ * Kept here for native-specific token updates
  */
 async function sendTokenToBackend(userId, fcmToken) {
   try {
-    const serverUrl = import.meta.env.VITE_SERVER_URL || 'wss://quidec-server.onrender.com'
-    const httpUrl = serverUrl.replace(/wss?:/, 'https:').replace('http:', 'http:')
-
-    const response = await fetch(`${httpUrl}/api/users/${userId}/fcm-token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fcmToken }),
-    })
-
-    if (response.ok) {
-      console.log('✅ FCM token sent to backend')
-    } else {
-      console.warn('⚠️ Failed to send FCM token to backend')
-    }
+    const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
+    const { db } = await import('./firebase');
+    await setDoc(doc(db, 'users', userId), {
+      fcmToken: fcmToken,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    console.log('✅ FCM token saved to Firestore');
   } catch (err) {
-    console.error('❌ Error sending FCM token:', err)
+    console.error('❌ Error saving FCM token:', err);
   }
 }
 
 /**
- * Handle incoming FCM notification
- * Data-only messages contain encrypted content
+ * Handle incoming FCM notification (foreground)
+ * Shows local notification + triggers RTDB pipe drain
  */
 async function handleIncomingNotification(notification) {
   if (!notificationsEnabled) {
-    console.log('🔇 Notification suppressed (Mute is ON)')
-    return
+    console.log('🔇 Notification suppressed (Mute is ON)');
+    return;
   }
-  const { data } = notification.notification || notification
 
-  // Extract notification type
-  const type = data?.type // 'incoming-call', 'message', 'friend-request'
-  const from = data?.from
-  const title = data?.title || 'New Notification'
-  const body = data?.body || ''
+  const data = notification.data || {};
+  const type = data.type || 'new_text';
+  const fromName = data.fromName || 'Someone';
 
-  console.log(`📬 Notification type: ${type} from ${from}`)
-
-  // Handle different notification types
-  switch (type) {
-    case 'incoming-call':
-      await handleIncomingCall(from, notification)
-      break
-
-    case 'message':
-      await handleMessageNotification(from, data, notification)
-      break
-
-    case 'friend-request':
-      await handleFriendRequestNotification(from, notification)
-      break
-
-    default:
-      // Show generic notification
-      await showLocalNotification(title, body)
+  // Trigger RTDB pipe drain — this is the critical wake-up step
+  if (onMessageCallback) {
+    onMessageCallback(type, fromName);
   }
-}
 
-/**
- * Handle incoming call notification
- * Shows native-like incoming call UI
- */
-async function handleIncomingCall(from, notification) {
-  console.log(`📞 Incoming call from ${from}`)
+  // Show local notification
+  const typeLabels = {
+    new_text: 'sent a message',
+    new_image: 'sent an Image',
+    new_video: 'sent a Video',
+    new_audio: 'sent a Voice message',
+  };
+  const body = `${fromName} ${typeLabels[type] || 'sent a message'}`;
 
-  // Show high-priority local notification
   await LocalNotifications.schedule({
-    notifications: [
-      {
-        id: 1,
-        title: 'Incoming Call',
-        body: `${from} is calling...`,
-        smallIcon: 'ic_launcher',
-        largeBody: `Tap to answer call from ${from}`,
-        actionTypeId: 'call-action',
-        sound: true,
-        vibrate: [500, 200, 500],
-        schedule: {
-          at: new Date(),
-        },
-      },
-    ],
-  })
-
-  // Dispatch custom event to wake up React component
-  window.dispatchEvent(
-    new CustomEvent('incomingCall', {
-      detail: { from },
-    })
-  )
+    notifications: [{
+      id: Date.now() % 100000,
+      title: fromName,
+      body,
+      smallIcon: 'ic_launcher',
+      sound: true,
+      vibrate: [200],
+      extra: data,
+    }],
+  });
 }
 
 /**
- * Handle message notification
- * Decrypt message content before showing
+ * Handle notification tap (background → foreground transition)
+ * Triggers RTDB pipe drain so messages are picked up
  */
-async function handleMessageNotification(from, data, notification) {
-  console.log(`💬 Message from ${from}`)
+function handleNotificationAction(notification) {
+  const data = notification.notification?.data || notification.data || {};
 
-  let messageBody = data?.body || '...'
+  // Trigger RTDB pipe drain
+  if (onMessageCallback) {
+    onMessageCallback(data.type || 'new_text', data.fromName || 'Someone');
+  }
 
-  // If encrypted content provided and key available, decrypt it
-  if (data?.encryptedContent && encryptionKey) {
-    try {
-      const decrypted = await decryptMessage(data.encryptedContent, encryptionKey)
-      messageBody = decrypted.text || messageBody
-    } catch (err) {
-      console.warn('⚠️ Could not decrypt message:', err)
-      messageBody = '[Encrypted message]'
+  // Handle call actions
+  if (data.actionTypeId === 'call-action') {
+    const actionId = notification.actionId;
+    if (actionId === 'accept') {
+      window.dispatchEvent(new CustomEvent('acceptCall', { detail: { from: data?.from } }));
+    } else if (actionId === 'reject') {
+      window.dispatchEvent(new CustomEvent('rejectCall', { detail: { from: data?.from } }));
     }
   }
-
-  await LocalNotifications.schedule({
-    notifications: [
-      {
-        id: Math.random() * 10000,
-        title: `Message from ${from}`,
-        body: messageBody,
-        smallIcon: 'ic_launcher',
-        sound: true,
-        vibrate: [200],
-        schedule: {
-          at: new Date(),
-        },
-      },
-    ],
-  })
-}
-
-/**
- * Handle friend request notification
- */
-async function handleFriendRequestNotification(from, notification) {
-  console.log(`👥 Friend request from ${from}`)
-
-  await LocalNotifications.schedule({
-    notifications: [
-      {
-        id: Math.random() * 10000,
-        title: 'Friend Request',
-        body: `${from} sent you a friend request`,
-        smallIcon: 'ic_launcher',
-        sound: true,
-        schedule: {
-          at: new Date(),
-        },
-      },
-    ],
-  })
 }
 
 /**
  * Show generic local notification
  */
 export async function showLocalNotification(title, body, notificationId = null) {
-  if (!notificationsEnabled) return
+  if (!notificationsEnabled) return;
   try {
     await LocalNotifications.schedule({
-      notifications: [
-        {
-          id: notificationId || Math.random() * 10000,
-          title,
-          body,
-          smallIcon: 'ic_launcher',
-          schedule: {
-            at: new Date(),
-          },
-        },
-      ],
-    })
+      notifications: [{
+        id: notificationId || (Date.now() % 100000),
+        title,
+        body,
+        smallIcon: 'ic_launcher',
+      }],
+    });
   } catch (err) {
-    console.error('❌ Failed to show notification:', err)
+    console.error('❌ Failed to show notification:', err);
   }
 }
 
 /**
- * Handle user interaction with notification
- */
-function handleNotificationAction(notification) {
-  const { notification: data } = notification
-
-  // Get the action that was performed
-  const actionId = notification.actionId
-  console.log(`🔔 User performed action: ${actionId}`)
-
-  // Handle call actions
-  if (data?.actionTypeId === 'call-action') {
-    if (actionId === 'accept') {
-      // User tapped "Accept"
-      window.dispatchEvent(
-        new CustomEvent('acceptCall', {
-          detail: {
-            from: data?.from,
-          },
-        })
-      )
-    } else if (actionId === 'reject') {
-      // User tapped "Reject"
-      window.dispatchEvent(
-        new CustomEvent('rejectCall', {
-          detail: {
-            from: data?.from,
-          },
-        })
-      )
-    }
-  }
-}
-
-/**
- * Configure local notification actions
- * Called during app initialization
+ * Configure local notification actions (call accept/reject)
  */
 export async function setupNotificationActions() {
-  if (Capacitor.getPlatform() === 'web') {
-    console.log('🌐 Web platform: Skipping native notification actions setup');
-    return;
-  }
+  if (Capacitor.getPlatform() === 'web') return;
   try {
     await LocalNotifications.createActionGroup({
       id: 'call-action',
       actions: [
-        {
-          id: 'accept',
-          title: 'Accept',
-          foreground: true,
-        },
-        {
-          id: 'reject',
-          title: 'Reject',
-          foreground: false,
-        },
+        { id: 'accept', title: 'Accept', foreground: true },
+        { id: 'reject', title: 'Reject', foreground: false },
       ],
-    })
-    console.log('✅ Notification actions configured')
+    });
+    console.log('✅ Notification actions configured');
   } catch (err) {
-    console.error('❌ Failed to setup notification actions:', err)
-  }
-}
-
-/**
- * Get FCM token (useful for debugging)
- */
-export async function getFCMToken() {
-  try {
-    // This requires additional setup - usually Firebase Admin SDK on backend
-    console.log('Note: FCM token obtained during registration')
-  } catch (err) {
-    console.error('❌ Error getting FCM token:', err)
+    console.error('❌ Failed to setup notification actions:', err);
   }
 }

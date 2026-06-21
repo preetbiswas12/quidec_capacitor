@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import services from '../../utils/firebaseServices';
-const { messageService, authService, presenceService, friendRequestService, typingService, userService, groupService, statusService, callService } = services;
-import { getDoc, doc, query, collection, where, getDocs } from 'firebase/firestore';
-import { db } from '../../utils/firebase';
+import { toast } from 'sonner';
+import services, { sanitizePathComponent } from '../../utils/firebaseServices';
+const { messageService, authService, presenceService, friendRequestService, typingService, userService, groupService, statusService, callService, conversationService } = services;
+import { getDoc, doc, query, collection, where, getDocs, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '../../utils/firebase';
 import { initializePushNotifications } from '../../utils/fcm';
 import { loadMessages as loadLocalMessages, clearKeyCache, updateMessageReactions, updateMessageStar, getStarredMessages } from '../../utils/localMessageStore';
 import { getEncryptionKey } from '../../utils/encryption';
@@ -64,6 +65,7 @@ export interface Message {
   linkUrl?: string;
   linkTitle?: string;
   linkDomain?: string;
+  expiresAt?: number; // epoch ms — message should be deleted after this time
 }
 
 export interface Chat {
@@ -133,10 +135,12 @@ interface AppContextType {
   // Auth
   isOnboarded: boolean;
   currentUser: CurrentUser | null;
+  authUid: string | null;       // Firebase Auth UID — for PeerJS ID, never for Firestore paths
   isAuthenticating: boolean;
   needsVerification: boolean;
   completeOnboarding: (user: CurrentUser) => void;
   updateCurrentUser: (updates: Partial<CurrentUser>) => void;
+  updateUserEmail: (newEmail: string) => Promise<void>;
   login: (email: string, password: string) => Promise<{ success: boolean; emailVerified?: boolean; message?: string }>;
   register: (email: string, username: string, password: string) => Promise<{ success: boolean; emailVerified?: boolean; message?: string }>;
   logout: () => Promise<void>;
@@ -172,6 +176,7 @@ interface AppContextType {
 
   // Messaging
   sendMessage: (chatId: string, content: string, type?: Message['type'], extra?: Partial<Message>, mediaFile?: File) => Promise<void>;
+  startChat: (contactId: string) => Promise<string>;
   addMessagesToChat: (chatId: string, items: Message[]) => void;
   reactToMessage: (chatId: string, messageId: string, emoji: string) => Promise<void>;
   markAsRead: (chatId: string) => Promise<void>;
@@ -184,10 +189,11 @@ interface AppContextType {
   groupMessages: Record<string, Message[]>;
   createGroup: (name: string, description: string, memberIds: string[]) => Promise<string>;
   sendGroupMessage: (groupId: string, content: string, type?: Message['type'], extra?: Partial<Message>) => Promise<void>;
-  addGroupMembers: (groupId: string, memberIds: string[]) => Promise<void>;
-  removeGroupMember: (groupId: string, memberId: string) => Promise<void>;
+  addGroupMembers: (groupId: string, memberIds: string[], callerId?: string) => Promise<void>;
+  removeGroupMember: (groupId: string, memberId: string, callerId?: string) => Promise<void>;
   leaveGroup: (groupId: string) => Promise<void>;
-  updateGroupInfo: (groupId: string, updates: { name?: string; description?: string; avatar?: string }) => Promise<void>;
+  transferOwnership: (groupId: string, newOwnerId: string) => Promise<void>;
+  updateGroupInfo: (groupId: string, updates: { name?: string; description?: string; avatar?: string }, callerId?: string) => Promise<void>;
   markGroupRead: (groupId: string) => Promise<void>;
 
   // Search & Filters
@@ -221,6 +227,12 @@ interface AppContextType {
 
   // Contact discovery
   searchUsers: (query: string) => void;
+
+  // Disappearing messages
+  disappearingTimers: Record<string, number>;
+  setDisappearingTimer: (chatId: string, ttlSeconds: number) => void;
+  getDisappearingRemaining: (chatId: string) => number;
+  isDisappearingActive: (chatId: string) => boolean;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -281,6 +293,10 @@ function mapFirestoreMessage(raw: any, chatId: string): Message {
     timestamp: normalizeFirestoreTimestamp(raw.timestamp),
     status: raw.status || 'sent',
     imageUrl: raw.mediaUrl || undefined,
+    replyToId: raw.replyToId || undefined,
+    replyToContent: raw.replyToContent || undefined,
+    replyToSender: raw.replyToSender || undefined,
+    expiresAt: raw.expiresAt?.toMillis?.() || raw.expiresAt || undefined,
   };
 }
 
@@ -294,6 +310,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isAuthenticating, setIsAuthenticating] = useState(true);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [isConnected, setIsConnected] = useState(true); // Always true for Firebase as it manages its own connection
+
+  // Internal: Firebase Auth UID (e.g. "3tMFJtJK...") — used ONLY for Firestore paths
+  // that require auth UID (friendships, subcollection rules), NEVER for display.
+  const [authUid, setAuthUid] = useState<string | null>(null);
 
   // WebSocket & Real Data
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -375,23 +395,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string): Promise<any> => {
     setIsAuthenticating(true);
+    loginInProgress.current = true;
     try {
       const result = await authService.loginUser(email, password);
 
       if (!result.success) {
         console.error('Login failed:', result.message);
+        setIsAuthenticating(false);
+        loginInProgress.current = false;
         return result;
       }
 
+      // Resolve the custom handle (Quidec ID) by querying Firestore via auth UID.
+      // result.user.displayName may be a human name (e.g. "preetb"), NOT the custom
+      // handle doc ID (e.g. "preetb.5815"), so we query by uid field instead.
+      let customId = result.username || result.user?.email?.split('@')[0] || email.split('@')[0];
+      let profileName = result.user?.displayName || email.split('@')[0];
+      let profileAvatar = result.user?.photoURL || null;
+      let profileAbout = '';
+      try {
+        const uid = result.user?.uid;
+        if (uid) {
+          const q = query(collection(db, 'users'), where('uid', '==', uid));
+          const querySnapshot = await getDocs(q);
+          if (!querySnapshot.empty) {
+            const userDoc = querySnapshot.docs[0];
+            const data = userDoc.data();
+            profileName = data.displayName || profileName;
+            profileAvatar = data.photoURL || profileAvatar;
+            profileAbout = data.about || '';
+            customId = userDoc.id || data.username || customId;
+            console.log('✅ Login profile resolved via uid:', { name: profileName, customId, docId: userDoc.id });
+          } else {
+            console.warn('⚠️ Login: no Firestore doc found by uid, using fallback');
+          }
+        }
+      } catch (profileErr) {
+        console.warn('⚠️ Could not fetch profile during login:', profileErr);
+      }
       const user: CurrentUser = {
-        name: result.user?.displayName || email.split('@')[0],
+        name: profileName,
         email: email,
-        userId: result.username || result.uid || result.user?.uid || '',
-        avatar: result.user?.photoURL || null,
-        about: '',
+        userId: customId,
+        avatar: profileAvatar,
+        about: profileAbout,
       };
       setCurrentUser(user);
+      setAuthUid(result.user?.uid || null); // Store auth UID for internal Firestore paths
       setNeedsVerification(!result.emailVerified);
+
       setIsOnboarded(!!result.emailVerified);
 
       // Initialize production collections
@@ -424,8 +476,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return { success: false, message: (err as any).message || 'Login failed' };
     } finally {
       setIsAuthenticating(false);
+      loginInProgress.current = false;
     }
   }, []);
+
 
   const register = useCallback(async (email: string, username: string, password: string): Promise<any> => {
     setIsAuthenticating(true);
@@ -438,14 +492,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       // Registration successful - user needs to verify email
+      // result.username = custom handle (e.g. "preet.5815") generated in registerUser
+      const regCustomId = result.username || username;
       const user: CurrentUser = {
         name: username,
         email: email,
-        userId: result.username || result.uid || result.user?.uid || '',
+        userId: regCustomId,
         avatar: null,
         about: '',
       };
       setCurrentUser(user);
+      setAuthUid(result.user?.uid || null); // Store auth UID for internal Firestore paths
       setNeedsVerification(true);
       setIsOnboarded(false);
 
@@ -472,6 +529,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await authService.logoutUser();
       setCurrentUser(null);
+      setAuthUid(null);
       setIsOnboarded(false);
       setContacts([]);
       setMessages({});
@@ -494,12 +552,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [navigate]);
 
   const initialAuthChecked = useRef(false);
+  const loginInProgress = useRef(false);
 
   // ─── Initialize Auth State on Mount ───────────────────────────────────────
   useEffect(() => {
     const splashDelay = new Promise(resolve => setTimeout(resolve, 3000));
-    
+
     const authUnsubscribe = authService.onAuthStateChange(async (currentFirebaseUser) => {
+      // If a login is in progress, skip — the login() function handles state
+      if (loginInProgress.current) return;
       // If we already finished the initial check, don't do it again
       if (initialAuthChecked.current) return;
 
@@ -509,48 +570,69 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (currentFirebaseUser) {
           console.log('📧 Email verified:', currentFirebaseUser.emailVerified);
           if (currentFirebaseUser.emailVerified) {
-            // Fetch profile
+            // Fetch profile — always resolve via auth UID first, since displayName
+            // on the auth profile may be a human name (e.g. "preetb") while the
+            // Firestore doc ID is the custom handle (e.g. "preetb.5815").
             let about = 'Available';
             let avatar = currentFirebaseUser.photoURL || null;
             let name = currentFirebaseUser.displayName || currentFirebaseUser.email?.split('@')[0] || 'User';
-            let userId = currentFirebaseUser.uid;
+            let userId = currentFirebaseUser.uid; // Temporary; will be replaced by custom handle
 
             try {
-              console.log('📥 Fetching Firestore profile by UID search...');
-              // Since document IDs are now Handles, we must query by the 'uid' field
+              // PRIMARY: Query by uid field to find the Firestore doc.
+              // The doc ID IS the custom handle / Quidec ID (e.g. "preetb.5815").
+              console.log('📥 Resolving profile via auth UID:', currentFirebaseUser.uid);
               const q = query(collection(db, 'users'), where('uid', '==', currentFirebaseUser.uid));
-              const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000));
-              
-              const querySnapshot = await Promise.race([getDocs(q), timeout]) as any;
-              
-              if (querySnapshot && !querySnapshot.empty) {
+              const querySnapshot = await getDocs(q);
+
+              if (!querySnapshot.empty) {
                 const userDoc = querySnapshot.docs[0];
                 const data = userDoc.data();
                 about = data.about || about;
                 avatar = data.photoURL || avatar;
                 name = data.displayName || name;
-                userId = data.username || currentFirebaseUser.uid;
-                console.log('✅ Profile loaded:', name, userId);
+                // userId = custom handle from doc ID (preferred) or username field
+                userId = userDoc.id || data.username || currentFirebaseUser.uid;
+                console.log('✅ Profile resolved via uid:', { name, userId, docId: userDoc.id });
                 setIsOnboarded(true);
               } else {
-                console.warn('⚠️ User doc does not exist for UID:', currentFirebaseUser.uid);
-                setIsOnboarded(false);
-                navigate('/onboarding');
+                // Fallback: displayName might be the custom handle itself
+                const handle = currentFirebaseUser.displayName || currentFirebaseUser.email?.split('@')[0] || 'User';
+                console.warn('⚠️ No doc found by uid, trying displayName as doc ID:', handle);
+                const handleDoc = await getDoc(doc(db, 'users', handle));
+                if (handleDoc.exists()) {
+                  const data = handleDoc.data();
+                  about = data.about || about;
+                  avatar = data.photoURL || avatar;
+                  name = data.displayName || name;
+                  userId = data.username || handle;
+                  console.log('✅ Profile resolved via displayName:', { name, userId });
+                } else {
+                  console.warn('⚠️ All profile lookups failed, using displayName as userId');
+                  userId = handle;
+                  name = handle;
+                }
+                setIsOnboarded(true);
               }
             } catch (docErr) {
-              console.warn('⚠️ Profile fetch skipped (timeout or error):', docErr);
-              setIsOnboarded(true); // Default to true on error to avoid looping
+              console.warn('⚠️ Profile fetch skipped (error):', docErr);
+              // Last resort: use displayName (could be human name, but never auth UID)
+              const handle = currentFirebaseUser.displayName || currentFirebaseUser.email?.split('@')[0] || 'User';
+              userId = handle;
+              name = handle;
+              setIsOnboarded(true);
             }
 
             const user: CurrentUser = {
               name,
               email: currentFirebaseUser.email || '',
-              userId: userId || currentFirebaseUser.uid || '',
+              userId, // Always the custom handle, never the raw Firebase Auth UID
               avatar,
               about,
             };
             
             setCurrentUser(user);
+            setAuthUid(currentFirebaseUser.uid); // Store auth UID for internal Firestore paths
             setNeedsVerification(false);
             // Moved isOnboarded to inside the if/else above
             console.log('🚀 Finalizing state: ONBOARDED');
@@ -561,8 +643,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           } else {
             console.log('🚀 Finalizing state: NEEDS_VERIFICATION');
             
-            // Look up custom username for unverified users too
-            let customUsernameForUnverified = currentFirebaseUser.uid;
+            // Resolve custom username for unverified users.
+            // displayName was set to the custom ID (e.g. "preet.5815") during registration.
+            let customUsernameForUnverified = currentFirebaseUser.displayName || currentFirebaseUser.email?.split('@')[0] || 'User';
+            // Also try Firestore lookup to confirm, but prefer displayName
             try {
               const customUsername = await authService.getCustomUsernameByFirebaseUid(currentFirebaseUser.uid);
               if (customUsername) {
@@ -579,6 +663,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               avatar: null,
               about: '',
             });
+            setAuthUid(currentFirebaseUser.uid); // Store auth UID for internal Firestore paths
             setNeedsVerification(true);
             setIsOnboarded(false);
           }
@@ -627,27 +712,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (firebaseUser?.emailVerified) {
           console.log('✅ Email verification detected! Updating app state...');
           
-          // Fetch updated profile
+          // Fetch updated profile — resolve via auth UID first
           let about = 'Available';
           let avatar = firebaseUser.photoURL || null;
           let name = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
-          let userId = firebaseUser.uid;
+          let userId = firebaseUser.uid; // Temporary; will be replaced by custom handle
 
           try {
+            // PRIMARY: Query by uid field to find the Firestore doc
             const q = query(collection(db, 'users'), where('uid', '==', firebaseUser.uid));
             const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000));
             const querySnapshot = await Promise.race([getDocs(q), timeout]) as any;
-            
+
             if (querySnapshot && !querySnapshot.empty) {
               const userDoc = querySnapshot.docs[0];
               const data = userDoc.data();
               about = data.about || about;
               avatar = data.photoURL || avatar;
               name = data.displayName || name;
-              userId = data.username || firebaseUser.uid;
+              userId = userDoc.id || data.username || firebaseUser.uid;
+            } else {
+              // Fallback: displayName might be the custom handle
+              const handle = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
+              const handleDoc = await getDoc(doc(db, 'users', handle));
+              if (handleDoc.exists()) {
+                const data = handleDoc.data();
+                about = data.about || about;
+                avatar = data.photoURL || avatar;
+                name = data.displayName || name;
+                userId = data.username || handle;
+              } else {
+                userId = handle;
+                name = handle;
+              }
             }
           } catch (docErr) {
             console.warn('⚠️ Profile fetch skipped:', docErr);
+            const handle = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
+            userId = handle;
+            name = handle;
           }
 
           // Update context state
@@ -658,6 +761,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             avatar,
             about,
           });
+          setAuthUid(firebaseUser.uid); // Store auth UID for internal Firestore paths
           setNeedsVerification(false);
           setIsOnboarded(true);
           
@@ -682,6 +786,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (verificationCheckInterval) clearInterval(verificationCheckInterval);
     };
   }, [currentUser, needsVerification]);
+
+  // ─── Detect Email Change After Verification ───────────────────────────────
+  // When a user changes their email via verifyBeforeUpdateEmail, Firebase
+  // updates auth.currentUser.email after they click the verification link.
+  // This effect detects that change and syncs it to Firestore + local state.
+  useEffect(() => {
+    if (!currentUser || !isOnboarded) return;
+
+    const emailCheckInterval = setInterval(async () => {
+      try {
+        const firebaseUser = auth.currentUser;
+        if (!firebaseUser) return;
+
+        await firebaseUser.reload();
+        const latestEmail = firebaseUser.email || '';
+
+        // If the email in Firebase Auth differs from our local state, sync it
+        if (latestEmail !== currentUser.email) {
+          console.log(`📧 Email change detected: ${currentUser.email} → ${latestEmail}`);
+
+          // Update Firestore
+          const userRef = doc(db, 'users', currentUser.userId);
+          await updateDoc(userRef, {
+            email: latestEmail,
+            updatedAt: serverTimestamp(),
+          });
+
+          // Update local state
+          setCurrentUser((prev) => (prev ? { ...prev, email: latestEmail } : null));
+          console.log('✅ Email synced to Firestore and local state');
+          toast.success('Email updated successfully', { description: `Your email has been changed to ${latestEmail}` });
+        }
+      } catch (err) {
+        // Silently ignore — this is a background check
+      }
+    }, 5000);
+
+    return () => clearInterval(emailCheckInterval);
+  }, [currentUser, isOnboarded]);
 
   // ─── Native Permissions Initialization ────────────────────────────────────
   useEffect(() => {
@@ -848,6 +991,144 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [currentUser]);
 
+  // ─── Update User Email ────────────────────────────────────────────────────
+  const updateUserEmail = useCallback(async (newEmail: string) => {
+    if (!currentUser) return;
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Not authenticated');
+
+      // Reload Firebase user to get latest email (in case it was changed via verification link)
+      await user.reload();
+      const latestEmail = user.email || newEmail;
+
+      // Update Firestore user document
+      const userRef = doc(db, 'users', currentUser.userId);
+      await updateDoc(userRef, {
+        email: latestEmail,
+        updatedAt: serverTimestamp(),
+      });
+
+      // Update local state
+      setCurrentUser((prev) => (prev ? { ...prev, email: latestEmail } : null));
+      console.log('✅ Email updated to:', latestEmail);
+    } catch (err: any) {
+      console.error('❌ Failed to update email:', err);
+      throw err;
+    }
+  }, [currentUser]);
+
+  // ─── Disappearing Messages ────────────────────────────────────────────────
+  // chatId → ttl in seconds (0 = disabled)
+  const [disappearingTimers, setDisappearingTimers] = useState<Record<string, number>>({});
+
+  /** Enable or disable disappearing messages for a specific chat */
+  const setDisappearingTimer = useCallback((chatId: string, ttlSeconds: number) => {
+    setDisappearingTimers(prev => {
+      const next = { ...prev };
+      if (ttlSeconds <= 0) {
+        delete next[chatId];
+      } else {
+        next[chatId] = ttlSeconds;
+      }
+      return next;
+    });
+
+    // Persist to Firestore
+    if (currentUser) {
+      const chatRef = doc(db, 'users', currentUser.userId, 'chatSettings', chatId);
+      setDoc(chatRef, {
+        disappearingTtl: ttlSeconds,
+        updatedAt: serverTimestamp(),
+      }, { merge: true }).catch(() => {});
+    }
+
+    console.log(`⏱️ Disappearing messages ${ttlSeconds > 0 ? `enabled (${ttlSeconds}s)` : 'disabled'} for chat ${chatId}`);
+  }, [currentUser]);
+
+  /** Get remaining seconds for the last message in a chat, or 0 if disabled */
+  const getDisappearingRemaining = useCallback((chatId: string): number => {
+    const ttl = disappearingTimers[chatId];
+    if (!ttl || ttl <= 0) return 0;
+    const chatMsgs = messages[chatId];
+    if (!chatMsgs || chatMsgs.length === 0) return 0;
+    const lastMsg = chatMsgs[chatMsgs.length - 1];
+    if (!lastMsg.expiresAt) return 0;
+    const remaining = Math.round((lastMsg.expiresAt - Date.now()) / 1000);
+    return remaining > 0 ? remaining : 0;
+  }, [disappearingTimers, messages]);
+
+  /** Check if disappearing messages are active for a chat */
+  const isDisappearingActive = useCallback((chatId: string): boolean => {
+    return (disappearingTimers[chatId] || 0) > 0;
+  }, [disappearingTimers]);
+
+  // Cleanup timer: runs every 10s and removes expired messages from local state + persists to local store
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const cleanupInterval = setInterval(async () => {
+      const now = Date.now();
+      const expiredByChat: Record<string, string[]> = {};
+
+      setMessages(prev => {
+        const next: typeof prev = {};
+        for (const [chatId, msgs] of Object.entries(prev)) {
+          const expired = msgs.filter(m => m.expiresAt && m.expiresAt <= now);
+          if (expired.length > 0) {
+            expiredByChat[chatId] = expired.map(m => m.id);
+          }
+          const filtered = msgs.filter(m => !m.expiresAt || m.expiresAt > now);
+          next[chatId] = filtered;
+        }
+        return next;
+      });
+
+      // Persist deletions to local store
+      for (const [chatId, expiredIds] of Object.entries(expiredByChat)) {
+        try {
+          const { loadMessages, saveMessages } = await import('../../utils/localMessageStore');
+          const stored = await loadMessages(currentUser.userId, chatId);
+          const remaining = stored.filter(m => !expiredIds.includes(m.id));
+          if (remaining.length !== stored.length) {
+            await saveMessages(currentUser.userId, chatId, remaining);
+            console.log(`🧹 Removed ${expiredIds.length} expired message(s) from local store for chat ${chatId}`);
+          }
+        } catch (err) {
+          console.warn('⚠️ Failed to persist expired message cleanup:', err);
+        }
+      }
+    }, 10000);
+
+    return () => clearInterval(cleanupInterval);
+  }, [currentUser]);
+
+  // Load per-chat disappearing message settings on mount
+  useEffect(() => {
+    if (!currentUser || !isOnboarded) return;
+
+    const loadSettings = async () => {
+      try {
+        const q2 = query(collection(db, 'users', currentUser.userId, 'chatSettings'));
+        const snap = await getDocs(q2);
+        const timers: Record<string, number> = {};
+        snap.forEach(d => {
+          const data = d.data();
+          if (data.disappearingTtl > 0) {
+            timers[d.id] = data.disappearingTtl;
+          }
+        });
+        if (Object.keys(timers).length > 0) {
+          setDisappearingTimers(prev => ({ ...prev, ...timers }));
+          console.log(`⏱️ Loaded disappearing message settings for ${Object.keys(timers).length} chats`);
+        }
+      } catch (err) {
+        console.warn('⚠️ Could not load disappearing message settings:', err);
+      }
+    };
+    loadSettings();
+  }, [currentUser, isOnboarded]);
+
   // ─── Initialize Real-time Listeners ───────────────────────────────────────
   useEffect(() => {
     if (!currentUser || !isOnboarded) {
@@ -855,6 +1136,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     const uid = currentUser.userId;
+    // uid = custom handle (e.g. "preetb.5815") — used for friendships, presence, user doc paths
+    // authUid = Firebase Auth UID — stored internally, not used for Firestore doc paths
     console.log('🔗 Establishing real-time Firebase listeners for', uid);
 
     // 0. Initialize Push Notifications & Action Groups
@@ -920,13 +1203,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.error('❌ Failed to initialize Android settings:', err);
     });
 
-    // 1. Listen to Friends List
+    // 1. Listen to Friends List — friendships doc is keyed by custom handle
     friendsUnsubscribeRef.current = presenceService.listenToFriends(uid, (rawFriends) => {
       const normalized = rawFriends.map((f, i) => normalizeContact(f, i));
       setContacts(normalized);
     });
 
-    // 2. Listen to Friends Presence
+    // 2. Listen to Friends Presence — friendships doc is keyed by custom handle
     presenceUnsubscribeRef.current = presenceService.listenToFriendsPresence(uid, (friendsStatus) => {
       setContacts(prev => prev.map(contact => {
         const status = friendsStatus[contact.id];
@@ -1096,7 +1379,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         contactId: uid,
         content: s.content || '',
         type: s.type || 'text',
-        backgroundColor: s.backgroundColor || '#00A884',
+        backgroundColor: s.backgroundColor || '#4D91FB',
         timestamp: normalizeFirestoreTimestamp(s.createdAt),
         viewed: true, // my own statuses are always "viewed"
       }));
@@ -1105,12 +1388,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // 9. Listen to call history
     callHistoryUnsubscribeRef.current = callService.listenToCallHistory(uid, (records) => {
+      console.log(`📞 [AppContext] Call history update: ${records.length} records`);
       const mapped: CallRecord[] = records.map((r: any) => ({
         id: r.callId || r.id,
         contactId: r.contactId,
         type: r.type || 'voice',
         direction: r.direction || 'outgoing',
-        duration: r.duration ? `${Math.floor(r.duration / 60)}:${(r.duration % 60).toString().padStart(2, '0')}` : undefined,
+        // duration is stored as seconds (number); format as "M:SS" — only show if > 0
+        duration: r.duration > 0 ? `${Math.floor(r.duration / 60)}:${(r.duration % 60).toString().padStart(2, '0')}` : undefined,
         timestamp: normalizeFirestoreTimestamp(r.timestamp),
       }));
       setCalls(mapped);
@@ -1133,42 +1418,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActiveIncomingCall(incoming);
     });
 
-    // 11. Listen to each friend's statuses
-    const friendUids: string[] = [];
-    const unsubFriendStatuses: Record<string, () => void> = {};
-
-    const setupFriendStatusListeners = (friendsList: string[]) => {
-      // Unsubscribe from old listeners that are no longer friends
-      Object.keys(statusListenersRef.current).forEach(friendUid => {
-        if (!friendsList.includes(friendUid)) {
-          statusListenersRef.current[friendUid]?.();
-          delete statusListenersRef.current[friendUid];
-        }
-      });
-      // Add listeners for new friends
-      friendsList.forEach(friendUid => {
-        if (statusListenersRef.current[friendUid]) return; // already listening
-        statusListenersRef.current[friendUid] = statusService.listenToUserStatuses(friendUid, (rawStatuses) => {
-          const mapped: Status[] = rawStatuses.map((s: any) => ({
-            id: s.statusId || s.id,
-            contactId: friendUid,
-            content: s.content || '',
-            type: s.type || 'text',
-            backgroundColor: s.backgroundColor || '#00A884',
-            timestamp: normalizeFirestoreTimestamp(s.createdAt),
-            viewed: (s.viewedBy || []).includes(uid),
-          }));
-          // Merge into the statuses state, replacing this friend's statuses
-          setStatuses(prev => {
-            const others = prev.filter(s => s.contactId !== friendUid);
-            return [...others, ...mapped];
-          });
-        });
-      });
-    };
-
-    // Initial setup from current contacts
-    setupFriendStatusListeners(friendUids);
+    // 11. Listen to each friend's statuses — setup moved to a separate
+    //    useContext + useEffect block below so it reacts to contacts changes.
 
     // Cleanup all listeners on unmount or user change
     return () => {
@@ -1188,6 +1439,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
       unsubscribeAndroidSettings?.();
     };
   }, [currentUser, isOnboarded, navigate]);
+
+  // ─── Friend Status Listeners (reacts to contacts changes) ─────────────────
+
+  const setupFriendStatusListeners = useCallback((friendsList: string[]) => {
+    if (!currentUser) return;
+    const uid = currentUser.userId;
+    // Unsubscribe from old listeners that are no longer friends
+    Object.keys(statusListenersRef.current).forEach(friendUid => {
+      if (!friendsList.includes(friendUid)) {
+        statusListenersRef.current[friendUid]?.();
+        delete statusListenersRef.current[friendUid];
+      }
+    });
+    // Add listeners for new friends
+    friendsList.forEach(friendUid => {
+      if (statusListenersRef.current[friendUid]) return; // already listening
+      statusListenersRef.current[friendUid] = statusService.listenToUserStatuses(friendUid, (rawStatuses) => {
+        const mapped: Status[] = rawStatuses.map((s: any) => ({
+          id: s.statusId || s.id,
+          contactId: friendUid,
+          content: s.content || '',
+          type: s.type || 'text',
+          backgroundColor: s.backgroundColor || '#4D91FB',
+          timestamp: normalizeFirestoreTimestamp(s.createdAt),
+          viewed: (s.viewedBy || []).includes(uid),
+        }));
+        // Merge into the statuses state, replacing this friend's statuses
+        setStatuses(prev => {
+          const others = prev.filter(s => s.contactId !== friendUid);
+          return [...others, ...mapped];
+        });
+      });
+    });
+  }, [currentUser]);
+
+  // Whenever contacts list changes, (re-)attach status listeners for all friends
+  useEffect(() => {
+    if (!currentUser) return;
+    const friendUids = contacts.map(c => c.id);
+    setupFriendStatusListeners(friendUids);
+  }, [contacts, currentUser, setupFriendStatusListeners]);
 
   // ─── Helper: Convert raw contact to UI Contact ────────────────────────────
 
@@ -1215,6 +1507,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!currentUser) return;
 
       const msgId = `gmsg-${Date.now()}`;
+      const ttl = disappearingTimers[groupId] || 0;
       const msg: Message = {
         id: msgId,
         chatId: groupId,
@@ -1224,6 +1517,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         timestamp: new Date().toISOString(),
         status: 'sent',
         ...extra,
+        expiresAt: ttl > 0 ? Date.now() + ttl * 1000 : undefined,
       };
 
       // Optimistic update
@@ -1236,14 +1530,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
         [groupId]: [...(prev[groupId] || []), msg],
       }));
 
-      // Send to Firestore
+      // Send to Firestore (encrypted + updates group preview)
       await groupService.sendGroupMessage(groupId, currentUser.userId, content, {
         messageType: type,
         mediaUrl: extra?.imageUrl || null,
         replyToId: extra?.replyToId,
         replyToContent: extra?.replyToContent,
         replyToSender: extra?.replyToSender,
+        expiresAt: msg.expiresAt,
       });
+
+      // Push notifications to other group members via Render FCM relay
+      const notifyUrl = import.meta.env.VITE_NOTIFY_URL;
+      if (notifyUrl) {
+        const senderName = currentUser.name || 'Someone';
+        const notifyType = (type === 'image' || type === 'video' || type === 'audio' || type === 'document')
+          ? type
+          : 'text';
+        const memberIds = (groups.find(g => g.groupId === groupId)?.members || [])
+          .filter((m: string) => m !== currentUser.userId);
+        for (const memberId of memberIds) {
+          fetch(`${notifyUrl}/notify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to: memberId, fromName: senderName, type: notifyType }),
+          }).catch(() => {});
+        }
+      }
     },
     [currentUser]
   );
@@ -1284,6 +1597,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       // 2. Optimistic local message
+      const ttl = disappearingTimers[chatId] || 0;
       const msg: Message = {
         id: msgId,
         chatId,
@@ -1294,6 +1608,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         status: 'sent',
         ...extra,
         imageUrl: finalImageUrl,
+        expiresAt: ttl > 0 ? Date.now() + ttl * 1000 : undefined,
       };
 
       setMessages((prev) => ({
@@ -1308,15 +1623,61 @@ export function AppProvider({ children }: { children: ReactNode }) {
         mediaUrl: finalImageUrl,
         timestamp: new Date(),
         status: 'sent',
+        replyToId: extra?.replyToId,
+        replyToContent: extra?.replyToContent,
+        replyToSender: extra?.replyToSender,
+        expiresAt: msg.expiresAt,
       }).catch(err => console.warn('⚠️ Local record failed:', err));
 
-      // 4. Push notification to recipient
-      messageService.sendPushNotification(chatId, currentUser.userId, content, type)
-        .catch(err => console.warn('⚠️ Push notification failed:', err));
+      // 4. Push notification to recipient via Render FCM relay
+      const notifyUrl = import.meta.env.VITE_NOTIFY_URL;
+      if (notifyUrl) {
+        const senderName = currentUser.name || 'Someone';
+        const notifyType = (type === 'image' || type === 'video' || type === 'audio' || type === 'document')
+          ? type
+          : 'text';
+        fetch(`${notifyUrl}/notify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: chatId, fromName: senderName, type: notifyType }),
+        }).catch(() => {});
+      }
 
       console.log('📤 Message delivered via RTDB transient pipe + FCM notification');
     },
     [currentUser, groups, sendGroupMessage]
+  );
+
+  // ─── Start Chat ────────────────────────────────────────────────────────────
+
+  const startChat = useCallback(
+    async (contactId: string): Promise<string> => {
+      if (!currentUser) throw new Error('Not authenticated');
+
+      // Check if a chat already exists with this contact
+      const existingChat = chats.find(c => c.contactId === contactId);
+      if (existingChat) {
+        console.log(`ℹ️ Chat already exists: ${existingChat.id}`);
+        return existingChat.id;
+      }
+
+      // Create the conversation in Firestore
+      const conversationId = await conversationService.createConversation(currentUser.userId, contactId);
+
+      // Add the chat to the local chat list immediately (optimistic)
+      const newChat: Chat = {
+        id: conversationId,
+        contactId,
+        lastMessage: '',
+        lastMessageTime: '',
+        lastMessageSender: '',
+        unreadCount: 0,
+      };
+      setChats(prev => [newChat, ...prev]);
+      console.log(`✅ New chat started: ${conversationId} with ${contactId}`);
+      return conversationId;
+    },
+    [currentUser, chats]
   );
 
   // ─── Group Methods ────────────────────────────────────────────────────────
@@ -1331,17 +1692,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const addGroupMembers = useCallback(
-    async (groupId: string, memberIds: string[]) => {
-      await groupService.addMembers(groupId, memberIds);
+    async (groupId: string, memberIds: string[], callerId?: string) => {
+      await groupService.addMembers(groupId, memberIds, callerId);
     },
     []
   );
 
   const removeGroupMember = useCallback(
-    async (groupId: string, memberId: string) => {
-      await groupService.removeMember(groupId, memberId);
+    async (groupId: string, memberId: string, callerId?: string) => {
+      await groupService.removeMember(groupId, memberId, callerId);
     },
     []
+  );
+
+  const transferOwnership = useCallback(
+    async (groupId: string, newOwnerId: string) => {
+      if (!currentUser) return;
+      await groupService.transferOwnership(groupId, newOwnerId, currentUser.userId);
+    },
+    [currentUser]
   );
 
   const leaveGroup = useCallback(
@@ -1353,8 +1722,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const updateGroupInfo = useCallback(
-    async (groupId: string, updates: { name?: string; description?: string; avatar?: string }) => {
-      await groupService.updateGroup(groupId, updates);
+    async (groupId: string, updates: { name?: string; description?: string; avatar?: string }, callerId?: string) => {
+      await groupService.updateGroup(groupId, updates, callerId);
     },
     []
   );
@@ -1525,7 +1894,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ─── Status Methods ──────────────────────────────────────────────────────
 
   const addStatus = useCallback(
-    async (content: string, type: 'text' | 'image' = 'text', backgroundColor: string = '#00A884', mediaFile?: File) => {
+    async (content: string, type: 'text' | 'image' = 'text', backgroundColor: string = '#4D91FB', mediaFile?: File) => {
       if (!currentUser) return;
 
       let mediaUrl: string | null = null;
@@ -1693,16 +2062,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     resolveAvatar();
   }, [currentUser?.avatar, currentUser?.userId]);
 
-  // ─── Real-time Typing (Per Active Chat) ──────────────────────────────────
+  // ─── Real-time Typing (Per Active Chat, 1:1 or group) ────────────────────
   useEffect(() => {
     if (!currentUser || !activeChatId) {
       setTypingContacts({});
       return;
     }
 
-    const contact = chats.find(c => c.id === activeChatId)?.contactId;
-    if (!contact) return;
+    const activeChat = chats.find(c => c.id === activeChatId);
+    if (!activeChat) return;
 
+    // Detect group chat: check if this contact has isGroup set
+    const activeContact = contacts.find(c => c.id === activeChat.contactId);
+    const isGroupChat = !!activeContact?.isGroup;
+
+    let unsubGroupTyping: (() => void) | undefined;
+
+    if (isGroupChat) {
+      // ── Group typing: listen to typing/{groupId} dynamically ──
+      console.log(`⌨️ Listening for group typing in ${activeChatId}`);
+      import('firebase/database').then(({ ref, onValue, off }) => {
+        import('../../utils/firebase').then(({ realtimeDb }) => {
+          const typingRef = ref(realtimeDb, `typing/${sanitizePathComponent(activeChatId)}`);
+          unsubGroupTyping = onValue(typingRef, (snapshot: any) => {
+            const data = snapshot.val() || {};
+            // Exclude current user
+            const othersTyping = Object.entries(data).filter(([uid]: [string, any]) => uid !== currentUser.userId);
+            const isAnyoneTyping = othersTyping.length > 0;
+            setTypingContacts(prev => ({
+              ...prev,
+              [activeChatId]: isAnyoneTyping,
+            }));
+          });
+        });
+      });
+      return () => { try { unsubGroupTyping?.(); } catch { /* */ } };
+    }
+
+    // ── 1:1 typing ──
+    const contact = activeChat.contactId;
     console.log(`⌨️ Listening for typing in ${activeChatId}`);
     const unsubscribe = typingService.listenToTyping(currentUser.userId, contact, (typingData) => {
       setTypingContacts(prev => ({
@@ -1712,7 +2110,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [currentUser, activeChatId, chats]);
+  }, [currentUser, activeChatId, chats, contacts]);
 
   // Sync Mute status with FCM service
   useEffect(() => {
@@ -1730,10 +2128,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value: AppContextType = {
     isOnboarded,
     currentUser: currentUser ? { ...currentUser, avatar: currentUserAvatarUrl } : null,
+    authUid,
     isAuthenticating,
     needsVerification,
     completeOnboarding,
     updateCurrentUser,
+    updateUserEmail,
     login,
     register,
     logout,
@@ -1753,6 +2153,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshStarredMessages,
     statuses,
     searchUsers,
+    disappearingTimers,
+    setDisappearingTimer,
+    getDisappearingRemaining,
+    isDisappearingActive,
     chatRequests,
     sendChatRequest,
     acceptRequest,
@@ -1765,6 +2169,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showRequests,
     setShowRequests,
     sendMessage,
+    startChat,
     reactToMessage,
     markAsRead,
     clearAllChats,
@@ -1794,6 +2199,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     addGroupMembers,
     removeGroupMember,
     leaveGroup,
+    transferOwnership,
     updateGroupInfo,
     markGroupRead,
   };

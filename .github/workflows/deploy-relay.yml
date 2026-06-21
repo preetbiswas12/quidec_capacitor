@@ -1,0 +1,51 @@
+name: Deploy FCM Relay to Render
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'quidec-relay/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate relay server syntax
+        run: |
+          cd quidec-relay
+          node -c server.js
+          echo "✅ server.js syntax OK"
+
+      - name: Check relay dependencies exist
+        run: |
+          cd quidec-relay
+          if [ ! -f package.json ]; then
+            echo "❌ package.json missing in quidec-relay/"
+            exit 1
+          fi
+          echo "✅ package.json found"
+
+      - name: Notify Render deploy hook
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "⚠️ RENDER_DEPLOY_HOOK_URL not set — skipping Render deploy"
+            echo "   Set this secret in GitHub to auto-deploy on push:"
+            echo "   https://docs.render.com/docs/deploy-hooks"
+            exit 0
+          fi
+          echo "🚀 Triggering Render deploy..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$RENDER_DEPLOY_HOOK_URL")
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✅ Render deploy triggered (HTTP $HTTP_CODE)"
+          else
+            echo "⚠️ Render deploy hook returned HTTP $HTTP_CODE"
+          fi

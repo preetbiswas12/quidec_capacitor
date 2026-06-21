@@ -2,7 +2,8 @@ import Peer, { DataConnection, MediaConnection } from 'peerjs';
 import logger from './logger';
 
 interface PeerServiceConfig {
-  userId: string;
+  userId: string;       // Custom handle (e.g. "preet.5815") — used for display
+  peerId?: string;      // Firebase Auth UID — used as PeerJS cloud ID for global uniqueness
   debug?: boolean;
 }
 
@@ -39,11 +40,14 @@ export class PeerServiceImpl {
         this.userId = config.userId;
         this.debug = config.debug || false;
 
-        this.log(`Initializing PeerJS for user: ${this.userId}`);
+        // Use Firebase Auth UID as PeerJS cloud ID for global uniqueness.
+        // Falls back to userId (custom handle) if peerId not provided.
+        const peerJsId = config.peerId || config.userId;
+        this.log(`Initializing PeerJS for user: ${this.userId} (peerId: ${peerJsId})`);
 
-        // Build ICE servers configuration
-        // STUN servers for direct connections
-        // TURN servers for relay when direct connection is impossible
+        // ─── ICE Servers ──────────────────────────────────────────────────────────
+        // STUN for direct connections, TURN (ExpressTURN free) for NAT relay.
+        // Credentials are free-tier — do NOT use for high-traffic production.
         const iceServers: ICEServer[] = [
           {
             urls: [
@@ -54,12 +58,12 @@ export class PeerServiceImpl {
           },
           {
             urls: [
-              import.meta.env.VITE_TURN_URL_1 || 'turn:free.expressturn.com:3478',
-              import.meta.env.VITE_TURN_URL_2 || 'turn:free.expressturn.com:3479?transport=tcp',
-              import.meta.env.VITE_TURN_URL_3 || 'turns:free.expressturn.com:5349',
+              'turn:free.expressturn.com:3478',
+              'turn:free.expressturn.com:3479?transport=tcp',
+              'turns:free.expressturn.com:5349',
             ],
-            username: import.meta.env.VITE_TURN_USERNAME || '',
-            credential: import.meta.env.VITE_TURN_CREDENTIAL || '',
+            username: '000000002093260049',
+            credential: 'K6KMvixuaPZkje9giLJojFTM0+Y=',
           },
         ];
 
@@ -69,7 +73,7 @@ export class PeerServiceImpl {
         const peerServerSecure = import.meta.env.VITE_PEER_SERVER_SECURE !== 'false';
         const peerServerKey = import.meta.env.VITE_PEER_SERVER_KEY || 'peerjs';
 
-        this.peer = new Peer(this.userId, {
+        this.peer = new Peer(peerJsId, {
           host: peerServerHost,
           port: peerServerPort,
           path: '/',

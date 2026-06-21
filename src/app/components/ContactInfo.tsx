@@ -115,7 +115,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
               />
               <button onClick={async () => {
                 if (groupNameEdit.trim() && groupNameEdit !== contact.name) {
-                  await updateGroupInfo(contactId, { name: groupNameEdit.trim() });
+                  await updateGroupInfo(contactId, { name: groupNameEdit.trim() }, currentUser?.userId);
                 }
                 setEditingGroupName(false);
               }} className="w-8 h-8 bg-[#4d91fb] rounded-full flex items-center justify-center">
@@ -175,7 +175,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
             />
             <button onClick={async () => {
               if (groupNameEdit.trim() && groupNameEdit !== contact.name) {
-                await updateGroupInfo(contactId, { name: groupNameEdit.trim() });
+                await updateGroupInfo(contactId, { name: groupNameEdit.trim() }, currentUser?.userId);
               }
               setEditingGroupName(false);
             }} className="w-9 h-9 bg-[#4d91fb] rounded-full flex items-center justify-center">
@@ -195,7 +195,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
             <div className="flex gap-2 mt-2">
               <button onClick={async () => {
                 if (descriptionEdit !== contact.about) {
-                  await updateGroupInfo(contactId, { description: descriptionEdit.trim() });
+                  await updateGroupInfo(contactId, { description: descriptionEdit.trim() }, currentUser?.userId);
                 }
                 setEditingDescription(false);
               }} className="px-4 py-1.5 bg-[#4d91fb] text-white rounded-lg text-sm">Save</button>
@@ -259,7 +259,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
                     <button
                       onClick={async () => {
                         if (window.confirm(`Remove ${member?.name || memberId} from the group?`)) {
-                          await removeGroupMember(contactId, memberId);
+                          if (currentUser) await removeGroupMember(contactId, memberId, currentUser.userId);
                         }
                       }}
                       className="text-wa-text-muted hover:text-red-400 p-1"
@@ -310,7 +310,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
                   <button
                     key={contact.id}
                     onClick={async () => {
-                      await addGroupMembers(contactId, [contact.id]);
+                      if (currentUser) await addGroupMembers(contactId, [contact.id], currentUser.userId);
                       setShowAddMembers(false);
                       setAddMemberSearch('');
                     }}

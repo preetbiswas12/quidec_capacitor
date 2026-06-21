@@ -1,4 +1,4 @@
-import { Search, Archive, X, MessageSquare } from 'lucide-react';
+import { Search, Archive, X, MessageSquare, Timer } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useApp } from '../context/AppContext';
@@ -11,6 +11,7 @@ export default function ChatList() {
     typingContacts, searchQuery, setSearchQuery,
     chatFilter, setChatFilter,
     pendingIncomingCount, setShowRequests,
+    isDisappearingActive,
   } = useApp();
 
   const getContact = (id: string) => contacts.find(c => c.id === id);
@@ -150,6 +151,7 @@ export default function ChatList() {
             isTyping={typingContacts[chat.id]}
             onOpen={() => openChat(chat.id)}
             isPinned
+            isDisappearing={isDisappearingActive(chat.id)}
           />
         ))}
 
@@ -164,6 +166,7 @@ export default function ChatList() {
             isActive={activeChatId === chat.id}
             isTyping={typingContacts[chat.id]}
             onOpen={() => openChat(chat.id)}
+            isDisappearing={isDisappearingActive(chat.id)}
           />
         ))}
 
@@ -180,13 +183,14 @@ export default function ChatList() {
   );
 }
 
-function ChatRow({ chat, contact, isActive, isTyping, onOpen, isPinned }: {
+function ChatRow({ chat, contact, isActive, isTyping, onOpen, isPinned, isDisappearing }: {
   chat: any;
   contact: any;
   isActive: boolean;
   isTyping: boolean;
   onOpen: () => void;
   isPinned?: boolean;
+  isDisappearing?: boolean;
 }) {
   if (!contact) return null;
   const lastMsg = chat.lastMessage;
@@ -232,6 +236,9 @@ function ChatRow({ chat, contact, isActive, isTyping, onOpen, isPinned }: {
                 <line x1="17" y1="9" x2="23" y2="15"/>
               </svg>
             )}
+            {isDisappearing && (
+              <Timer size={12} className="text-[#4d91fb]" />
+            )}
             {isPinned && !chat.unreadCount && (
               <svg width="12" height="12" viewBox="0 0 24 24" fill="#8696A0">
                 <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
@@ -239,7 +246,7 @@ function ChatRow({ chat, contact, isActive, isTyping, onOpen, isPinned }: {
             )}
             {chat.unreadCount > 0 && (
               <span
-                className={`rounded-full flex items-center justify-center text-white ${chat.isMuted ? 'bg-[#8696A0]' : 'bg-[#00A884]'}`}
+                className={`rounded-full flex items-center justify-center text-white ${chat.isMuted ? 'bg-[#8696A0]' : 'bg-[#4D91FB]'}`}
                 style={{ minWidth: 20, height: 20, fontSize: '0.7rem', fontWeight: 700, padding: '0 5px' }}
               >
                 {chat.unreadCount}

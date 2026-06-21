@@ -85,13 +85,13 @@ export default function SecurityActionModal({
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
             className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
           >
-            <div className="w-full max-w-sm mx-4 bg-[#111B21] border border-[#00A884]/30 rounded-2xl shadow-2xl pointer-events-auto overflow-hidden">
+            <div className="w-full max-w-sm mx-4 bg-[#111B21] border border-[#4D91FB]/30 rounded-2xl shadow-2xl pointer-events-auto overflow-hidden">
               {/* Close button */}
               <button
                 onClick={onClose}
                 className="absolute top-4 right-4 p-2 hover:bg-[#202C33] rounded-full transition-colors z-10 group"
               >
-                <X size={24} className="text-[#00A884] group-hover:text-[#06cf9c]" />
+                <X size={24} className="text-[#4D91FB] group-hover:text-[#06cf9c]" />
               </button>
 
               {/* Content */}
@@ -138,9 +138,9 @@ export default function SecurityActionModal({
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.4 }}
-                    className="w-full bg-[#202C33] rounded-xl px-4 py-3 mb-6 border border-[#00A884]/20 flex items-center gap-3 justify-center"
+                    className="w-full bg-[#202C33] rounded-xl px-4 py-3 mb-6 border border-[#4D91FB]/20 flex items-center gap-3 justify-center"
                   >
-                    <Mail size={16} className="text-[#00A884]" />
+                    <Mail size={16} className="text-[#4D91FB]" />
                     <p className="text-[#E9EDEF] font-semibold text-sm break-all">{email}</p>
                   </motion.div>
                 )}
@@ -150,9 +150,9 @@ export default function SecurityActionModal({
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.5 }}
-                  className="w-full bg-[#00A884]/10 rounded-xl px-4 py-3 mb-6 text-left border border-[#00A884]/20"
+                  className="w-full bg-[#4D91FB]/10 rounded-xl px-4 py-3 mb-6 text-left border border-[#4D91FB]/20"
                 >
-                  <p className="text-[#00A884] font-semibold text-xs mb-2">NEXT STEPS:</p>
+                  <p className="text-[#4D91FB] font-semibold text-xs mb-2">NEXT STEPS:</p>
                   <ol className="text-[#8696A0] text-xs space-y-1">
                     <li>1. Check your inbox and spam folder</li>
                     <li>2. Click the link in the email</li>

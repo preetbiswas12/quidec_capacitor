@@ -74,7 +74,7 @@ export default function MessageRequests() {
         {/* Pending requests */}
         {pending.length > 0 && (
           <div>
-            <p className="text-[#00A884] px-5 pt-4 pb-2" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+            <p className="text-[#4D91FB] px-5 pt-4 pb-2" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>
               PENDING
             </p>
             <AnimatePresence>
@@ -106,7 +106,7 @@ export default function MessageRequests() {
         {pending.length === 0 && handled.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 px-8 text-center gap-4">
             <div className="w-20 h-20 bg-wa-secondary/30 rounded-full flex items-center justify-center">
-              <MessageSquare size={36} className="text-[#00A884] opacity-50" />
+              <MessageSquare size={36} className="text-[#4D91FB] opacity-50" />
             </div>
             <div>
               <p className="text-wa-primary font-bold" style={{ fontSize: '1.2rem' }}>No requests</p>
@@ -165,14 +165,14 @@ function RequestCard({
         <div className="flex-1 min-w-0">
           <p className="text-wa-primary" style={{ fontWeight: 800, fontSize: '1.1rem', letterSpacing: '-0.3px' }}>{contact.name}</p>
           <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-[#00A884] font-bold" style={{ fontSize: '0.82rem' }}>@{contact.userId.replace('@', '')}</span>
+            <span className="text-[#4D91FB] font-bold" style={{ fontSize: '0.82rem' }}>@{contact.userId.replace('@', '')}</span>
             <span className="text-wa-text-muted" style={{ fontSize: '0.82rem' }}>· {timestamp}</span>
           </div>
         </div>
       </div>
 
       <div className="bg-wa-secondary/30 rounded-2xl px-4 py-4 mb-6 border border-wa-border/5">
-        <p className="text-[#00A884] font-bold mb-1.5" style={{ fontSize: '0.68rem', letterSpacing: '0.5px' }}>INITIAL MESSAGE</p>
+        <p className="text-[#4D91FB] font-bold mb-1.5" style={{ fontSize: '0.68rem', letterSpacing: '0.5px' }}>INITIAL MESSAGE</p>
         <p className="text-wa-primary leading-relaxed" style={{ fontSize: '0.95rem' }}>{previewMessage}</p>
       </div>
 
@@ -186,7 +186,7 @@ function RequestCard({
         </button>
         <button
           onClick={onAccept}
-          className="flex-1 py-3.5 rounded-full bg-[#00A884] text-white font-bold shadow-lg hover:bg-[#06cf9c] transition-all active:scale-95"
+          className="flex-1 py-3.5 rounded-full bg-[#4D91FB] text-white font-bold shadow-lg hover:bg-[#06cf9c] transition-all active:scale-95"
           style={{ fontSize: '0.9rem' }}
         >
           Accept Request

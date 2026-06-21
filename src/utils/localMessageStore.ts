@@ -36,6 +36,7 @@ export interface StoredMessage {
   replyToContent?: string;
   replyToSender?: string;
   mediaPath?: string; // local path for media
+  expiresAt?: number; // epoch ms — message should be deleted after this time
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -441,6 +442,29 @@ export async function updateMessageStar(
 
   let combined = new Uint8Array(0);
   for (const msg of updated) {
+    const payload = new TextEncoder().encode(JSON.stringify(msg));
+    const { iv1, iv2, ciphertext } = await doubleEncrypt(payload, key1, key2);
+    const chunk = encodeChunk(iv1, iv2, ciphertext);
+    combined = concat(combined, chunk);
+  }
+
+  await writeFileBytes(filename, combined);
+}
+
+/**
+ * Save (rewrite) all messages for a chat to the local encrypted store.
+ * Used by the disappearing-messages cleanup timer to persist deletions.
+ */
+export async function saveMessages(
+  userUid: string,
+  chatId: string,
+  messages: StoredMessage[]
+): Promise<void> {
+  const { key1, key2 } = await getKeys(userUid, chatId);
+  const filename = chatFilename(chatId);
+
+  let combined = new Uint8Array(0);
+  for (const msg of messages) {
     const payload = new TextEncoder().encode(JSON.stringify(msg));
     const { iv1, iv2, ciphertext } = await doubleEncrypt(payload, key1, key2);
     const chunk = encodeChunk(iv1, iv2, ciphertext);

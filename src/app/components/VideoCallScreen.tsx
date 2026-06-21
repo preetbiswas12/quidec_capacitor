@@ -23,7 +23,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
   const { id: routeCallId } = useParams<{ id?: string }>();
   const { id: routeRemoteId } = useParams<{ id: string; }>();
   const navigate = useNavigate();
-  const { currentUser, contacts, saveCallRecord } = useApp();
+  const { currentUser, authUid, contacts, saveCallRecord } = useApp();
 
   const callId = props.callId || routeCallId || `call_${Date.now()}`;
   const remoteUserId = props.remotePeerId || routeRemoteId;
@@ -164,6 +164,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
         console.log('Initializing PeerJS...');
         await peerService.initialize({
           userId: currentUser?.userId || '',
+          peerId: authUid || undefined,
           debug: false,
         });
       }
@@ -256,6 +257,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
         console.log('Initializing PeerJS for receiver...');
         await peerService.initialize({
           userId: currentUser?.userId || '',
+          peerId: authUid || undefined,
           debug: false,
         });
       }
@@ -539,7 +541,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ type: 'spring', delay: 0.2 }}
-          className="w-24 h-24 rounded-full bg-[#00A884]/20 flex items-center justify-center border-4 border-[#00A884]/40"
+          className="w-24 h-24 rounded-full bg-[#4D91FB]/20 flex items-center justify-center border-4 border-[#4D91FB]/40"
         >
           {remoteContact?.avatar ? (
             <img
@@ -548,7 +550,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
               className="w-full h-full rounded-full object-cover"
             />
           ) : (
-            <div className="text-4xl font-bold text-[#00A884]">
+            <div className="text-4xl font-bold text-[#4D91FB]">
               {remoteContact?.name?.[0]?.toUpperCase() || '?'}
             </div>
           )}
@@ -574,7 +576,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
           {[0, 1, 2].map((i) => (
             <motion.div
               key={i}
-              className="w-3 h-3 bg-[#00A884] rounded-full"
+              className="w-3 h-3 bg-[#4D91FB] rounded-full"
               animate={{ opacity: [0.5, 1, 0.5] }}
               transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.2 }}
             />
@@ -591,7 +593,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={handleAcceptCall}
-            className="w-16 h-16 bg-[#00A884] rounded-full flex items-center justify-center shadow-2xl hover:bg-[#06cf9c] transition-colors"
+            className="w-16 h-16 bg-[#4D91FB] rounded-full flex items-center justify-center shadow-2xl hover:bg-[#06cf9c] transition-colors"
           >
             <Video size={28} className="text-white" />
           </motion.button>
@@ -622,7 +624,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ type: 'spring', delay: 0.2 }}
-          className="w-24 h-24 rounded-full bg-[#00A884]/20 flex items-center justify-center border-4 border-[#00A884]/40"
+          className="w-24 h-24 rounded-full bg-[#4D91FB]/20 flex items-center justify-center border-4 border-[#4D91FB]/40"
         >
           {remoteContact?.avatar ? (
             <img
@@ -631,7 +633,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
               className="w-full h-full rounded-full object-cover"
             />
           ) : (
-            <div className="text-4xl font-bold text-[#00A884]">
+            <div className="text-4xl font-bold text-[#4D91FB]">
               {remoteContact?.name?.[0]?.toUpperCase() || '?'}
             </div>
           )}
@@ -727,7 +729,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
               </button>
               <div className="text-center flex-1">
                 <p className="text-white font-semibold">{remoteContact?.name || 'Unknown'}</p>
-                <p className="text-[#00A884] text-sm">{formatDuration(duration)}</p>
+                <p className="text-[#4D91FB] text-sm">{formatDuration(duration)}</p>
               </div>
               <button className="text-white/80 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors">
                 <Users size={20} />

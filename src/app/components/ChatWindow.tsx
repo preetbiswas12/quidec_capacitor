@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router';
 import {
   ArrowLeft, Phone, Video, MoreVertical, Smile, Paperclip,
   Mic, Send, CheckCheck, Check, Lock, FileText, Camera,
-  X, Reply, Link, Image, MapPin, User, File,
-  ExternalLink, ChevronDown, ChevronUp, Download, Share2, Save, Star
+  X, Reply, Link, Image, MapPin, User, File, MessageSquare,
+  ExternalLink, ChevronDown, ChevronUp, Download, Share2, Save, Star,
+  Clock, Timer
 } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { useApp } from '../context/AppContext';
@@ -18,6 +19,7 @@ import { validateMessage, messageLimiter } from '../../utils/validators';
 import { mediaValidator } from '../../utils/mediaValidator';
 import { messageQueue } from '../../utils/persistentMessageQueue';
 import { idbPaginator } from '../../utils/idbPaginator';
+import { typingService } from '../../utils/firebaseServices';
 
 const EMOJI_LIST = [
   '😀','😂','😊','😍','🥰','😜','😭','🥺','🤔','👍','❤️','🔥','✨','🙏','✅'
@@ -30,7 +32,8 @@ export default function ChatWindow() {
     chats, contacts, messages, sendMessage, typingContacts,
     setActiveChatId, contactInfoOpen, setContactInfoOpen,
     replyTo, setReplyTo, reactToMessage, clearChat,
-    addMessagesToChat, toggleStarMessage
+    addMessagesToChat, toggleStarMessage, currentUser,
+    setDisappearingTimer, isDisappearingActive, getDisappearingRemaining, disappearingTimers
   } = useApp();
 
   const [text, setText] = useState('');
@@ -49,6 +52,7 @@ export default function ChatWindow() {
   const [activeUploads, setActiveUploads] = useState<Array<{ uploadId: string; name: string; size: number }>>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(true);
+  const [showTimerSheet, setShowTimerSheet] = useState(false);
   
   // Message interaction state
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
@@ -60,7 +64,15 @@ export default function ChatWindow() {
   const menuRef = useRef<HTMLDivElement>(null);
   const msgSearchRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
+  const [isRecordingVideo, setIsRecordingVideo] = useState(false);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
 
   const chat = chats.find(c => c.id === chatId);
   const contact = chat ? contacts.find(c => c.id === chat.contactId) : null;
@@ -167,13 +179,19 @@ export default function ChatWindow() {
       
       // Message is valid, send it
       const extra: Partial<Message> = replyTo
-        ? { replyToId: replyTo.id, replyToContent: replyTo.content, replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
+        ? { replyToId: replyTo.id, replyToContent: getMessagePreview(replyTo), replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
         : {};
       
-      sendMessage(chatId, validatedText, 'text', extra);
+      await sendMessage(chatId, validatedText, 'text', extra);
       setText('');
       setReplyTo(null);
       setShowEmojiPicker(false);
+      // Clear typing indicator on send
+      if (contact?.isGroup) {
+        typingService.setGroupTyping(chatId!, currentUser?.userId || '', false);
+      } else {
+        typingService.setTyping(currentUser?.userId || '', contact?.id || '', false);
+      }
       inputRef.current?.focus();
       
     } catch (error: any) {
@@ -188,18 +206,48 @@ export default function ChatWindow() {
     }
   };
 
-  const handleSendLink = () => {
+  const handleSendLink = async () => {
     if (!linkInput.trim() || !chatId) return;
     let url = linkInput.trim();
     if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    const linkReplyExtra = replyTo
+      ? { replyToId: replyTo.id, replyToContent: getMessagePreview(replyTo), replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
+      : {};
+
+    // Try to fetch page metadata (title, description, image)
+    let linkTitle = '';
+    let linkDescription = '';
+    const parsed = new URL(url);
+    const domain = parsed.hostname.replace('www.', '');
+    linkTitle = domain.charAt(0).toUpperCase() + domain.slice(1);
+
     try {
-      const parsed = new URL(url);
-      const domain = parsed.hostname.replace('www.', '');
-      const title = domain.charAt(0).toUpperCase() + domain.slice(1);
-      sendMessage(chatId, url, 'link', { linkUrl: url, linkTitle: title, linkDomain: domain });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const resp = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'Accept': 'text/html' },
+        mode: 'cors',
+      });
+      clearTimeout(timeout);
+      if (resp.ok) {
+        const html = await resp.text();
+        // Extract og:title or <title>
+        const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)
+          || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
+        const ogDesc = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)
+          || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i);
+        const pageTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        if (ogTitle?.[1]) linkTitle = ogTitle[1].trim();
+        else if (pageTitle?.[1]) linkTitle = pageTitle[1].trim();
+        if (ogDesc?.[1]) linkDescription = ogDesc[1].trim();
+      }
     } catch {
-      sendMessage(chatId, url, 'link', { linkUrl: url, linkTitle: url, linkDomain: url });
+      // Fetch failed (CORS/network) — use domain-based fallback
     }
+
+    await sendMessage(chatId, url, 'link', { linkUrl: url, linkTitle, linkDomain: domain, ...linkReplyExtra });
+    setReplyTo(null);
     setLinkInput('');
     setShowLinkInput(false);
     setShowAttachSheet(false);
@@ -224,7 +272,10 @@ export default function ChatWindow() {
       setActiveUploads(prev => [...prev, { uploadId, name: file.name, size: file.size }]);
 
       try {
-        await sendMessage(chatId, '', 'image', {}, file);
+        const imageExtra: Partial<Message> = replyTo
+          ? { replyToId: replyTo.id, replyToContent: getMessagePreview(replyTo), replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
+          : {};
+        await sendMessage(chatId, '', 'image', imageExtra, file);
       } finally {
         // Ensure unregister is always called
         try {
@@ -263,7 +314,10 @@ export default function ChatWindow() {
       setActiveUploads(prev => [...prev, { uploadId, name: file.name, size: file.size }]);
 
       try {
-        await sendMessage(chatId, `📎 ${file.name}`, 'document', {}, file);
+        const docExtra: Partial<Message> = replyTo
+          ? { replyToId: replyTo.id, replyToContent: getMessagePreview(replyTo), replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
+          : {};
+        await sendMessage(chatId, `📎 ${file.name}`, 'document', docExtra, file);
       } finally {
         try {
           mediaValidator.unregisterUpload(uploadId, file.size);
@@ -280,6 +334,217 @@ export default function ChatWindow() {
       setTimeout(() => setSendError(null), 4000);
       console.error('Document processing error:', error);
     }
+  };
+
+  // ─── Video Recording ──────────────────────────────────────────────────────
+
+  const startVideoRecording = async () => {
+    if (!chatId) return;
+    try {
+      // Request camera + microphone permissions
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: true,
+      });
+      recordingStreamRef.current = stream;
+      recordedChunksRef.current = [];
+
+      let mimeType = 'video/webm';
+      if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
+        mimeType = 'video/webm;codecs=vp9,opus';
+      } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) {
+        mimeType = 'video/webm;codecs=vp8,opus';
+      } else if (MediaRecorder.isTypeSupported('video/webm')) {
+        mimeType = 'video/webm';
+      }
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+        recordedChunksRef.current = [];
+        stream.getTracks().forEach(t => t.stop());
+        recordingStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+        setIsRecordingVideo(false);
+        setRecordingDuration(0);
+
+        if (blob.size === 0) return;
+
+        // @ts-ignore — File constructor 3-arg overload exists in all target browsers but TS DOM lib lacks it
+        const file = new File([blob], `video_${Date.now()}.webm`, { type: 'video/webm' });
+
+        // Validate
+        const validation = await mediaValidator.validateFile(file, 'video');
+        if (!validation.valid) {
+          setSendError(validation.error || 'Invalid video');
+          setTimeout(() => setSendError(null), 4000);
+          return;
+        }
+
+        const uploadId = `upload_${Date.now()}`;
+        const abortController = new AbortController();
+        mediaValidator.registerUpload(uploadId, abortController, file.size);
+        setActiveUploads(prev => [...prev, { uploadId, name: file.name, size: file.size }]);
+
+        try {
+          const videoExtra: Partial<Message> = replyTo
+            ? { replyToId: replyTo.id, replyToContent: getMessagePreview(replyTo), replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
+            : {};
+          await sendMessage(chatId, '🎥 Video', 'video', videoExtra, file);
+          setShowAttachSheet(false);
+        } catch (err: any) {
+          setSendError(err.message || 'Failed to send video');
+          setTimeout(() => setSendError(null), 4000);
+        } finally {
+          try { mediaValidator.unregisterUpload(uploadId, file.size); } catch { /* ignore */ }
+          setActiveUploads(prev => prev.filter(u => u.uploadId !== uploadId));
+        }
+      };
+
+      mediaRecorder.start(1000);
+      setIsRecordingVideo(true);
+      setRecordingDuration(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(d => {
+          if (d >= 59) {
+            // Auto-stop at 60s
+            stopVideoRecording();
+            return d;
+          }
+          return d + 1;
+        });
+      }, 1000);
+      setShowAttachSheet(false);
+    } catch (err: any) {
+      console.error('❌ Video recording failed:', err);
+      setSendError('Camera access denied. Please enable camera permissions.');
+      setTimeout(() => setSendError(null), 4000);
+    }
+  };
+
+  const stopVideoRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  // ─── Audio Recording ──────────────────────────────────────────────────────
+
+  const startAudioRecording = async () => {
+    if (!chatId) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      recordingStreamRef.current = stream;
+      recordedChunksRef.current = [];
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+        recordedChunksRef.current = [];
+        stream.getTracks().forEach(t => t.stop());
+        recordingStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+        setIsRecordingAudio(false);
+        setRecordingDuration(0);
+
+        if (blob.size === 0) return;
+
+        // @ts-ignore — File constructor 3-arg overload exists in all target browsers but TS DOM lib lacks it
+        const file = new File([blob], `audio_${Date.now()}.webm`, { type: 'audio/webm' });
+
+        const validation = await mediaValidator.validateFile(file, 'audio');
+        if (!validation.valid) {
+          setSendError(validation.error || 'Invalid audio');
+          setTimeout(() => setSendError(null), 4000);
+          return;
+        }
+
+        const uploadId = `upload_${Date.now()}`;
+        const abortController = new AbortController();
+        mediaValidator.registerUpload(uploadId, abortController, file.size);
+        setActiveUploads(prev => [...prev, { uploadId, name: file.name, size: file.size }]);
+
+        try {
+          const audioExtra: Partial<Message> = replyTo
+            ? { replyToId: replyTo.id, replyToContent: getMessagePreview(replyTo), replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
+            : {};
+          await sendMessage(chatId, '🎵 Audio', 'audio', audioExtra, file);
+          setShowAttachSheet(false);
+        } catch (err: any) {
+          setSendError(err.message || 'Failed to send audio');
+          setTimeout(() => setSendError(null), 4000);
+        } finally {
+          try { mediaValidator.unregisterUpload(uploadId, file.size); } catch { /* ignore */ }
+          setActiveUploads(prev => prev.filter(u => u.uploadId !== uploadId));
+        }
+      };
+
+      mediaRecorder.start(1000);
+      setIsRecordingAudio(true);
+      setRecordingDuration(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(d => {
+          if (d >= 119) {
+            // Auto-stop at 120s
+            stopAudioRecording();
+            return d;
+          }
+          return d + 1;
+        });
+      }, 1000);
+      setShowAttachSheet(false);
+    } catch (err: any) {
+      console.error('❌ Audio recording failed:', err);
+      setSendError('Microphone access denied. Please enable microphone permissions.');
+      setTimeout(() => setSendError(null), 4000);
+    }
+  };
+
+  const stopAudioRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  // Cleanup recording on unmount
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      if (recordingStreamRef.current) {
+        recordingStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+    };
+  }, []);
+
+  const formatRecordingDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -335,10 +600,34 @@ export default function ChatWindow() {
 
   const handleShareMessage = async (msg: Message) => {
     try {
+      let text: string;
+      switch (msg.type) {
+        case 'link':
+          // For links, share a formatted preview: "Title\nDomain\nURL" instead of raw URL
+          text = msg.linkTitle || msg.linkDomain
+            ? `${msg.linkTitle || msg.linkUrl}\n${msg.linkDomain || ''}\n${msg.linkUrl || msg.content}`
+            : msg.linkUrl || msg.content;
+          break;
+        case 'image':
+          text = msg.content || '📷 Photo';
+          break;
+        case 'video':
+          text = msg.content || '🎥 Video';
+          break;
+        case 'audio':
+          text = msg.content || '🎵 Audio';
+          break;
+        case 'document':
+          text = msg.content || '📎 Document';
+          break;
+        default:
+          text = msg.content;
+          break;
+      }
       await Share.share({
         title: 'Quidec Message',
-        text: msg.content,
-        url: msg.imageUrl ? msg.imageUrl : undefined,
+        text,
+        url: msg.type === 'link' ? msg.linkUrl || undefined : (msg.imageUrl ? msg.imageUrl : undefined),
         dialogTitle: 'Share with friends',
       });
     } catch (err) {
@@ -377,9 +666,22 @@ export default function ChatWindow() {
     );
   }
 
+  const disappearingActive = chatId ? isDisappearingActive(chatId) : false;
+
   const headerMenuItems = [
-    { label: 'View contact', action: () => { setShowHeaderMenu(false); setContactInfoOpen(true); } },
-    { label: 'Media, links and docs', action: () => { setShowHeaderMenu(false); setContactInfoOpen(true); } },
+    ...(contact.isGroup
+      ? [
+          { label: 'Group info', action: () => { setShowHeaderMenu(false); navigate(`/app/group/${contact.id}`); } },
+          { label: 'Exit group', action: () => { setShowHeaderMenu(false); navigate(`/app/group/${contact.id}`); } },
+        ]
+      : [
+          { label: 'View contact', action: () => { setShowHeaderMenu(false); setContactInfoOpen(true); } },
+          { label: 'Media, links and docs', action: () => { setShowHeaderMenu(false); setContactInfoOpen(true); } },
+        ]),
+    {
+      label: disappearingActive ? '✓ Disappearing messages' : 'Disappearing messages',
+      action: () => { setShowHeaderMenu(false); setShowTimerSheet(true); },
+    },
     { label: 'Search', action: () => openSearch() },
     { label: 'Mute notifications', action: () => { setShowHeaderMenu(false); alert('Notifications for this chat will be muted for 8 hours.'); } },
     { label: 'Clear chat', action: () => { setShowHeaderMenu(false); clearChat(chatId!); } },
@@ -388,6 +690,7 @@ export default function ChatWindow() {
   return (
     <div className="h-full relative flex flex-col bg-wa-chat overflow-hidden transition-colors duration-200">
       <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoSelect} />
+      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoSelect} />
       <input ref={docInputRef} type="file" accept=".pdf,.doc,.docx,.xlsx,.xls,.txt,.ppt,.pptx,.zip" className="hidden" onChange={handleDocumentSelect} />
 
       {/* Action Menu / Reaction Picker Overlay */}
@@ -533,6 +836,12 @@ export default function ChatWindow() {
                 {isTyping ? <motion.p key="typing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-[#4d91fb] font-bold" style={{ fontSize: '0.78rem' }}>typing...</motion.p>
                 : <motion.p key="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-wa-text-muted" style={{ fontSize: '0.78rem' }}>{contact.isGroup ? `${contact.members?.length} members` : contact.isOnline ? 'online' : contact.lastSeen}</motion.p>}
               </AnimatePresence>
+              {chatId && isDisappearingActive(chatId) && (
+                <div className="flex items-center gap-1 mt-0.5">
+                  <Timer size={12} className="text-[#4d91fb]" />
+                  <span className="text-[#4d91fb]" style={{ fontSize: '0.7rem', fontWeight: 600 }}>Disappearing messages</span>
+                </div>
+              )}
             </div>
           </button>
           <div className="flex items-center gap-1">
@@ -551,6 +860,22 @@ export default function ChatWindow() {
           </div>
         </div>
 
+        {/* Recording indicator bar */}
+        {(isRecordingVideo || isRecordingAudio) && (
+          <div className="bg-red-500/20 border-b border-red-500/30 px-4 py-2 flex items-center gap-3 shrink-0">
+            <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+            <span className="text-red-400 flex-1" style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+              {isRecordingVideo ? 'Recording video' : 'Recording audio'} — {formatRecordingDuration(recordingDuration)}
+            </span>
+            <button
+              onClick={() => { stopVideoRecording(); stopAudioRecording(); }}
+              className="px-3 py-1 bg-red-500 text-white rounded-full text-xs font-bold hover:bg-red-600 transition-colors"
+            >
+              Stop
+            </button>
+          </div>
+        )}
+
         <div
           ref={messagesContainerRef}
           className="flex-1 overflow-y-auto py-4 px-3 space-y-1"
@@ -560,6 +885,24 @@ export default function ChatWindow() {
           {isLoadingMessages && (
             <div className="w-full flex items-center justify-center py-2">
               <div className="h-8 w-8 rounded-full border-4 border-t-transparent border-wa-border animate-spin" />
+            </div>
+          )}
+
+          {chatMessages.length === 0 && !isLoadingMessages && contact && (
+            <div className="flex-1 flex flex-col items-center justify-center py-12 px-8 gap-4 text-center">
+              <div className="w-20 h-20 rounded-full bg-wa-secondary/40 flex items-center justify-center">
+                <MessageSquare size={36} className="text-wa-text-muted opacity-40" />
+              </div>
+              <div>
+                <p className="text-wa-primary" style={{ fontSize: '1.1rem', fontWeight: 600 }}>
+                  {contact.isGroup ? contact.name : `Start a conversation with ${contact.name}`}
+                </p>
+                <p className="text-wa-text-muted mt-2" style={{ fontSize: '0.85rem', lineHeight: '1.5' }}>
+                  {contact.isGroup
+                    ? 'Send a message to start the group conversation.'
+                    : `Say hello to ${contact.name}! Your messages are end-to-end encrypted.`}
+                </p>
+              </div>
             </div>
           )}
 
@@ -584,7 +927,7 @@ export default function ChatWindow() {
                 <div className="w-1 h-10 bg-[#4d91fb] rounded-full shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-[#4d91fb]" style={{ fontSize: '0.78rem', fontWeight: 600 }}>{replyTo.senderId === 'me' ? 'You' : contact.name}</p>
-                  <p className="text-wa-text-muted truncate" style={{ fontSize: '0.82rem' }}>{replyTo.type === 'link' ? '🔗 ' + (replyTo.linkUrl || replyTo.content) : replyTo.content}</p>
+                  <p className="text-wa-text-muted truncate" style={{ fontSize: '0.82rem' }}>{getMessagePreview(replyTo)}</p>
                 </div>
                 <button onClick={() => setReplyTo(null)} className="text-wa-text-muted hover:text-wa-primary p-1 shrink-0"><X size={18} /></button>
               </div>
@@ -614,8 +957,10 @@ export default function ChatWindow() {
               ) : (
                 <div className="px-4 py-4"><div className="grid grid-cols-4 gap-3">{[
                   { icon: File, label: 'Document', color: '#5c6bc0', onClick: () => docInputRef.current?.click() },
-                  { icon: Image, label: 'Photos', color: '#e91e63', onClick: () => photoInputRef.current?.click() },
-                  { icon: Camera, label: 'Camera', color: '#00897b', onClick: () => photoInputRef.current?.click() },
+                  { icon: Image, label: 'Gallery', color: '#e91e63', onClick: () => photoInputRef.current?.click() },
+                  { icon: Camera, label: 'Camera', color: '#00897b', onClick: () => cameraInputRef.current?.click() },
+                  { icon: Video, label: 'Video', color: '#d32f2f', onClick: () => startVideoRecording() },
+                  { icon: Mic, label: 'Audio', color: '#ff8f00', onClick: () => startAudioRecording() },
                   { icon: Link, label: 'Link', color: '#fb8c00', onClick: () => setShowLinkInput(true) },
                   { icon: User, label: 'Contact', color: '#43a047', onClick: () => alert('Contact sharing is coming soon!') },
                   { icon: MapPin, label: 'Location', color: '#e53935', onClick: () => alert('Location sharing is coming soon!') },
@@ -640,7 +985,7 @@ export default function ChatWindow() {
           </div>
         )}
 
-        <div className="flex items-end gap-2 px-3 py-3 pb-8 bg-wa-header shrink-0 border-t border-wa-border/5">
+        <div className="flex items-end gap-2 px-3 py-3 bg-wa-header shrink-0 border-t border-wa-border/5">
           {sendError && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
@@ -654,7 +999,29 @@ export default function ChatWindow() {
           )}
           <div className="flex items-end gap-2 flex-1 bg-wa-secondary/40 rounded-2xl px-3 py-2 border border-wa-border/5">
             <button onClick={() => { setShowEmojiPicker(v => !v); setShowAttachSheet(false); }} className={`transition-colors shrink-0 mb-0.5 ${showEmojiPicker ? 'text-[#4d91fb]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Smile size={22} /></button>
-            <textarea ref={inputRef} value={text} onChange={e => setText(e.target.value)} onKeyDown={handleKeyDown} placeholder="Message" rows={1} className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted/50 resize-none py-0.5 max-h-32 overflow-y-auto" style={{ fontSize: '0.95rem', lineHeight: '1.4' }} />
+            <textarea
+              ref={inputRef}
+              value={text}
+              onChange={e => {
+                setText(e.target.value);
+                if (contact?.isGroup) {
+                  typingService.setGroupTyping(chatId!, currentUser?.userId || '', true);
+                } else {
+                  typingService.setTyping(currentUser?.userId || '', contact?.id || '', true);
+                }
+              }}
+              onBlur={() => {
+                if (contact?.isGroup) {
+                  typingService.setGroupTyping(chatId!, currentUser?.userId || '', false);
+                } else {
+                  typingService.setTyping(currentUser?.userId || '', contact?.id || '', false);
+                }
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder="Message" rows={1}
+              className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted/50 resize-none py-0.5 max-h-32 overflow-y-auto"
+              style={{ fontSize: '0.95rem', lineHeight: '1.4' }}
+            />
             {!text && <button onClick={() => { setShowAttachSheet(v => !v); setShowLinkInput(false); setShowEmojiPicker(false); }} className={`transition-colors shrink-0 mb-0.5 ${showAttachSheet ? 'text-[#4d91fb]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Paperclip size={22} /></button>}
             {!text && <button onClick={() => { setShowAttachSheet(true); setShowLinkInput(false); setShowEmojiPicker(false); }} className="text-wa-header-icon hover:text-wa-primary transition-colors shrink-0 mb-0.5"><Camera size={22} /></button>}
           </div>
@@ -669,6 +1036,62 @@ export default function ChatWindow() {
         {contactInfoOpen && (
           <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ duration: 0.25, ease: 'easeInOut' }} className="absolute inset-0 z-50 bg-wa-secondary">
             <ContactInfo contactId={contact.id} chatId={chatId!} onClose={() => setContactInfoOpen(false)} onSearchChat={openSearch} />
+          </motion.div>
+        )}
+
+        {/* ── Disappearing Messages Timer Sheet ── */}
+        {showTimerSheet && chatId && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[200] flex items-end justify-center bg-black/40"
+            onClick={() => setShowTimerSheet(false)}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="w-full bg-[#233138] rounded-t-2xl p-5 pb-8"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Timer size={20} className="text-[#4d91fb]" />
+                  <h3 className="text-wa-primary font-bold" style={{ fontSize: '1.1rem' }}>Disappearing messages</h3>
+                </div>
+                <button onClick={() => setShowTimerSheet(false)} className="text-wa-text-muted p-1"><X size={20} /></button>
+              </div>
+              <p className="text-wa-text-muted mb-4" style={{ fontSize: '0.85rem' }}>
+                When enabled, new messages in this chat will disappear after the selected time.
+              </p>
+              {(() => {
+                const currentTtl = disappearingTimers[chatId] || 0;
+                return [
+                  { label: 'Off', value: 0 },
+                  { label: '1 hour', value: 3600 },
+                  { label: '24 hours', value: 86400 },
+                  { label: '7 days', value: 604800 },
+                  { label: '90 days', value: 7776000 },
+                ].map(option => {
+                  const isSelected = option.value === currentTtl;
+                  return (
+                    <button
+                      key={option.value}
+                      onClick={() => {
+                        if (chatId) setDisappearingTimer(chatId, option.value);
+                        setShowTimerSheet(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl mb-1 transition-colors ${isSelected ? 'bg-[#4d91fb]/15 text-[#4d91fb]' : 'text-wa-primary hover:bg-wa-secondary/50'}`}
+                    >
+                      <span style={{ fontSize: '0.95rem', fontWeight: isSelected ? 600 : 400 }}>{option.label}</span>
+                      {isSelected && <Check size={18} className="text-[#4d91fb]" />}
+                    </button>
+                  );
+                });
+              })()}
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -697,12 +1120,13 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
   const displayContact = senderContact || contact;
 
   const x = useMotionValue(0);
-  const swipeOpacity = useTransform(x, [0, 60], [0, 1]);
-  const swipeScale = useTransform(x, [0, 60], [0.5, 1]);
+  const swipeOpacity = useTransform(x, [0, 40], [0, 1]);
+  const swipeScale = useTransform(x, [0, 40], [0.5, 1]);
+  const rotateZ = useTransform(x, [0, 40], [0, 8]);
   const [swipeTriggered, setSwipeTriggered] = useState(false);
 
   const handleDragEnd = (_: any, info: any) => {
-    if (info.offset.x > 50 && !swipeTriggered) {
+    if (info.offset.x > 35 && !swipeTriggered) {
       setSwipeTriggered(true);
       onReply(message);
       if (navigator.vibrate) navigator.vibrate(40);
@@ -725,16 +1149,16 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
   const isImageOnly = isImage && !message.content && !message.replyToContent && !showSenderName;
 
   return (
-    <div 
+    <div
       className={`flex items-end gap-1.5 mb-0.5 relative group ${isMe ? 'justify-end' : 'justify-start'}`}
       onContextMenu={onContextMenu}
     >
       {/* Swipe Reply Visual */}
-      <motion.div 
-        style={{ opacity: swipeOpacity, scale: swipeScale, x: 0 }}
-        className="absolute -left-10 top-1/2 -translate-y-1/2 flex items-center justify-center w-8 h-8 rounded-full bg-wa-header"
+      <motion.div
+        style={{ opacity: swipeOpacity, scale: swipeScale, rotate: rotateZ }}
+        className="absolute -left-8 top-1/2 -translate-y-1/2 flex items-center justify-center w-7 h-7 rounded-full bg-[#4d91fb]"
       >
-        <Reply size={16} className="text-[#4d91fb]" />
+        <Reply size={14} className="text-white" />
       </motion.div>
 
       {!isMe && isGroup && (
@@ -746,8 +1170,8 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
       <motion.div
         id={`msg-${message.id}`}
         drag="x"
-        dragConstraints={{ left: 0, right: 80 }}
-        dragElastic={0.1}
+        dragConstraints={{ left: 0, right: 60 }}
+        dragElastic={0.15}
         onDragEnd={handleDragEnd}
         style={{ x }}
         initial={{ opacity: 0, y: 8, scale: 0.98 }}
@@ -759,10 +1183,10 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         
         {showSenderName && senderContact && <p style={{ fontSize: '0.78rem', fontWeight: 600, color: senderContact.avatarColor, marginBottom: '2px' }}>{senderContact.name}</p>}
 
-        {message.replyToContent && (
+        {message.replyToId && (
           <div className={`mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 border-[#4d91fb] ${isMe ? 'bg-[#4d91fb]/10' : 'bg-wa-secondary/40'}`}>
-            <p className="text-[#4d91fb]" style={{ fontSize: '0.72rem', fontWeight: 600 }}>{message.replyToSender}</p>
-            <p className="text-[#aebac1] truncate" style={{ fontSize: '0.78rem' }}>{message.replyToContent}</p>
+            <p className="text-[#4d91fb]" style={{ fontSize: '0.72rem', fontWeight: 600 }}>{message.replyToSender || 'Unknown'}</p>
+            <p className="text-[#aebac1] truncate" style={{ fontSize: '0.78rem' }}>{getReplyPreviewText(message)}</p>
           </div>
         )}
 
@@ -823,6 +1247,50 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
   );
 }
 
+// ─── Reply Preview Helpers ────────────────────────────────────────────────────
+
+/** Get a human-readable preview string for a message (used in reply previews) */
+function getMessagePreview(msg: Message): string {
+  switch (msg.type) {
+    case 'image':
+      return '📷 Photo';
+    case 'video':
+      return '🎥 Video';
+    case 'audio':
+      return '🎵 Audio';
+    case 'document':
+      return msg.content || '📎 Document';
+    case 'link':
+      return '🔗 ' + (msg.linkTitle || msg.linkUrl || msg.content);
+    case 'text':
+    default:
+      return msg.content || '';
+  }
+}
+
+/** Get preview text for a reply-quoted message (from stored reply metadata) */
+function getReplyPreviewText(message: Message): string {
+  // If we have the full reply content, use type-aware formatting
+  if (message.replyToContent) {
+    switch (message.type) {
+      case 'image':
+        return '📷 Photo';
+      case 'video':
+        return '🎥 Video';
+      case 'audio':
+        return '🎵 Audio';
+      case 'document':
+        return message.replyToContent || '📎 Document';
+      case 'link':
+        return '🔗 ' + message.replyToContent;
+      default:
+        return message.replyToContent;
+    }
+  }
+  // Fallback: derive from the replyToId presence
+  return 'Message';
+}
+
 function LocalMedia({ fileId, mediaType, senderId, chatId, isImageOnly, message, isMe }: any) {
   const { currentUser } = useApp();
   const [url, setUrl] = useState<string | null>(null);
@@ -860,6 +1328,7 @@ function LocalMedia({ fileId, mediaType, senderId, chatId, isImageOnly, message,
           )}
         </div>
       )}
+
     </>
   );
 }

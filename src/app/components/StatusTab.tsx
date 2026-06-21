@@ -4,7 +4,7 @@ import { useApp } from '../context/AppContext';
 import Avatar from './Avatar';
 
 const STATUS_BACKGROUNDS = [
-  '#00A884', '#1B72E8', '#E91E63', '#9C27B0',
+  '#4D91FB', '#1B72E8', '#E91E63', '#9C27B0',
   '#FF5722', '#795548', '#607D8B', '#F44336',
   '#3F51B5', '#009688', '#FF9800', '#4CAF50',
   '#1A1A2E', '#16213E', '#0F3460', '#533483',
@@ -105,7 +105,7 @@ export default function StatusTab() {
                 </div>
               )}
             </div>
-            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-[#00A884] rounded-full flex items-center justify-center border-2 border-wa-main">
+            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-[#4D91FB] rounded-full flex items-center justify-center border-2 border-wa-main">
               <Plus size={10} className="text-white" />
             </div>
           </div>
@@ -154,7 +154,7 @@ export default function StatusTab() {
           </p>
           <button
             onClick={() => setShowCreate(true)}
-            className="mt-2 px-6 py-2.5 rounded-full bg-[#00A884] text-white font-semibold text-sm hover:bg-[#06cf9c] transition-colors"
+            className="mt-2 px-6 py-2.5 rounded-full bg-[#4D91FB] text-white font-semibold text-sm hover:bg-[#06cf9c] transition-colors"
           >
             Share your first status
           </button>
@@ -171,7 +171,7 @@ export default function StatusTab() {
         </button>
         <button
           onClick={() => setShowCreate(true)}
-          className="w-14 h-14 rounded-full bg-[#00A884] flex items-center justify-center shadow-lg hover:bg-[#06cf9c] transition-colors"
+          className="w-14 h-14 rounded-full bg-[#4D91FB] flex items-center justify-center shadow-lg hover:bg-[#06cf9c] transition-colors"
         >
           <Plus size={24} className="text-white" />
         </button>
@@ -269,8 +269,8 @@ function MyStatusThumb({ status, onDelete }: { status: any; onDelete: () => void
   return (
     <div className="relative flex-shrink-0">
       <div
-        className="w-16 h-20 rounded-lg overflow-hidden cursor-pointer border-2 border-wa-border/20 hover:border-[#00A884]/50 transition-colors"
-        style={{ backgroundColor: status.backgroundColor || '#00A884' }}
+        className="w-16 h-20 rounded-lg overflow-hidden cursor-pointer border-2 border-wa-border/20 hover:border-[#4D91FB]/50 transition-colors"
+        style={{ backgroundColor: status.backgroundColor || '#4D91FB' }}
         onClick={() => setShowDelete(!showDelete)}
       >
         <div className="w-full h-full flex items-center justify-center p-1.5">
@@ -307,12 +307,12 @@ function StatusItem({
   return (
     <div
       onClick={onClick}
-      className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#2A3942] cursor-pointer transition-colors"
+      className="flex items-center gap-3 p-2 rounded-lg hover:bg-wa-secondary/30 cursor-pointer transition-colors"
     >
       <div className="relative">
         <div className={`w-14 h-14 rounded-full p-0.5 ${
           hasUnviewed
-            ? 'bg-gradient-to-br from-[#00A884] to-[#34b7f1]'
+            ? 'bg-gradient-to-br from-[#4D91FB] to-[#34b7f1]'
             : 'bg-[#8696A0]'
         }`}>
           <div className="w-full h-full rounded-full p-0.5 bg-wa-main">
@@ -320,7 +320,7 @@ function StatusItem({
           </div>
         </div>
         {statusCount > 1 && (
-          <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-[#00A884] rounded-full flex items-center justify-center border-2 border-wa-main">
+          <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-[#4D91FB] rounded-full flex items-center justify-center border-2 border-wa-main">
             <span className="text-white" style={{ fontSize: '0.6rem', fontWeight: 700 }}>{statusCount}</span>
           </div>
         )}
@@ -333,7 +333,7 @@ function StatusItem({
         </p>
       </div>
       {hasUnviewed && (
-        <div className="w-2.5 h-2.5 rounded-full bg-[#00A884] flex-shrink-0" />
+        <div className="w-2.5 h-2.5 rounded-full bg-[#4D91FB] flex-shrink-0" />
       )}
     </div>
   );

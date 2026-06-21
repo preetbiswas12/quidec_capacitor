@@ -17,7 +17,7 @@ export default function LeftPanel() {
   const {
     activeTab, setActiveTab, currentUser,
     contacts, discoverableContacts, chats,
-    setActiveChatId,
+    setActiveChatId, startChat,
     chatRequests, sendChatRequest,
     showRequests, setShowRequests,
     createGroup,
@@ -74,14 +74,14 @@ export default function LeftPanel() {
     ? contacts.filter(c => !c.isGroup && c.name.toLowerCase().includes(newChatSearch.toLowerCase()))
     : contacts.filter(c => !c.isGroup);
 
-  const openChatWithContact = (contactId: string) => {
-    const chat = chats.find(c => c.contactId === contactId);
-    if (chat) {
-      setActiveChatId(chat.id);
-      navigate(`/app/chat/${chat.id}`);
+  const openChatWithContact = async (contactId: string) => {
+    try {
+      const chatId = await startChat(contactId);
+      setActiveChatId(chatId);
+      navigate(`/app/chat/${chatId}`);
+    } catch (err) {
+      console.error('❌ Failed to start chat:', err);
     }
-    // If no chat exists yet (edge case after request just accepted),
-    // we just close the overlay – the user will see it in chat list shortly
     setShowNewChat(false);
     setNewChatSearch('');
   };
@@ -299,14 +299,14 @@ export default function LeftPanel() {
             <div className="flex border-b border-wa-border bg-wa-header flex-shrink-0">
               <button
                 onClick={() => setNewChatTab('contacts')}
-                className={`flex-1 py-3 text-center transition-colors ${newChatTab === 'contacts' ? 'text-[#00A884] border-b-2 border-[#00A884]' : 'text-wa-text-muted'}`}
+                className={`flex-1 py-3 text-center transition-colors ${newChatTab === 'contacts' ? 'text-[#4D91FB] border-b-2 border-[#4D91FB]' : 'text-wa-text-muted'}`}
                 style={{ fontSize: '0.88rem', fontWeight: newChatTab === 'contacts' ? 600 : 400 }}
               >
                 My Contacts
               </button>
               <button
                 onClick={() => setNewChatTab('find-id')}
-                className={`flex-1 py-3 text-center transition-colors flex items-center justify-center gap-1.5 ${newChatTab === 'find-id' ? 'text-[#00A884] border-b-2 border-[#00A884]' : 'text-wa-text-muted'}`}
+                className={`flex-1 py-3 text-center transition-colors flex items-center justify-center gap-1.5 ${newChatTab === 'find-id' ? 'text-[#4D91FB] border-b-2 border-[#4D91FB]' : 'text-wa-text-muted'}`}
                 style={{ fontSize: '0.88rem', fontWeight: newChatTab === 'find-id' ? 600 : 400 }}
               >
                 <AtSign size={14} />
@@ -346,7 +346,7 @@ export default function LeftPanel() {
                       <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={48} isOnline={contact.isOnline} />
                       <div className="flex-1 min-w-0">
                         <p className="text-wa-primary" style={{ fontWeight: 500 }}>{contact.name}</p>
-                        <p className="text-[#00A884]" style={{ fontSize: '0.75rem' }}>{contact.userId}</p>
+                        <p className="text-[#4D91FB]" style={{ fontSize: '0.75rem' }}>{contact.userId}</p>
                       </div>
                     </button>
                   ))}
@@ -368,7 +368,7 @@ export default function LeftPanel() {
                   <div className="bg-wa-secondary/30 rounded-2xl px-4 py-3">
                     <p className="text-wa-text-muted mb-2" style={{ fontSize: '0.75rem', fontWeight: 600 }}>ENTER QUIDEC ID</p>
                     <div className="flex items-center gap-2">
-                      <AtSign size={16} className="text-[#00A884] flex-shrink-0" />
+                      <AtSign size={16} className="text-[#4D91FB] flex-shrink-0" />
                       <input
                         type="text"
                         value={idQuery}
@@ -389,7 +389,7 @@ export default function LeftPanel() {
                   <button
                     onClick={handleSearchId}
                     disabled={!idQuery.trim()}
-                    className={`w-full mt-3 py-3 rounded-full transition-all flex items-center justify-center gap-2 ${idQuery.trim() ? 'bg-[#00A884] text-white shadow-lg active:scale-95' : 'bg-wa-secondary text-wa-text-muted'}`}
+                    className={`w-full mt-3 py-3 rounded-full transition-all flex items-center justify-center gap-2 ${idQuery.trim() ? 'bg-[#4D91FB] text-white shadow-lg active:scale-95' : 'bg-wa-secondary text-wa-text-muted'}`}
                     style={{ fontWeight: 700, fontSize: '0.95rem' }}
                   >
                     <Search size={18} />
@@ -400,7 +400,7 @@ export default function LeftPanel() {
                 {/* Hint — known IDs */}
                 {!idResult && !idNotFound && (
                   <div className="px-4 flex-1 overflow-y-auto">
-                    <p className="text-[#00A884] mb-3 mt-4" style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.5px' }}>
+                    <p className="text-[#4D91FB] mb-3 mt-4" style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.5px' }}>
                       SUGGESTED CONTACTS
                     </p>
                     {[...contacts.filter(c => !c.isGroup), ...discoverableContacts].map(c => (
@@ -412,7 +412,7 @@ export default function LeftPanel() {
                         <Avatar src={c.avatar} name={c.name} color={c.avatarColor} size={40} />
                         <div className="flex-1 min-w-0 text-left">
                           <p className="text-wa-primary" style={{ fontSize: '0.95rem', fontWeight: 600 }}>{c.name}</p>
-                          <p className="text-[#00A884]" style={{ fontSize: '0.8rem', fontWeight: 600 }}>{c.userId}</p>
+                          <p className="text-[#4D91FB]" style={{ fontSize: '0.8rem', fontWeight: 600 }}>{c.userId}</p>
                         </div>
                       </button>
                     ))}
@@ -439,13 +439,13 @@ export default function LeftPanel() {
                     animate={{ opacity: 1 }}
                     className="flex-1 overflow-y-auto px-4"
                   >
-                    <p className="text-[#00A884] mb-3 mt-4" style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.5px' }}>SEARCH RESULT</p>
+                    <p className="text-[#4D91FB] mb-3 mt-4" style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.5px' }}>SEARCH RESULT</p>
                     
                     <div className="flex flex-col items-center py-8 gap-4">
                       <Avatar src={idResult.avatar} name={idResult.name} color={idResult.avatarColor} size={100} isOnline={idResult.isOnline} />
                       <div className="text-center">
                         <h2 className="text-wa-primary" style={{ fontSize: '1.4rem', fontWeight: 800 }}>{idResult.name}</h2>
-                        <p className="text-[#00A884] font-bold mt-1">{idResult.userId}</p>
+                        <p className="text-[#4D91FB] font-bold mt-1">{idResult.userId}</p>
                         <p className="text-wa-text-muted mt-3 italic" style={{ fontSize: '0.9rem' }}>{idResult.about}</p>
                       </div>
 
@@ -453,7 +453,7 @@ export default function LeftPanel() {
                         {hasExistingChat(idResult.id) || isExistingContact(idResult.id) ? (
                           <button
                             onClick={() => openChatWithContact(idResult.id)}
-                            className="w-full py-4 rounded-2xl bg-[#00A884] text-white flex items-center justify-center gap-2 hover:bg-[#06cf9c] transition-all shadow-lg active:scale-95"
+                            className="w-full py-4 rounded-2xl bg-[#4D91FB] text-white flex items-center justify-center gap-2 hover:bg-[#06cf9c] transition-all shadow-lg active:scale-95"
                             style={{ fontWeight: 700 }}
                           >
                             <MessageSquare size={20} />
@@ -467,7 +467,7 @@ export default function LeftPanel() {
                         ) : (
                           <button
                             onClick={() => handleSendRequest(idResult.id)}
-                            className="w-full py-4 rounded-2xl bg-[#00A884] text-white flex items-center justify-center gap-2 hover:bg-[#06cf9c] shadow-lg active:scale-95 transition-all"
+                            className="w-full py-4 rounded-2xl bg-[#4D91FB] text-white flex items-center justify-center gap-2 hover:bg-[#06cf9c] shadow-lg active:scale-95 transition-all"
                             style={{ fontWeight: 700 }}
                           >
                             <UserPlus size={20} />
@@ -624,7 +624,7 @@ export default function LeftPanel() {
                 disabled={!groupName.trim() || selectedMembers.length === 0 || creatingGroup}
                 className={`w-full py-3.5 rounded-full flex items-center justify-center gap-2 font-bold transition-all ${
                   groupName.trim() && selectedMembers.length > 0 && !creatingGroup
-                    ? 'bg-[#00A884] text-white shadow-lg active:scale-95'
+                    ? 'bg-[#4D91FB] text-white shadow-lg active:scale-95'
                     : 'bg-wa-secondary text-wa-text-muted'
                 }`}
               >

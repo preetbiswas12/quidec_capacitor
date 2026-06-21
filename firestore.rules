@@ -1,88 +1,192 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
+
     function isAuthenticated() {
       return request.auth != null;
     }
-    function isOwner(userId) {
-      return request.auth.uid == userId;
-    }
-    
-    // Profiles: Everyone can see names/avatars to find friends, but only owner can edit
-    match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner(userId);
-    }
-    
-    // Friendships: Strictly private - only the user can see their own friend list
-    match /friendships/{userId} {
-      allow read, write: if isOwner(userId);
+
+    function isUser(handle) {
+      return request.auth.uid == get(/databases/$(database)/documents/users/$(handle)).data.uid;
     }
 
-    // Friend Requests: Only sender or recipient can read/write
+    // Check ownership via the parent user document — resolves custom handle → auth UID.
+    // Used for subcollection rules under users/{handle}.
+    function isOwner(userId) {
+      return request.auth.uid == get(/databases/$(database)/documents/users/$(userId)).data.uid;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // USERS COLLECTION
+    // ═══════════════════════════════════════════════════════════════════════
+    // Document ID = custom handle (e.g. "preetb.5815"), NOT auth UID.
+    // The document's `uid` field holds the actual Firebase Auth UID.
+
+    match /users/{userId} {
+      // Any authenticated user can read/list profiles
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuthenticated()
+        && resource.data.uid == request.auth.uid;
+      allow delete: if isAuthenticated()
+        && resource.data.uid == request.auth.uid;
+
+      // ─── Subcollections: owner-only access ──────────────────────────────
+      // For reads: check resource.data.uid or direct userId match
+      // For writes (create/update/delete): check request.resource.data.uid or direct userId match
+
+      match /settings/{settingDoc} {
+        allow read, write: if isAuthenticated() && isOwner(userId);
+      }
+
+      match /chatSettings/{chatId} {
+        allow read, write: if isAuthenticated() && isOwner(userId);
+      }
+
+      match /callHistory/{callId} {
+        allow read, write: if isAuthenticated() && isOwner(userId);
+      }
+
+      match /deviceSessions/{deviceId} {
+        allow read, write, delete: if isAuthenticated() && isOwner(userId);
+      }
+
+      match /syncRequests/{requestId} {
+        allow read, write: if isAuthenticated() && isOwner(userId);
+      }
+
+      match /linkedDevices/{deviceId} {
+        allow read, write: if isAuthenticated() && isOwner(userId);
+      }
+
+      match /notifications/{notifId} {
+        allow read, write: if isAuthenticated() && isOwner(userId);
+      }
+
+      match /statuses/{statusId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated() && isOwner(userId);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SYSTEM CONFIG DOCUMENTS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    match /users/system_config {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /friendships/system_meta {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /conversations/system_meta {
+      allow read, write: if isAuthenticated();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // FRIENDSHIPS COLLECTION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    match /friendships/{userId} {
+      // userId = custom handle (e.g. "preet.5815"), NOT auth UID.
+      // isUser() resolves handle → auth UID via the users/{handle} document.
+      allow read, write: if isAuthenticated()
+        && isUser(userId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // FRIEND REQUESTS COLLECTION
+    // ═══════════════════════════════════════════════════════════════════════
+
     match /friendRequests/{requestId} {
-      allow read, write: if isAuthenticated() && (
-        isOwner(resource.data.fromUid) || isOwner(resource.data.toUid) ||
-        isOwner(request.resource.data.fromUid) || isOwner(request.resource.data.toUid)
+      allow read: if isAuthenticated() && (
+        isUser(resource.data.fromUid) || isUser(resource.data.toUid)
+      );
+      allow create: if isAuthenticated()
+        && isUser(request.resource.data.fromUid);
+      allow update: if isAuthenticated() && (
+        isUser(resource.data.fromUid) || isUser(resource.data.toUid)
+      );
+      allow delete: if isAuthenticated() && (
+        isUser(resource.data.fromUid) || isUser(resource.data.toUid)
       );
     }
-    
-    // Conversations: Only participants can read or write
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CONVERSATIONS COLLECTION
+    // ═══════════════════════════════════════════════════════════════════════
+
     match /conversations/{conversationId} {
-      // Robust check: split the ID and check if auth.uid is one of the parts
       allow read, write: if isAuthenticated() && (
-        request.auth.uid in conversationId.split('_')
+        isUser(conversationId.split('_')[0])
+        || isUser(conversationId.split('_')[1])
       );
-      
+
       match /messages/{messageId} {
         allow read, write: if isAuthenticated() && (
-          request.auth.uid in conversationId.split('_')
+          isUser(conversationId.split('_')[0])
+          || isUser(conversationId.split('_')[1])
         );
       }
-      
-      // Allow participants to see the metadata
-      match /system_meta {
-        allow read: if isAuthenticated();
-      }
-    }
-    
-    // Global system config
-    match /users/system_config {
-      allow read: if isAuthenticated();
-    }
-    
-    // Allow reading system_meta in friendships for stats
-    match /friendships/system_meta {
-      allow read: if isAuthenticated();
     }
 
-    // Allow reading system_meta in conversations for stats
-    match /conversations/system_meta {
+    // ═══════════════════════════════════════════════════════════════════════
+    // GROUPS COLLECTION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    match /groups/{groupId} {
       allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated()
+        && isUser(resource.data.creatorId);
+      allow delete: if isAuthenticated()
+        && isUser(resource.data.creatorId);
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+      }
     }
-    // Media Chunks: Ephemeral storage for large files (Spark plan fallback)
-    // Only the intended recipient or the sender can read/delete
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CALLS COLLECTION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    match /calls/{callId} {
+      allow read: if isAuthenticated() && (
+        isUser(resource.data.callerId) || isUser(resource.data.receiverId)
+      );
+      allow create: if isAuthenticated()
+        && isUser(request.resource.data.callerId);
+      allow update: if isAuthenticated() && (
+        isUser(resource.data.callerId) || isUser(resource.data.receiverId)
+      );
+      allow delete: if isAuthenticated() && (
+        isUser(resource.data.callerId) || isUser(resource.data.receiverId)
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MEDIA CHUNKS COLLECTION
+    // ═══════════════════════════════════════════════════════════════════════
+
     match /mediaChunks/{chunkId} {
       allow create: if isAuthenticated();
       allow read, delete: if isAuthenticated() && (
-        isOwner(resource.data.metadata.uploadedBy) || isOwner(resource.data.metadata.intendedFor)
+        isUser(resource.data.metadata.uploadedBy)
+        || isUser(resource.data.metadata.intendedFor)
       );
     }
 
-    // ─── Groups ──────────────────────────────────────────────────────────────
-    match /groups/{groupId} {
-      // Members can read group info; only admins can update metadata
-      allow read: if isAuthenticated() && request.auth.uid in resource.data.members;
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && request.auth.uid in resource.data.admins;
-      allow delete: if isAuthenticated() && request.auth.uid == resource.data.creatorId;
+    // ═══════════════════════════════════════════════════════════════════════
+    // DEFAULT DENY
+    // ═══════════════════════════════════════════════════════════════════════
 
-      // Group messages subcollection
-      match /messages/{messageId} {
-        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
-        allow create: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
-      }
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

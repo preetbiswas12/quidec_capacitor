@@ -80,21 +80,21 @@ export default function EmailVerification() {
   }
 
   return (
-    <div className="h-full w-full bg-white flex flex-col overflow-hidden max-w-md mx-auto shadow-2xl relative">
+    <div className="h-full w-full bg-wa-main flex flex-col overflow-hidden max-w-md mx-auto shadow-2xl relative">
       {/* Header */}
       <div className="px-6 py-8 flex items-center gap-4">
-        <button 
+        <button
           onClick={logout}
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400"
+          className="p-2 hover:bg-wa-secondary/50 rounded-full transition-colors text-wa-text-muted"
         >
           <ArrowLeft size={24} />
         </button>
-        <h1 className="text-xl font-bold text-[#111B21]">Email Verification</h1>
+        <h1 className="text-xl font-bold text-wa-primary">Email Verification</h1>
       </div>
 
       <div className="flex-1 px-8 pb-12 flex flex-col items-center justify-center text-center">
         <motion.div 
-          className={`w-28 h-28 rounded-full flex items-center justify-center mb-8 transition-all duration-700 ${verified ? 'bg-green-500 shadow-[0_0_40px_rgba(34,197,94,0.4)]' : 'bg-[#00A884]/10'}`}
+          className={`w-28 h-28 rounded-full flex items-center justify-center mb-8 transition-all duration-700 ${verified ? 'bg-green-500 shadow-[0_0_40px_rgba(34,197,94,0.4)]' : 'bg-[#4D91FB]/10'}`}
           initial={{ scale: 0.5, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
         >
@@ -105,45 +105,45 @@ export default function EmailVerification() {
               </motion.div>
             ) : (
               <motion.div key="mail" animate={{ y: [0, -10, 0] }} transition={{ duration: 3, repeat: Infinity }}>
-                <Mail size={48} className="text-[#00A884]" />
+                <Mail size={48} className="text-[#4D91FB]" />
               </motion.div>
             )}
           </AnimatePresence>
         </motion.div>
 
-        <h2 className="text-2xl font-extrabold text-[#111B21] mb-4">
+        <h2 className="text-2xl font-extrabold text-wa-primary mb-4">
           {verified ? 'Success!' : 'Confirm your email'}
         </h2>
-        
-        <p className="text-[#667781] leading-relaxed mb-8">
+
+        <p className="text-wa-text-secondary leading-relaxed mb-8">
           {verified ? (
             "Your email has been verified. We're getting things ready for you..."
           ) : (
             <>
               We've sent a verification link to:<br/>
-              <span className="text-[#111B21] font-bold text-lg break-all">{currentUser?.email}</span>
+              <span className="text-wa-primary font-bold text-lg break-all">{currentUser?.email}</span>
             </>
           )}
         </p>
 
         {!verified && (
           <div className="w-full space-y-6">
-            <div className="bg-[#f0faf7] border border-[#00A884]/20 rounded-2xl p-6 text-left space-y-4">
-              <h3 className="text-[#111B21] font-bold flex items-center gap-2">
-                <Shield size={18} className="text-[#00A884]" />
+            <div className="bg-[#4D91FB]/10 border border-[#4D91FB]/20 rounded-2xl p-6 text-left space-y-4">
+              <h3 className="text-wa-primary font-bold flex items-center gap-2">
+                <Shield size={18} className="text-[#4D91FB]" />
                 Next Steps
               </h3>
-              <ul className="text-sm text-[#667781] space-y-3">
+              <ul className="text-sm text-wa-text-secondary space-y-3">
                 <li className="flex gap-3">
-                  <span className="w-6 h-6 rounded-full bg-[#00A884] text-white text-xs flex items-center justify-center flex-shrink-0">1</span>
+                  <span className="w-6 h-6 rounded-full bg-[#4D91FB] text-white text-xs flex items-center justify-center flex-shrink-0">1</span>
                   <span>Check your <b>Inbox</b> or <b>Spam</b> folder.</span>
                 </li>
                 <li className="flex gap-3">
-                  <span className="w-6 h-6 rounded-full bg-[#00A884] text-white text-xs flex items-center justify-center flex-shrink-0">2</span>
+                  <span className="w-6 h-6 rounded-full bg-[#4D91FB] text-white text-xs flex items-center justify-center flex-shrink-0">2</span>
                   <span>Click the verification button in the email.</span>
                 </li>
                 <li className="flex gap-3">
-                  <span className="w-6 h-6 rounded-full bg-[#00A884] text-white text-xs flex items-center justify-center flex-shrink-0">3</span>
+                  <span className="w-6 h-6 rounded-full bg-[#4D91FB] text-white text-xs flex items-center justify-center flex-shrink-0">3</span>
                   <span>Come back here to start chatting!</span>
                 </li>
               </ul>
@@ -153,7 +153,7 @@ export default function EmailVerification() {
               <motion.p 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="text-red-500 text-sm font-semibold"
+                className="text-red-400 text-sm font-semibold"
               >
                 {error}
               </motion.p>
@@ -163,7 +163,7 @@ export default function EmailVerification() {
               <motion.p 
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="text-[#00A884] text-sm font-bold bg-[#00A884]/5 py-2 rounded-lg"
+                className="text-[#4D91FB] text-sm font-bold bg-[#4D91FB]/10 py-2 rounded-lg"
               >
                 ✅ A new verification link is on its way!
               </motion.p>
@@ -173,7 +173,7 @@ export default function EmailVerification() {
               <button
                 onClick={handleManualVerify}
                 disabled={verifying}
-                className="w-full bg-[#00A884] text-white rounded-full py-4 flex items-center justify-center gap-2 font-bold shadow-xl active:scale-95 transition-all disabled:opacity-50"
+                className="w-full bg-[#4D91FB] text-white rounded-full py-4 flex items-center justify-center gap-2 font-bold shadow-xl active:scale-95 transition-all disabled:opacity-50"
               >
                 {verifying ? <Loader2 size={24} className="animate-spin" /> : "I've verified my email"}
               </button>
@@ -181,7 +181,7 @@ export default function EmailVerification() {
               <button
                 onClick={handleResend}
                 disabled={resendSent}
-                className="w-full py-3 text-[#00A884] font-bold flex items-center justify-center gap-2 hover:bg-[#00A884]/5 rounded-xl transition-colors disabled:text-gray-400"
+                className="w-full py-3 text-[#4D91FB] font-bold flex items-center justify-center gap-2 hover:bg-[#4D91FB]/10 rounded-xl transition-colors disabled:text-wa-text-muted"
               >
                 <RefreshCw size={18} className={resendSent ? "animate-spin" : ""} />
                 Resend verification link
@@ -193,14 +193,14 @@ export default function EmailVerification() {
 
       {/* Footer Branding */}
       <div className="pb-8 flex flex-col items-center gap-2 opacity-50">
-        <button 
+        <button
           onClick={logout}
-          className="flex items-center gap-2 text-gray-500 font-bold text-sm mb-4 hover:text-red-500 transition-colors"
+          className="flex items-center gap-2 text-wa-text-muted font-bold text-sm mb-4 hover:text-red-500 transition-colors"
         >
           <LogOut size={16} />
           Use a different account
         </button>
-        <p className="text-[10px] uppercase tracking-widest font-black text-gray-400">Quidec Secure Messaging</p>
+        <p className="text-[10px] uppercase tracking-widest font-black text-wa-text-muted">Quidec Secure Messaging</p>
       </div>
     </div>
   );

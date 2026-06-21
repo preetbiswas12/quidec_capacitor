@@ -18,7 +18,7 @@ export default function VoiceCallScreen() {
     userId: currentUser.userId,
     name: `${currentUser.name} (You)`,
     avatar: currentUser.avatar,
-    avatarColor: '#00A884',
+    avatarColor: '#4D91FB',
     initials: currentUser.name[0]?.toUpperCase() || 'U',
     isOnline: true,
     lastSeen: 'online',
@@ -66,13 +66,14 @@ export default function VoiceCallScreen() {
         const peerConnection = new RTCPeerConnection({
           iceServers: [
             { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+            // TURN relay (ExpressTURN free tier)
             {
               urls: [
-                import.meta.env.VITE_TURN_URL_1 || 'turn:free.expressturn.com:3478',
-                import.meta.env.VITE_TURN_URL_2 || 'turn:free.expressturn.com:3479?transport=tcp',
+                'turn:free.expressturn.com:3478',
+                'turn:free.expressturn.com:3479?transport=tcp',
               ],
-              username: import.meta.env.VITE_TURN_USERNAME || '',
-              credential: import.meta.env.VITE_TURN_CREDENTIAL || '',
+              username: '000000002093260049',
+              credential: 'K6KMvixuaPZkje9giLJojFTM0+Y=',
             },
           ],
         });
@@ -233,7 +234,7 @@ export default function VoiceCallScreen() {
         {/* Top bar */}
         <div className="flex items-center justify-between w-full pt-14 mb-auto">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-[#00A884] animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-[#4D91FB] animate-pulse" />
             <span className="text-white/80 text-sm">WhatsApp</span>
           </div>
           <button className="text-white/60 hover:text-white p-2">
@@ -250,7 +251,7 @@ export default function VoiceCallScreen() {
                 {[1, 2, 3].map(i => (
                   <motion.div
                     key={i}
-                    className="absolute rounded-full border border-[#00A884]/30"
+                    className="absolute rounded-full border border-[#4D91FB]/30"
                     animate={{
                       width: [90, 90 + i * 40, 90 + i * 40],
                       height: [90, 90 + i * 40, 90 + i * 40],
@@ -307,7 +308,7 @@ export default function VoiceCallScreen() {
                   key="connected"
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="text-[#00A884] mt-1"
+                  className="text-[#4D91FB] mt-1"
                   style={{ fontSize: '1.1rem', fontWeight: 500, letterSpacing: '2px' }}
                 >
                   {formatDuration(duration)}
@@ -335,7 +336,7 @@ export default function VoiceCallScreen() {
             animate={{ opacity: 1, y: 0 }}
             className="flex items-center gap-2 mt-4 bg-white/10 rounded-full px-4 py-1.5"
           >
-            <div className="w-2 h-2 rounded-full bg-[#00A884] animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-[#4D91FB] animate-pulse" />
             <span className="text-white/80 text-xs">End-to-end encrypted</span>
           </motion.div>
         )}

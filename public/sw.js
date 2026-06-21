@@ -1,7 +1,6 @@
-const CACHE_NAME = 'quidec-v1'
+const CACHE_NAME = 'quidec-v2'
 const URLS_TO_CACHE = [
   '/',
-  '/index.html',
   '/manifest.json',
 ]
 
@@ -15,24 +14,43 @@ self.addEventListener('install', (event) => {
   self.skipWaiting()
 })
 
-// Fetch event - cache first, fallback to network
+// Fetch event
 self.addEventListener('fetch', (event) => {
   const { request } = event
-  
+
   // Skip cross-origin requests
   if (!request.url.startsWith(self.location.origin)) {
     return
   }
 
-  // Skip API requests - always network first
-  if (request.url.includes('/api/') || request.url.includes('ws')) {
+  // Skip API requests and Firebase - always network first
+  if (request.url.includes('/api/') || request.url.includes('ws') ||
+      request.url.includes('googleapis.com') || request.url.includes('firebase')) {
     event.respondWith(fetch(request).catch(() => {
       return new Response('Offline', { status: 503 })
     }))
     return
   }
 
-  // Cache first strategy for static assets
+  // Network-first strategy for HTML pages (always get fresh index.html)
+  if (request.headers.get('accept') && request.headers.get('accept').includes('text/html')) {
+    event.respondWith(
+      fetch(request).then((response) => {
+        if (response.ok) {
+          const cache = caches.open(CACHE_NAME)
+          cache.then((c) => c.put(request, response.clone()))
+        }
+        return response
+      }).catch(() => {
+        return caches.match(request).then((cached) => {
+          return cached || new Response('Offline', { status: 503 })
+        })
+      })
+    )
+    return
+  }
+
+  // Cache first strategy for static assets (JS, CSS, images)
   event.respondWith(
     caches.match(request).then((response) => {
       if (response) {
@@ -40,7 +58,6 @@ self.addEventListener('fetch', (event) => {
       }
 
       return fetch(request).then((response) => {
-        // Cache valid responses
         if (response.ok) {
           const cache = caches.open(CACHE_NAME)
           cache.then((c) => c.put(request, response.clone()))
@@ -73,7 +90,6 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('sync', (event) => {
   if (event.tag === 'sync-messages') {
     event.waitUntil(
-      // Sync pending messages when back online
       self.clients.matchAll().then((clients) => {
         clients.forEach((client) => {
           client.postMessage({
@@ -109,14 +125,12 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   event.waitUntil(
     clients.matchAll({ type: 'window' }).then((clientList) => {
-      // Check if app is already open
       for (let i = 0; i < clientList.length; i++) {
         const client = clientList[i]
         if (client.url === '/' && 'focus' in client) {
           return client.focus()
         }
       }
-      // Open app if not running
       if (clients.openWindow) {
         return clients.openWindow('/')
       }

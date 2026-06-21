@@ -25,7 +25,7 @@ export default function CallsTab() {
     if (!contact) return;
 
     // Save outgoing call record
-    saveCallRecord(contactId, type, 'outgoing');
+    saveCallRecord(contactId, type, 'outgoing').catch(() => {});
 
     // Navigate to the call screen
     navigate(`/call/${type}/${contactId}`);
@@ -36,14 +36,14 @@ export default function CallsTab() {
     if (!activeIncomingCall) return;
     const call = activeIncomingCall;
     clearIncomingCall();
-    saveCallRecord(call.contactId, call.type, 'incoming');
+    saveCallRecord(call.contactId, call.type, 'incoming').catch(() => {});
     navigate(`/call/${call.type}/${call.contactId}?received=true`);
   };
 
   // ─── Reject / dismiss incoming call ───
   const handleRejectCall = () => {
     if (!activeIncomingCall) return;
-    saveCallRecord(activeIncomingCall.contactId, activeIncomingCall.type, 'missed');
+    saveCallRecord(activeIncomingCall.contactId, activeIncomingCall.type, 'missed').catch(() => {});
     clearIncomingCall();
   };
 
@@ -86,7 +86,7 @@ export default function CallsTab() {
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="bg-[#00A884] overflow-hidden"
+              className="bg-[#4D91FB] overflow-hidden"
             >
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -249,7 +249,7 @@ export default function CallsTab() {
       </div>
 
       {/* ── FAB ── */}
-      <div className="absolute bottom-6 right-6 z-10">
+      <div className="absolute bottom-24 right-6 z-10">
         <button
           onClick={() => setShowNewCallSheet(true)}
           className="w-14 h-14 rounded-full bg-[#4d91fb] flex items-center justify-center shadow-2xl hover:bg-[#3b8eea] transition-all active:scale-90"
@@ -319,7 +319,7 @@ export default function CallsTab() {
                       </button>
                       <button
                         onClick={() => { setShowNewCallSheet(false); startCall(contact.id, 'video'); }}
-                        className="w-10 h-10 rounded-full bg-[#00A884]/10 hover:bg-[#00A884]/20 flex items-center justify-center text-[#00A884] transition-colors"
+                        className="w-10 h-10 rounded-full bg-[#4D91FB]/10 hover:bg-[#4D91FB]/20 flex items-center justify-center text-[#4D91FB] transition-colors"
                         title="Video call"
                       >
                         <Video size={18} />
@@ -343,7 +343,7 @@ export default function CallsTab() {
 
 /* ── Call Direction Icon ── */
 function CallDirectionIcon({ direction, type }: { direction: string; type: string }) {
-  const color = direction === 'missed' ? '#ef4444' : direction === 'incoming' ? '#00A884' : '#4d91fb';
+  const color = direction === 'missed' ? '#ef4444' : direction === 'incoming' ? '#4D91FB' : '#4d91fb';
   if (direction === 'incoming') return <PhoneIncoming size={13} style={{ color }} />;
   if (direction === 'outgoing') return <PhoneOutgoing size={13} style={{ color }} />;
   return <PhoneMissed size={13} style={{ color }} />;

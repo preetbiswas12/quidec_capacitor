@@ -33,6 +33,27 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
 
+      - name: Validate .env placeholders replaced
+        run: |
+          if grep -q "your-app.onrender.com" .env 2>/dev/null; then
+            echo "❌ VITE_NOTIFY_URL still has placeholder value — update .env before merging"
+            exit 1
+          fi
+          if grep -q "YOUR_EXPRESSTURN" .env 2>/dev/null; then
+            echo "❌ TURN placeholder found in .env — update before merging"
+            exit 1
+          fi
+          echo "✅ No placeholder values found in .env"
+
+      - name: Validate relay server syntax
+        run: |
+          if [ -f quidec-relay/server.js ]; then
+            node -c quidec-relay/server.js
+            echo "✅ quidec-relay/server.js syntax OK"
+          else
+            echo "⚠️ quidec-relay/server.js not found — skipping relay check"
+          fi
+
       - name: Install dependencies
         run: NODE_ENV=development pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && NODE_ENV=development pnpm install)
 

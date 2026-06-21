@@ -19,8 +19,6 @@ import {
   updatePrivacySettings,
   getAccountSecuritySettings,
   updateAccountSecuritySettings,
-  setTwoFactorAuth,
-  setTwoFactorPin,
   setTypingIndicator,
   setDisappearingMessages,
   blockUser,
@@ -66,7 +64,7 @@ interface SettingsPageProps {
 
 export default function SettingsPage({ onSubPageChange, forcedSubPage }: SettingsPageProps = {}) {
   const navigate = useNavigate();
-  const { currentUser, updateCurrentUser, logout, settings, updateSettings, clearAllChats, chats, starredMessages, contacts, setActiveChatId } = useApp();
+  const { currentUser, updateCurrentUser, updateUserEmail, logout, settings, updateSettings, clearAllChats, chats, starredMessages, contacts, setActiveChatId } = useApp();
 
   if (!currentUser) return null;
 
@@ -88,7 +86,6 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
   // Modal States
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
-  const [show2FAModal, setShow2FAModal] = useState(false);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
 
@@ -119,6 +116,9 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
   const [success, setSuccess] = useState<string | null>(null);
   const [notificationTone, setNotificationTone] = useState<string>(settings.notificationTone || 'default');
   const [vibrationType, setVibrationType] = useState<string>(settings.vibrationType || 'default');
+  const [storageUsed, setStorageUsed] = useState<number>(0);
+  const [storageTotal, setStorageTotal] = useState<number>(0);
+  const [chatStorage, setChatStorage] = useState<Array<{ chatId: string; name: string; messageCount: number; sizeBytes: number }>>([]);
 
   // ─── Effects ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -147,8 +147,6 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
     return unsubscribe;
   }, [currentUser]);
 
-
-
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -165,22 +163,44 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
 
   const handleChangePassword = async () => {
     if (!currentUser?.email) return;
+    if (!currentPassword.trim()) {
+      setError('Please enter your current password');
+      return;
+    }
+    if (!newPassword.trim() || newPassword.trim().length < 6) {
+      setError('New password must be at least 6 characters');
+      return;
+    }
+    if (newPassword.trim() !== confirmPassword.trim()) {
+      setError('New passwords do not match');
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
-      await services.authService.sendPasswordReset(currentUser.email);
-      
-      // Show security action modal
-      setSecurityModalConfig({
-        title: 'Password Reset Email Sent',
-        message: 'We\'ve sent a password reset link to your email. Click the link to set a new password.',
-        email: currentUser.email,
-        action: 'password' as const,
-      });
-      setSecurityModalOpen(true);
+      const user = auth.currentUser;
+      if (!user || !user.email) throw new Error('Not authenticated');
+
+      // Reauthenticate with current password
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+
+      // Update password in Firebase Auth
+      await updatePassword(user, newPassword.trim());
+
+      setSuccess('Password changed successfully');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setShowPasswordModal(false);
+      setTimeout(() => setSuccess(null), 3000);
     } catch (err: any) {
-      console.error('❌ Error:', err);
-      setError('Failed to send reset email: ' + err.message);
+      console.error('❌ Password change error:', err);
+      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setError('Current password is incorrect');
+      } else {
+        setError(err.message || 'Failed to change password');
+      }
     } finally {
       setLoading(false);
     }
@@ -188,79 +208,42 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
 
   const handleChangeEmail = async () => {
     if (!currentUser?.email) return;
+    if (!newEmail.trim() || newEmail.trim() === currentUser.email) {
+      setError('Please enter a new email address different from your current one');
+      return;
+    }
+    if (!currentPassword.trim()) {
+      setError('Please enter your current password to confirm');
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
-      
-      const result = await services.authService.sendEmailChangeVerification(currentUser.email);
-      
+
+      const user = auth.currentUser;
+      if (!user) throw new Error('Not authenticated');
+
+      // Reauthenticate with current password before allowing email change
+      const credential = EmailAuthProvider.credential(user.email!, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+
+      // Send verification to the NEW email address
+      const result = await services.authService.sendEmailChangeVerification(newEmail.trim());
+
       // Show security action modal
       setSecurityModalConfig({
         title: 'Email Change Verification Sent',
         message: result.message,
-        email: currentUser.email,
+        email: newEmail.trim(),
         action: 'email',
       });
       setSecurityModalOpen(true);
-      
-      // Close any existing modals
+
+      // Close modal
       setShowEmailModal(false);
       setCurrentPassword('');
-      setNewEmail(currentUser.email);
     } catch (err: any) {
       setError(err.message || 'Failed to send email verification');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleToggle2FA = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const newState = !securitySettings?.twoFactorEnabled;
-      
-      if (newState) {
-        // Enabling 2FA - send enrollment email
-        const result = await services.authService.send2FAEnrollmentEmail();
-        
-        // Show security action modal
-        setSecurityModalConfig({
-          title: '2FA Enrollment Email Sent',
-          message: result.message,
-          email: currentUser?.email,
-          action: '2fa',
-        });
-        setSecurityModalOpen(true);
-        
-        // Update settings
-        await setTwoFactorAuth(currentUser!.userId, true);
-        setSecuritySettings(prev => ({ ...prev!, twoFactorEnabled: true }));
-      } else {
-        // Disabling 2FA
-        await setTwoFactorAuth(currentUser!.userId, false);
-        setSecuritySettings(prev => ({ ...prev!, twoFactorEnabled: false }));
-        setSuccess('Two-factor authentication disabled');
-        setTimeout(() => setSuccess(null), 3000);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to update 2FA');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSet2FAPin = async (pin: string) => {
-    try {
-      setLoading(true);
-      setError(null);
-      await setTwoFactorPin(currentUser.userId, pin);
-      setSecuritySettings(prev => ({ ...prev!, twoFactorEnabled: true, twoFactorPin: pin }));
-      setShow2FAModal(false);
-      setSuccess('Two-step verification PIN set successfully');
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to set PIN');
     } finally {
       setLoading(false);
     }
@@ -349,6 +332,37 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
   // If parent controls subpage (via forcedSubPage), use that; otherwise use local state
   const subPage: SubPage = (forcedSubPage as SubPage) ?? localSubPage;
 
+  // ─── Load Storage Stats ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (subPage !== 'storage' || !currentUser) return;
+    const loadStorage = async () => {
+      try {
+        if (navigator.storage && navigator.storage.estimate) {
+          const est = await navigator.storage.estimate();
+          setStorageUsed(est.usage || 0);
+          setStorageTotal(est.quota || 0);
+        }
+        const { listLocalChatIds, loadMessages } = await import('../../utils/localMessageStore');
+        const chatIds = await listLocalChatIds();
+        const chatStats: Array<{ chatId: string; name: string; messageCount: number; sizeBytes: number }> = [];
+        for (const cid of chatIds) {
+          try {
+            const msgs = await loadMessages(currentUser.userId, cid);
+            const sizeBytes = msgs.reduce((sum, m) => sum + JSON.stringify(m).length, 0);
+            const chat = chats.find(c => c.id === cid);
+            const contact = chat ? contacts.find(ct => ct.id === chat.contactId) : null;
+            chatStats.push({ chatId: cid, name: contact?.name || cid, messageCount: msgs.length, sizeBytes });
+          } catch { /* skip failed chats */ }
+        }
+        chatStats.sort((a, b) => b.sizeBytes - a.sizeBytes);
+        setChatStorage(chatStats);
+      } catch (err) {
+        console.warn('⚠️ Failed to load storage stats:', err);
+      }
+    };
+    loadStorage();
+  }, [subPage, currentUser]);
+
   const handleDeleteAccount = async () => {
     if (!window.confirm('WARNING: This will permanently delete your account and all messages. This cannot be undone. Are you sure?')) return;
     
@@ -365,10 +379,10 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
       const credential = EmailAuthProvider.credential(user.email, password);
       await reauthenticateWithCredential(user, credential);
 
-      // 1. Delete from Firestore
+      // 1. Delete from Firestore — user doc is keyed by custom handle, not auth UID
       const { deleteDoc, doc } = await import('firebase/firestore');
       const { db } = await import('../../utils/firebase');
-      await deleteDoc(doc(db, 'users', user.uid));
+      await deleteDoc(doc(db, 'users', currentUser.userId));
       
       // 2. Delete Auth User
       await user.delete();
@@ -406,18 +420,43 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
   const handleExportChats = async () => {
     try {
       setLoading(true);
+      setError(null);
       const { loadMessages } = await import('../../utils/localMessageStore');
       const allChats: any = {};
-      
+      let exported = 0;
+      let failed = 0;
+
       for (const chat of chats) {
-        const msgs = await loadMessages(currentUser.userId, chat.id);
-        allChats[chat.id] = {
-          contact: chat.contactId,
-          messages: msgs
-        };
+        try {
+          const msgs = await loadMessages(currentUser.userId, chat.id);
+          const contact = contacts.find(c => c.id === chat.contactId);
+          allChats[chat.id] = {
+            contactName: contact?.name || chat.contactId,
+            contactId: chat.contactId,
+            messages: msgs
+          };
+          exported++;
+        } catch {
+          failed++;
+          console.warn(`⚠️ Failed to export chat ${chat.id}`);
+        }
       }
 
-      const blob = new Blob([JSON.stringify(allChats, null, 2)], { type: 'application/json' });
+      if (exported === 0) {
+        setError('No chats could be exported. Try again later.');
+        return;
+      }
+
+      const exportData = {
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        app: 'Quidec',
+        chatCount: exported,
+        failedChats: failed,
+        chats: allChats
+      };
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -426,11 +465,11 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
-      setSuccess('Chats exported successfully');
+
+      setSuccess(`Exported ${exported} chat${exported !== 1 ? 's' : ''}${failed > 0 ? ` (${failed} failed)` : ''}`);
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError('Failed to export chats');
+      setError('Failed to export chats: ' + (err as any).message);
     } finally {
       setLoading(false);
     }
@@ -660,18 +699,49 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               />
             </Section>
 
-            <Section label="SECURITY">
-              <ToggleRow
-                icon={<Lock size={18} className="text-wa-text-muted" />}
-                label="Two-step verification"
-                desc={securitySettings?.twoFactorEnabled ? 'Enabled' : 'Disabled'}
-                value={securitySettings?.twoFactorEnabled ?? false}
-                onChange={handleToggle2FA}
+            <Section label="DISAPPEARING MESSAGES">
+              <OptionRow
+                label="Default timer"
+                desc="New chats will use this timer. Messages disappear after they're read."
+                value={
+                  !privacySettings?.disappearingMessages || !privacySettings?.defaultDisappearingTime || privacySettings.defaultDisappearingTime === 0
+                    ? 'Off'
+                    : privacySettings?.defaultDisappearingTime === 3600
+                      ? '1 hour'
+                      : privacySettings?.defaultDisappearingTime === 86400
+                        ? '24 hours'
+                        : privacySettings?.defaultDisappearingTime === 604800
+                          ? '7 days'
+                          : privacySettings?.defaultDisappearingTime === 7776000
+                            ? '90 days'
+                            : 'Off'
+                }
+                onClick={() => {
+                  const options = [
+                    { label: 'Off', value: 0 },
+                    { label: '1 hour', value: 3600 },
+                    { label: '24 hours', value: 86400 },
+                    { label: '7 days', value: 604800 },
+                    { label: '90 days', value: 7776000 },
+                  ];
+                  const currentVal = privacySettings?.defaultDisappearingTime || 0;
+                  const currentIdx = options.findIndex(o => o.value === currentVal);
+                  const nextOption = options[(currentIdx + 1) % options.length];
+                  setDisappearingMessages(currentUser.userId, nextOption.value > 0, nextOption.value);
+                  setPrivacySettings((prev: any) => ({
+                    ...prev,
+                    disappearingMessages: nextOption.value > 0,
+                    defaultDisappearingTime: nextOption.value,
+                  }));
+                }}
               />
+            </Section>
+
+            <Section label="SECURITY">
               <Row
                 icon={<Shield size={18} className="text-wa-text-muted" />}
                 label="Change password"
-                onClick={handleChangePassword}
+                onClick={() => { setShowPasswordModal(true); setError(null); setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); }}
               />
               <Row
                 icon={<Mail size={18} className="text-wa-text-muted" />}
@@ -856,34 +926,75 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
 
       // ── Storage ──
       case 'storage':
-        return (
-          <SubPageShell title="Storage and Data" onBack={back}>
-            <Section>
-              <div className="px-4 py-4">
-                <p className="text-wa-primary mb-1" style={{ fontWeight: 600 }}>Storage usage</p>
-                <div className="flex items-center gap-2 mb-3">
-                  <HardDrive size={16} className="text-wa-text-muted" />
-                  <span className="text-wa-text-muted" style={{ fontSize: '0.85rem' }}>1.2 GB used of 32 GB</span>
+        {
+          const usedGB = storageTotal > 0 ? (storageUsed / (1024 ** 3)).toFixed(2) : '—';
+          const totalGB = storageTotal > 0 ? (storageTotal / (1024 ** 3)).toFixed(1) : '—';
+          const pct = storageTotal > 0 ? Math.min(100, (storageUsed / storageTotal) * 100) : 0;
+          const formatSize = (bytes: number) => {
+            if (bytes < 1024) return `${bytes} B`;
+            if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+            if (bytes < 1024 ** 3) return `${(bytes / (1024 ** 2)).toFixed(1)} MB`;
+            return `${(bytes / (1024 ** 3)).toFixed(2)} GB`;
+          };
+          return (
+            <SubPageShell title="Storage and Data" onBack={back}>
+              <Section>
+                <div className="px-4 py-4">
+                  <p className="text-wa-primary mb-1" style={{ fontWeight: 600 }}>Storage usage</p>
+                  <div className="flex items-center gap-2 mb-3">
+                    <HardDrive size={16} className="text-wa-text-muted" />
+                    <span className="text-wa-text-muted" style={{ fontSize: '0.85rem' }}>
+                      {usedGB} GB used of {totalGB} GB
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-wa-secondary rounded-full overflow-hidden">
+                    <div className="h-full bg-[#4d91fb] rounded-full transition-all" style={{ width: `${Math.max(0.5, pct)}%` }} />
+                  </div>
+                  <p className="text-wa-text-muted mt-2" style={{ fontSize: '0.72rem' }}>
+                    {chatStorage.length} conversation{chatStorage.length !== 1 ? 's' : ''} stored locally
+                  </p>
                 </div>
-                <div className="w-full h-2 bg-wa-secondary rounded-full overflow-hidden">
-                  <div className="h-full bg-[#4d91fb] rounded-full" style={{ width: '3.75%' }} />
-                </div>
-              </div>
-            </Section>
-            <Section label="NETWORK USAGE">
-              <ToggleRow
-                icon={<Download size={18} className="text-wa-text-muted" />}
-                label="Auto-download media"
-                desc="Automatically download photos and videos on Wi-Fi"
-                value={settings.mediaAutoDownload}
-                onChange={(v: boolean) => updateSettings({ mediaAutoDownload: v })}
-              />
-            </Section>
-            <Section>
-              <Row icon={<Trash2 size={18} className="text-wa-text-muted" />} label="Manage storage" />
-            </Section>
-          </SubPageShell>
-        );
+              </Section>
+              <Section label="NETWORK USAGE">
+                <ToggleRow
+                  icon={<Download size={18} className="text-wa-text-muted" />}
+                  label="Auto-download media"
+                  desc="Automatically download photos and videos on Wi-Fi"
+                  value={settings.mediaAutoDownload}
+                  onChange={(v: boolean) => updateSettings({ mediaAutoDownload: v })}
+                />
+              </Section>
+              {chatStorage.length > 0 && (
+                <Section label="PER-CHAT STORAGE">
+                  {chatStorage.slice(0, 20).map(cs => (
+                    <div key={cs.chatId} className="flex items-center gap-3 px-4 py-3 border-b border-wa-border/5 last:border-0">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-wa-primary truncate" style={{ fontSize: '0.9rem', fontWeight: 500 }}>{cs.name}</p>
+                        <p className="text-wa-text-muted" style={{ fontSize: '0.72rem' }}>{cs.messageCount} messages · {formatSize(cs.sizeBytes)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </Section>
+              )}
+              <Section>
+                <Row
+                  icon={<Trash2 size={18} className="text-wa-text-muted" />}
+                  label="Manage storage"
+                  onClick={() => {
+                    if (window.confirm('Clear all local chat data? This will remove all messages and media from this device. Your account will not be affected.')) {
+                      clearAllChats().then(() => {
+                        setChatStorage([]);
+                        setStorageUsed(0);
+                        setSuccess('All local data cleared');
+                        setTimeout(() => setSuccess(null), 3000);
+                      });
+                    }
+                  }}
+                />
+              </Section>
+            </SubPageShell>
+          );
+        }
 
       // ── Linked Devices ──
       case 'linked-devices':
@@ -1174,6 +1285,59 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
         </Modal>
       )}
 
+      {showPasswordModal && (
+        <Modal title="Change Password" onClose={() => { setShowPasswordModal(false); setError(null); }}>
+          {error && <ErrorAlert message={error} onClose={() => setError(null)} />}
+          <div className="space-y-4">
+            <div>
+              <label className="text-wa-text-muted text-sm">Current Password</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={e => setCurrentPassword(e.target.value)}
+                placeholder="Enter current password"
+                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#4d91fb]"
+              />
+            </div>
+            <div>
+              <label className="text-wa-text-muted text-sm">New Password</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                placeholder="At least 6 characters"
+                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#4d91fb]"
+              />
+            </div>
+            <div>
+              <label className="text-wa-text-muted text-sm">Confirm New Password</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                placeholder="Re-enter new password"
+                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#4d91fb]"
+              />
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => { setShowPasswordModal(false); setError(null); }}
+                className="flex-1 py-2 text-wa-text-muted hover:bg-wa-secondary rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleChangePassword}
+                disabled={loading}
+                className="flex-1 py-2 bg-[#4d91fb] text-white rounded-lg hover:bg-[#3b8eea] transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Changing...' : 'Change Password'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {showBlockModal && (
         <Modal title="Manage Blocked Users" onClose={() => setShowBlockModal(false)}>
           {error && <ErrorAlert message={error} onClose={() => setError(null)} />}
@@ -1216,91 +1380,53 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
         </Modal>
       )}
 
-      {show2FAModal && (
-        <Modal title="Set Two-Step PIN" onClose={() => setShow2FAModal(false)}>
-          {error && <ErrorAlert message={error} onClose={() => setError(null)} />}
-          <div className="space-y-6 text-center py-4">
-            <div className="w-16 h-16 bg-[#4d91fb]/10 rounded-full flex items-center justify-center mx-auto">
-              <Shield size={32} className="text-[#4d91fb]" />
-            </div>
-            <p className="text-wa-text-muted text-sm px-4">
-              Enter a 6-digit PIN that you'll be asked for when you register your phone number with Quidec again.
-            </p>
-            <div className="flex justify-center gap-2">
-              {[0, 1, 2, 3, 4, 5].map((i) => (
-                <input
-                  key={i}
-                  id={`pin-${i}`}
-                  type="password"
-                  maxLength={1}
-                  className="w-10 h-12 bg-wa-secondary text-wa-primary text-2xl font-bold rounded-lg border border-wa-border text-center focus:border-[#4d91fb] outline-none"
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val && i < 5) {
-                      document.getElementById(`pin-${i + 1}`)?.focus();
-                    }
-                    const fullPin = Array.from({ length: 6 }, (_, idx) => 
-                      (document.getElementById(`pin-${idx}`) as HTMLInputElement)?.value || ''
-                    ).join('');
-                    if (fullPin.length === 6) {
-                      setNewPassword(fullPin); // Reuse newPassword state temporarily for PIN
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Backspace' && !(e.target as HTMLInputElement).value && i > 0) {
-                      document.getElementById(`pin-${i - 1}`)?.focus();
-                    }
-                  }}
-                />
-              ))}
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShow2FAModal(false)}
-                className="flex-1 py-2 text-wa-text-muted hover:bg-wa-secondary rounded-lg"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  const pin = Array.from({ length: 6 }, (_, idx) => 
-                    (document.getElementById(`pin-${idx}`) as HTMLInputElement)?.value || ''
-                  ).join('');
-                  if (pin.length === 6) {
-                    handleSet2FAPin(pin);
-                  } else {
-                    setError('Please enter a 6-digit PIN');
-                  }
-                }}
-                disabled={loading}
-                className="flex-1 py-2 bg-[#00A884] text-white rounded-lg hover:bg-[#06cf9c]"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
       {showNotificationModal && (
         <Modal title="Notification Tone" onClose={() => setShowNotificationModal(false)}>
           <div className="space-y-1">
-            {['Default', 'Aurora', 'Bamboo', 'Crystal', 'Glass', 'Joy'].map((tone) => (
-              <button
-                key={tone}
-                onClick={() => {
-                  handleUpdateSettings({ notificationTone: tone.toLowerCase() });
-                  setNotificationTone(tone);
-                  setShowNotificationModal(false);
-                }}
-                className="w-full flex items-center justify-between px-4 py-4 hover:bg-wa-secondary/50 rounded-xl transition-colors"
-              >
-                <span className={notificationTone.toLowerCase() === tone.toLowerCase() ? 'text-[#00A884] font-bold' : 'text-wa-primary'}>
-                  {tone}
-                </span>
-                {notificationTone.toLowerCase() === tone.toLowerCase() && <Check size={18} className="text-[#00A884]" />}
-              </button>
-            ))}
+            {['Default', 'Aurora', 'Bamboo', 'Crystal', 'Glass', 'Joy'].map((tone) => {
+              const isSelected = notificationTone.toLowerCase() === tone.toLowerCase();
+              return (
+                <div key={tone} className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      handleUpdateSettings({ notificationTone: tone.toLowerCase() });
+                      setNotificationTone(tone);
+                      setShowNotificationModal(false);
+                    }}
+                    className="flex-1 flex items-center justify-between px-4 py-4 hover:bg-wa-secondary/50 rounded-xl transition-colors"
+                  >
+                    <span className={isSelected ? 'text-[#4D91FB] font-bold' : 'text-wa-primary'}>
+                      {tone}
+                    </span>
+                    {isSelected && <Check size={18} className="text-[#4D91FB]" />}
+                  </button>
+                  <button
+                    onClick={() => {
+                      try {
+                        const ctx = new AudioContext();
+                        const frequencies: Record<string, number> = {
+                          default: 440, aurora: 523, bamboo: 392, crystal: 659, glass: 587, joy: 784
+                        };
+                        const freq = frequencies[tone.toLowerCase()] || 440;
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.value = freq;
+                        gain.gain.value = 0.15;
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.start();
+                        osc.stop(ctx.currentTime + 0.3);
+                      } catch { /* audio not supported */ }
+                    }}
+                    className="p-3 text-wa-text-muted hover:text-[#4d91fb] hover:bg-wa-secondary/50 rounded-xl transition-colors"
+                    title="Preview tone"
+                  >
+                    <Volume2 size={18} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </Modal>
       )}
@@ -1383,14 +1509,17 @@ function Row({ icon, label, sub, action, onClick }: {
   );
 }
 
-function OptionRow({ label, value, onClick }: { label: string; value: string; onClick: () => void }) {
+function OptionRow({ label, desc, value, onClick }: { label: string; desc?: string; value: string; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-wa-secondary/50 transition-colors"
     >
-      <span className="text-wa-primary" style={{ fontSize: '0.95rem' }}>{label}</span>
-      <span className="text-[#00A884]" style={{ fontSize: '0.85rem', fontWeight: 500 }}>{value}</span>
+      <div className="text-left">
+        <span className="text-wa-primary" style={{ fontSize: '0.95rem' }}>{label}</span>
+        {desc && <p className="text-wa-text-muted" style={{ fontSize: '0.75rem', marginTop: '2px' }}>{desc}</p>}
+      </div>
+      <span className="text-[#4D91FB] flex-shrink-0 ml-3" style={{ fontSize: '0.85rem', fontWeight: 500 }}>{value}</span>
     </button>
   );
 }
@@ -1413,7 +1542,7 @@ function ToggleRow({ icon, label, desc, value, onChange }: {
         {desc && <p className="text-wa-text-muted mt-1" style={{ fontSize: '0.8rem', lineHeight: '1.4' }}>{desc}</p>}
       </div>
       {/* Toggle pill */}
-      <div className={`relative w-11 h-5 rounded-full transition-colors flex-shrink-0 ${value ? 'bg-[#00A884]/80' : 'bg-wa-secondary'}`}>
+      <div className={`relative w-11 h-5 rounded-full transition-colors flex-shrink-0 ${value ? 'bg-[#4D91FB]/80' : 'bg-wa-secondary'}`}>
         <motion.div
           animate={{ x: value ? 24 : 2 }}
           transition={{ type: 'spring', stiffness: 500, damping: 30 }}
@@ -1477,10 +1606,10 @@ function SuccessAlert({ message }: { message: string }) {
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
-      className="mx-4 mb-4 p-3 bg-[#00A884]/10 border border-[#00A884]/30 rounded-lg flex items-center gap-3"
+      className="mx-4 mb-4 p-3 bg-[#4D91FB]/10 border border-[#4D91FB]/30 rounded-lg flex items-center gap-3"
     >
-      <Check size={18} className="text-[#00A884] flex-shrink-0" />
-      <p className="text-[#00A884] text-sm flex-1">{message}</p>
+      <Check size={18} className="text-[#4D91FB] flex-shrink-0" />
+      <p className="text-[#4D91FB] text-sm flex-1">{message}</p>
     </motion.div>
   );
 }

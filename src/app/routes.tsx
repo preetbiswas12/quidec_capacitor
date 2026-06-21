@@ -6,6 +6,7 @@ import SplashScreen from './components/SplashScreen';
 import Onboarding from './components/Onboarding';
 import MainLayout from './components/MainLayout';
 import ChatWindow from './components/ChatWindow';
+import GroupInfo from './components/GroupInfo';
 import VoiceCallScreen from './components/VoiceCallScreen';
 import VideoCallScreen from './components/VideoCallScreen';
 import EmailVerification from './components/EmailVerification';
@@ -149,6 +150,7 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <div className="h-full w-full bg-[#111B21]" /> },
               { path: 'chat/:id', element: <ChatWindow /> },
+              { path: 'group/:id', element: <GroupInfo /> },
             ],
           },
           { path: '/call/voice/:id', element: <VoiceCallScreen /> },

@@ -22,14 +22,12 @@ export interface PrivacySettings {
 }
 
 export interface AccountSecuritySettings {
-  twoFactorEnabled: boolean;
   passwordHash?: string;
   biometricEnabled: boolean;
   sessionTimeout: number; // in seconds
   lastPasswordChangeDate?: Date;
   recoveryEmail?: string;
   trustedDevices: string[];
-  twoFactorPin?: string; // 6-digit PIN
 }
 
 export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
@@ -46,7 +44,6 @@ export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
 };
 
 export const DEFAULT_ACCOUNT_SECURITY_SETTINGS: AccountSecuritySettings = {
-  twoFactorEnabled: false,
   biometricEnabled: false,
   sessionTimeout: 15 * 60 * 1000, // 15 minutes
   trustedDevices: [],
@@ -143,53 +140,6 @@ export async function updateAccountSecuritySettings(
   } catch (error) {
     logger.error('Privacy', 'Failed to update account security settings', error);
     throw error;
-  }
-}
-
-/**
- * Enable/disable two-factor authentication
- */
-export async function setTwoFactorAuth(uid: string, enabled: boolean): Promise<void> {
-  try {
-    await updateAccountSecuritySettings(uid, {
-      twoFactorEnabled: enabled,
-    });
-
-    logger.info('Privacy', `Two-factor authentication ${enabled ? 'enabled' : 'disabled'}`);
-  } catch (error) {
-    logger.error('Privacy', 'Failed to update 2FA', error);
-    throw error;
-  }
-}
-
-/**
- * Set two-factor authentication PIN
- */
-export async function setTwoFactorPin(uid: string, pin: string): Promise<void> {
-  try {
-    // In a real app, we should hash this PIN. For this demo, we'll store it as is (or with simple obfuscation)
-    await updateAccountSecuritySettings(uid, {
-      twoFactorPin: pin,
-      twoFactorEnabled: true,
-    });
-
-    logger.info('Privacy', 'Two-factor PIN updated');
-  } catch (error) {
-    logger.error('Privacy', 'Failed to set 2FA PIN', error);
-    throw error;
-  }
-}
-
-/**
- * Verify two-factor authentication PIN
- */
-export async function verifyTwoFactorPin(uid: string, pin: string): Promise<boolean> {
-  try {
-    const settings = await getAccountSecuritySettings(uid);
-    return settings.twoFactorPin === pin;
-  } catch (error) {
-    logger.error('Privacy', 'Failed to verify 2FA PIN', error);
-    return false;
   }
 }
 

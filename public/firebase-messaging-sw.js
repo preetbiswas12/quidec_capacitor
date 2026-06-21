@@ -1,14 +1,14 @@
 /**
  * Firebase Messaging Service Worker
- * Handles background push notifications
- * File: web/public/firebase-messaging-sw.js
+ * Handles background push notifications for Quidec.
+ *
+ * The Render relay sends FCM with both `notification` (for display) and `data` (for app logic).
+ * This service worker shows the notification and handles click-to-open.
  */
 
-// Import Firebase scripts
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-// Initialize Firebase in Service Worker
 const firebaseConfig = {
   apiKey: 'AIzaSyDRjYVeogF29znhNtSVNm9OvELFalusumc',
   authDomain: 'octate-wee.firebaseapp.com',
@@ -20,52 +20,46 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-
-// Get messaging instance
 const messaging = firebase.messaging();
 
-// Handle background messages
+// ─── Background Messages ─────────────────────────────────────────────────────
 messaging.onBackgroundMessage((payload) => {
-  console.log('📬 Background message received:', payload);
+  console.log('[SW] Background message received:', payload);
 
-  const notificationTitle = payload.notification?.title || 'New Notification';
+  // Use the notification payload from FCM (sent by Render relay)
+  // The relay sends: notification.title = senderName, notification.body = "Preet sent a Video"
+  const title = payload.notification?.title || 'New Message';
+  const body = payload.notification?.body || 'You have a new message';
+
   const notificationOptions = {
-    body: payload.notification?.body || '',
+    body,
     icon: '/manifest.json',
     badge: '/manifest.json',
-    tag: 'notification',
+    tag: 'quidec-message',
     requireInteraction: true,
-    data: payload.data || {},
+    data: payload.data || {},  // { type: "new_video", fromName: "Preet" }
   };
 
-  return self.registration.showNotification(notificationTitle, notificationOptions);
+  return self.registration.showNotification(title, notificationOptions);
 });
 
-// Handle notification clicks
+// ─── Notification Click ──────────────────────────────────────────────────────
 self.addEventListener('notificationclick', (event) => {
-  console.log('🔔 Notification clicked:', event);
-
+  console.log('[SW] Notification clicked:', event);
   event.notification.close();
 
-  // Open app or specific URL when notification is clicked
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       // If app is already open, focus it
-      for (let i = 0; i < clientList.length; i++) {
-        const client = clientList[i];
-        if (client.url === '/' && 'focus' in client) {
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
           return client.focus();
         }
       }
-      // Otherwise, open app
+      // Otherwise open the app
       if (clients.openWindow) {
         return clients.openWindow('/');
       }
     })
   );
-});
-
-// Handle notification close
-self.addEventListener('notificationclose', (event) => {
-  console.log('❌ Notification closed:', event);
 });
