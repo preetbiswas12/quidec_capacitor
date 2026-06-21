@@ -1,14 +1,6 @@
 /**
  * Error Monitoring with Sentry
- * Captures and reports all errors to Sentry for production debugging
- *
- * Integration Points:
- * - All thrown exceptions caught
- * - React error boundaries
- * - WebSocket errors
- * - Firebase errors
- * - Network failures
- * - User actions with breadcrumbs
+ * Captures and reports all errors to Sentry for production debugging.
  *
  * Safe to import even if @sentry/react is not installed — all Sentry
  * calls are guarded and become no-ops when the SDK is absent.
@@ -17,7 +9,8 @@
 // ─── Lazy Sentry import (optional dependency) ────────────────────────────────
 // @sentry/react is NOT a required dependency. If it's missing, every function
 // here degrades to a no-op so the app still builds and runs.
-let Sentry: typeof import('@sentry/react') | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let Sentry: any = null;
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   Sentry = require('@sentry/react');
@@ -41,7 +34,6 @@ export function initializeSentry() {
   const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
   const environment = import.meta.env.VITE_ENVIRONMENT || 'development';
 
-  // Only initialize in production or if DSN is explicitly set
   if (!sentryDsn) {
     if (!isDevelopment) {
       logger.warn('errorMonitoring', 'Sentry DSN not configured — error monitoring disabled');
@@ -69,7 +61,6 @@ export function initializeSentry() {
 
 /**
  * Set user context for error tracking
- * Call this after user authentication
  */
 export function setUserContext(userId: string, username?: string, email?: string) {
   if (!Sentry) return;
@@ -113,7 +104,7 @@ export function addBreadcrumb(
       timestamp: Date.now() / 1000,
     });
   } catch {
-    // Silently fail — don't break app on breadcrumb errors
+    // Silently fail
   }
 }
 
@@ -156,11 +147,11 @@ export function reportError(
  */
 export function startTransaction(
   name: string,
-  operation: string = 'http.client'
+  _operation: string = 'http.client'
 ): { finish: () => void } | null {
   if (!Sentry) return null;
   try {
-    logger.debug('errorMonitoring', `Transaction started: ${name} (op: ${operation})`);
+    logger.debug('errorMonitoring', `Transaction started: ${name}`);
     return {
       finish: () => {
         logger.debug('errorMonitoring', `Transaction finished: ${name}`);
@@ -186,34 +177,3 @@ export function captureMessage(
     logger.warn('errorMonitoring', `Failed to capture message: ${err}`);
   }
 }
-
-/**
- * React Error Boundary Higher-Order Component
- * Only works when @sentry/react is installed; otherwise returns the component as-is.
- */
-export const withErrorBoundary = <P extends Record<string, unknown>>(
-  Component: React.ComponentType<P>,
-  componentName: string
-) => {
-  if (!Sentry?.ErrorBoundary) {
-    // Sentry not installed — return component unchanged
-    return Component;
-  }
-
-  const Wrapped = (props: P) => (
-    <Sentry!.ErrorBoundary
-      onError={(error: unknown, componentStack: string | undefined, eventId: string) => {
-        reportError(error instanceof Error ? error : String(error), {
-          component: componentName,
-          severity: 'fatal',
-          extra: { componentStack, eventId }
-        });
-      }}
-    >
-      <Component {...props} />
-    </Sentry!.ErrorBoundary>
-  );
-
-  Wrapped.displayName = `withErrorBoundary(${componentName})`;
-  return Wrapped;
-};
