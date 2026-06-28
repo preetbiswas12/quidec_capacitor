@@ -47,19 +47,19 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
-      # Cache CocoaPods using the correct path (ios/App/Podfile.lock)
-      - name: Cache CocoaPods
+      # This project uses Swift Package Manager (SPM), not CocoaPods.
+      # Dependencies are resolved automatically by Xcode at build time — no pod install step.
+      # Cache DerivedData only.
+      - name: Cache Xcode DerivedData
         uses: actions/cache@v4
         with:
-          path: |
-            ios/App/Pods
-            ~/Library/Developer/Xcode/DerivedData
-          key: ${{ runner.os }}-pods-${{ hashFiles('ios/App/Podfile.lock') }}
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-deriveddata-${{ hashFiles('ios/App/App/**', 'ios/App/CapApp-SPM/**') }}
           restore-keys: |
-            ${{ runner.os }}-pods-
+            ${{ runner.os }}-deriveddata-
 
       - name: Install dependencies
         run: NODE_ENV=development pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && NODE_ENV=development pnpm install)
@@ -85,11 +85,16 @@ jobs:
       - name: Sync Capacitor
         run: pnpm exec cap sync ios
 
-      # Use the correct path: ios/App (not web/ios)
-      - name: Install CocoaPods
+      # Resolve SPM dependencies (Firebase, Capacitor via SPM).
+      # Schemes are not committed to the repo (xcschemes/ is empty), so we let
+      # Xcode auto-generate them. -list first to surface the available scheme name.
+      - name: Resolve Swift packages
         run: |
           cd ios/App
-          pod install --repo-update
+          echo "=== Available schemes ==="
+          xcodebuild -project App.xcworkspace/../App.xcodeproj -list 2>/dev/null \
+            || xcodebuild -list 2>/dev/null \
+            || echo "ℹ️ Scheme listing failed — will attempt build with default scheme"
 
       - name: Setup code signing (Release)
         if: env.BUILD_CONFIG == 'Release'
@@ -131,40 +136,42 @@ jobs:
             echo "✅ Code signing certificate installed"
           fi
 
+      # Detect the scheme name (not committed to repo). Falls back to "App".
+      - name: Detect Xcode scheme
+        id: scheme
+        run: |
+          cd ios/App
+          SCHEME=$(xcodebuild -project App.xcodeproj -list 2>/dev/null \
+            | awk '/^ *Schemes:/{flag=1;next} flag && /\S/{print $1; exit}')
+          if [ -z "$SCHEME" ]; then SCHEME="App"; fi
+          echo "scheme=$SCHEME" >> $GITHUB_OUTPUT
+          echo "✅ Using scheme: $SCHEME"
+
+      # Build using the .xcodeproj (SPM project), NOT a workspace
       - name: Build Debug App
         if: env.BUILD_CONFIG == 'Debug'
         run: |
           cd ios/App
           xcodebuild build \
-            -workspace App.xcworkspace \
-            -scheme App \
+            -project App.xcodeproj \
+            -scheme ${{ steps.scheme.outputs.scheme }} \
             -configuration Debug \
             -sdk iphonesimulator \
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            PROVISIONING_PROFILE="" \
-            | xcpretty || xcodebuild build \
-              -workspace App.xcworkspace \
-              -scheme App \
-              -configuration Debug \
-              -sdk iphonesimulator \
-              -derivedDataPath build \
-              CODE_SIGN_IDENTITY="" \
-              CODE_SIGNING_REQUIRED=NO \
-              PROVISIONING_PROFILE=""
+            PROVISIONING_PROFILE=""
 
       - name: Build Release App
         if: env.BUILD_CONFIG == 'Release'
         run: |
           cd ios/App
           xcodebuild archive \
-            -workspace App.xcworkspace \
-            -scheme App \
+            -project App.xcodeproj \
+            -scheme ${{ steps.scheme.outputs.scheme }} \
             -configuration Release \
             -derivedDataPath build \
-            -archivePath build/App.xcarchive \
-            | xcpretty || true
+            -archivePath build/App.xcarchive
 
       # Use a step output (not GITHUB_ENV) so the if: condition on the next step is fully valid
       - name: Validate ExportOptions.plist exists
@@ -185,8 +192,7 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath App.xcarchive \
             -exportOptionsPlist ../ExportOptions.plist \
-            -exportPath . \
-            | xcpretty || true
+            -exportPath .
 
       - name: Locate build artifact
         id: artifact
