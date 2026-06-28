@@ -560,8 +560,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ─── Initialize Auth State on Mount ───────────────────────────────────────
   useEffect(() => {
-    const splashDelay = new Promise(resolve => setTimeout(resolve, 3000));
-
     const authUnsubscribe = authService.onAuthStateChange(async (currentFirebaseUser) => {
       // If a login is in progress, skip — the login() function handles state
       if (loginInProgress.current) return;
@@ -860,6 +858,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // First time: request all permissions sequentially
           const result = await permissionManager.requestAllPermissions();
           console.log('📱 Permissions granted:', result);
+
+          // Request notification permission separately via the LocalNotifications API
+          // (Android 13+ POST_NOTIFICATIONS). This is the only safe path — the
+          // PushNotifications API crashes the app on Android 13+ when accepted.
+          const notifGranted = await requestNotificationPermissions();
+          if (notifGranted) {
+            const saved = await permissionManager.loadPermissionStatus() || { camera: true, microphone: true, storage: true, notifications: false };
+            saved.notifications = true;
+            await permissionManager.savePermissionStatus(saved);
+          }
         } else {
           // Asked before but onboarding wasn't completed (possible crash):
           // only request missing permissions

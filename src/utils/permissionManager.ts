@@ -253,16 +253,13 @@ export const permissionManager = {
     // Small delay before notification permission
     await new Promise(resolve => setTimeout(resolve, PERMISSION_REQUEST_DELAY_MS));
 
-    // Request notification permission (Android 13+ / API 33+)
-    let notifications = true;
-    try {
-      const { PushNotifications } = await import('@capacitor/push-notifications');
-      const result = await PushNotifications.requestPermissions();
-      notifications = result.receive === 'granted';
-      console.log(`📱 Notification permission: ${notifications ? 'granted' : 'denied'}`);
-    } catch (err) {
-      console.warn('⚠️ Notification permission request failed (non-fatal):', err);
-    }
+    // Notification permission is handled by notificationSettingsManager.ts
+    // (LocalNotifications API with Android 13+ API gating). Do NOT also request
+    // via @capacitor/push-notifications here — PushNotifications.requestPermissions()
+    // crashes the app on Android 13+ when the dialog is accepted (see issue 2026-06-28).
+    const notifications = await this.loadPermissionStatus()
+      .then(s => s?.notifications ?? false)
+      .catch(() => false);
 
     const status: PermissionStatus = {
       camera,
