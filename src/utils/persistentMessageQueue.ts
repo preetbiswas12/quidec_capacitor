@@ -35,7 +35,7 @@ const MAX_RETRIES = 10;
 
 class PersistentMessageQueue {
   private queue: Map<string, QueuedMessage> = new Map();
-  private flushInterval: number | null = null;
+  private flushInterval: ReturnType<typeof setInterval> | null = null;
   private isProcessing = false;
 
   constructor() {

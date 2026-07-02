@@ -340,3 +340,102 @@ export const friendRequestLimiter = new RateLimiter(
   5, // 5 requests
   300000 // per 5 minutes
 );
+
+export const groupCreateLimiter = new RateLimiter(
+  5, // 5 groups
+  3600000 // per 1 hour
+);
+
+export const statusLimiter = new RateLimiter(
+  20, // 20 statuses
+  3600000 // per 1 hour
+);
+
+export const profileUpdateLimiter = new RateLimiter(
+  10, // 10 updates
+  3600000 // per 1 hour
+);
+
+/**
+ * Validate group name
+ * - 1-100 characters
+ * - No HTML/script injection
+ */
+export function validateGroupName(name: string): string {
+  if (!name || typeof name !== 'string') {
+    throw new Error('Group name is required');
+  }
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    throw new Error('Group name cannot be empty');
+  }
+  if (trimmed.length > 100) {
+    throw new Error('Group name cannot exceed 100 characters');
+  }
+  return sanitizeHTML(trimmed);
+}
+
+/**
+ * Validate group description
+ * - Max 500 characters
+ * - No HTML/script injection
+ */
+export function validateGroupDescription(desc: string): string {
+  if (!desc || typeof desc !== 'string') return '';
+  if (desc.length > 500) {
+    throw new Error('Group description cannot exceed 500 characters');
+  }
+  return sanitizeHTML(desc.trim());
+}
+
+/**
+ * Validate status/story content
+ * - Not empty
+ * - Max 2000 characters
+ * - No HTML/script injection
+ */
+export function validateStatusContent(content: string): string {
+  if (!content || typeof content !== 'string') {
+    throw new Error('Status content is required');
+  }
+  const trimmed = content.trim();
+  if (trimmed.length === 0) {
+    throw new Error('Status content cannot be empty');
+  }
+  if (trimmed.length > 2000) {
+    throw new Error('Status content cannot exceed 2,000 characters');
+  }
+  return sanitizeHTML(trimmed);
+}
+
+/**
+ * Validate profile about/bio
+ * - Max 200 characters
+ * - No HTML/script injection
+ */
+export function validateAbout(about: string): string {
+  if (!about || typeof about !== 'string') return '';
+  if (about.length > 200) {
+    throw new Error('Bio cannot exceed 200 characters');
+  }
+  return sanitizeHTML(about.trim());
+}
+
+/**
+ * Validate display name
+ * - 1-50 characters
+ * - No HTML/script injection
+ */
+export function validateDisplayName(name: string): string {
+  if (!name || typeof name !== 'string') {
+    throw new Error('Display name is required');
+  }
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    throw new Error('Display name cannot be empty');
+  }
+  if (trimmed.length > 50) {
+    throw new Error('Display name cannot exceed 50 characters');
+  }
+  return sanitizeHTML(trimmed);
+}

@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import type { ReactNode } from 'react';
 import {
-  X, Phone, Video, Search, Bell, Trash2, MessageSquare,
+  X, Search, Bell, Trash2, MessageSquare,
   FileText, ExternalLink, Download, Image as ImageIcon, Link as LinkIcon,
   Camera, Edit3, Check, ChevronRight, ShieldAlert, LogOut, UserPlus,
   Copy, Share2, ArrowLeft, Crown,
@@ -121,8 +121,6 @@ export default function GroupInfo() {
   const linkMessages  = chatMessages.filter(m => m.type === 'link');
   const totalShared   = mediaMessages.length + docMessages.length + linkMessages.length;
 
-  const startCall = (type: 'voice' | 'video') => navigate(`/call/${type}/${groupId}`);
-
   const tabDefs: { id: MediaTab; label: string; count: number }[] = [
     { id: 'media', label: 'Media', count: mediaMessages.length },
     { id: 'docs',  label: 'Docs',  count: docMessages.length },
@@ -204,8 +202,6 @@ export default function GroupInfo() {
         {/* Action Buttons */}
         <div className="flex gap-8 mt-8 justify-center">
           <ActionButton icon={<MessageSquare size={24} />} label="Message" onClick={openGroupChat} />
-          <ActionButton icon={<Phone size={24} />} label="Voice" onClick={() => startCall('voice')} />
-          <ActionButton icon={<Video size={24} />} label="Video" onClick={() => startCall('video')} />
         </div>
       </div>
 

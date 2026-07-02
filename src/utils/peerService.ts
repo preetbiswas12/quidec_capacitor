@@ -1,5 +1,6 @@
 import Peer, { DataConnection, MediaConnection } from 'peerjs';
 import logger from './logger';
+import { getICEServers } from './iceServers';
 
 interface PeerServiceConfig {
   userId: string;       // Custom handle (e.g. "preet.5815") — used for display
@@ -46,26 +47,8 @@ export class PeerServiceImpl {
         this.log(`Initializing PeerJS for user: ${this.userId} (peerId: ${peerJsId})`);
 
         // ─── ICE Servers ──────────────────────────────────────────────────────────
-        // STUN for direct connections, TURN (ExpressTURN free) for NAT relay.
-        // Credentials are free-tier — do NOT use for high-traffic production.
-        const iceServers: ICEServer[] = [
-          {
-            urls: [
-              'stun:stun.l.google.com:19302',
-              'stun:stun1.l.google.com:19302',
-              'stun:stun2.l.google.com:19302',
-            ],
-          },
-          {
-            urls: [
-              'turn:free.expressturn.com:3478',
-              'turn:free.expressturn.com:3479?transport=tcp',
-              'turns:free.expressturn.com:5349',
-            ],
-            username: '000000002093260049',
-            credential: 'K6KMvixuaPZkje9giLJojFTM0+Y=',
-          },
-        ];
+        // STUN for direct connections, TURN (optional) for NAT relay.
+        const iceServers = getICEServers();
 
         // PeerCloud configuration (cloud.peerjs.com)
         const peerServerHost = import.meta.env.VITE_PEER_SERVER_HOST || 'cloud.peerjs.com';

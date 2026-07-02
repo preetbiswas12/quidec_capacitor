@@ -3,191 +3,95 @@
  * Works inside Capacitor WebView with native WebSocket support
  */
 
-/**
- * WebRTC configuration for mobile video/audio calls
- * Works inside Capacitor WebView with native WebSocket support
- */
+import { getICEServers, getRTCConfig, getAudioConstraints, getVideoConstraints } from './iceServers';
 
 export const WEBRTC_CONFIG = {
-  // STUN servers (for NAT traversal) - works for direct connections
-  iceServers: [
-    {
-      urls: [
-        'stun:stun.l.google.com:19302',
-        'stun:stun1.l.google.com:19302',
-        'stun:stun2.l.google.com:19302',
-        'stun:stun3.l.google.com:19302',
-        'stun:stun4.l.google.com:19302',
-      ],
-    },
-    // TURN servers for relay (when direct connection impossible)
-    // Free-tier credentials from https://expressturn.com/
-    {
-      urls: [
-        'turn:free.expressturn.com:3478',
-        'turn:free.expressturn.com:3479?transport=tcp',
-        'turns:free.expressturn.com:5349',
-      ],
-      username: '000000002093260049',
-      credential: 'K6KMvixuaPZkje9giLJojFTM0+Y=',
-    },
-  ],
-
-  // ICE gathering and transport configuration
+  iceServers: getICEServers(),
   iceGatheringPolicy: 'all',
   bundlePolicy: 'max-bundle',
   rtcpMuxPolicy: 'require',
   iceCandidatePoolSize: 10,
-
-  // Codec preferences (for better mobile compatibility)
   codecs: {
-    audio: ['opus'], // Best for VoIP
-    video: ['VP8', 'VP9', 'H264'], // H.264 best for mobile
+    audio: ['opus'],
+    video: ['VP8', 'VP9', 'H264'],
   },
-
-  // Constraints for media devices
   audioConstraints: {
     echoCancellation: true,
     noiseSuppression: true,
     autoGainControl: true,
   },
-
   videoConstraints: {
-    width: { ideal: 640 }, // Lower res for mobile
+    width: { ideal: 640 },
     height: { ideal: 480 },
-    frameRate: { ideal: 15 }, // Lower FPS saves battery
+    frameRate: { ideal: 15 },
     facingMode: 'user',
   },
-
-  // Connection timeout
   connectionTimeout: 10000,
-}
+};
 
-/**
- * Get RTCPeerConnection configuration
- */
 export function getPeerConnectionConfig() {
-  return {
-    iceServers: WEBRTC_CONFIG.iceServers,
-    iceGatheringPolicy: WEBRTC_CONFIG.iceGatheringPolicy,
-    bundlePolicy: WEBRTC_CONFIG.bundlePolicy,
-    rtcpMuxPolicy: WEBRTC_CONFIG.rtcpMuxPolicy,
-    iceCandidatePoolSize: WEBRTC_CONFIG.iceCandidatePoolSize,
-  }
+  return getRTCConfig();
 }
 
-/**
- * Get media constraints for audio
- */
-export function getAudioConstraints() {
-  return {
-    audio: WEBRTC_CONFIG.audioConstraints,
-  }
+export function getAudioConstraintsExport() {
+  return getAudioConstraints();
 }
 
-/**
- * Get media constraints for video
- */
-export function getVideoConstraints() {
-  return {
-    audio: WEBRTC_CONFIG.audioConstraints,
-    video: WEBRTC_CONFIG.videoConstraints,
-  }
+export function getVideoConstraintsExport(isFrontCamera = true) {
+  return getVideoConstraints(isFrontCamera);
 }
 
-/**
- * Mobile-specific optimizations
- */
 export const MOBILE_OPTIMIZATIONS = {
-  // Reduce bitrate for mobile (kbps)
   minBitrate: 200,
   startBitrate: 500,
   maxBitrate: 1500,
-
-  // CPU overload threshold
   cpuOverloadThreshold: 85,
+  enableDtx: true,
+  enableHdQuality: false,
+};
 
-  // Battery optimization
-  enableDtx: true, // Discontinuous transmission
-  enableHdQuality: false, // Disable by default
-}
-
-/**
- * Configure media track for mobile optimization
- */
 export function optimizeMediaTrack(track, isMobile = true) {
-  if (!isMobile) return track
-
-  const settings = track.getSettings()
-
-  // For video, reduce resolution and frame rate on low-end devices
+  if (!isMobile) return track;
   if (track.kind === 'video') {
     try {
       track.applyConstraints({
         width: { ideal: 320 },
         height: { ideal: 240 },
         frameRate: { ideal: 10 },
-      })
-      console.log('✅ Video track optimized for mobile')
+      });
     } catch (err) {
-      console.warn('⚠️ Could not optimize video track:', err)
+      console.warn('Could not optimize video track:', err);
     }
   }
-
-  return track
+  return track;
 }
 
-/**
- * Handle low battery optimization
- */
 export function optimizeForLowBattery(rtcConnection) {
-  if (!rtcConnection) return
-
-  // Reduce video bitrate
-  const sender = rtcConnection.getSenders().find((s) => s.track?.kind === 'video')
+  if (!rtcConnection) return;
+  const sender = rtcConnection.getSenders().find((s) => s.track?.kind === 'video');
   if (sender) {
-    sender
-      .setParameters({
-        encodings: [
-          {
-            maxBitrate: 500000, // 500 kbps
-          },
-        ],
-      })
-      .then(() => {
-        console.log('✅ Video bitrate reduced for battery saving')
-      })
-      .catch((err) => {
-        console.warn('⚠️ Could not adjust bitrate:', err)
-      })
+    sender.setParameters({
+      encodings: [{ maxBitrate: 500000 }],
+    }).catch(() => {});
   }
 }
 
-/**
- * Check if device supports WebRTC
- */
 export async function checkWebRTCSupport() {
   const support = {
-    supported: !!(
-      navigator.mediaDevices &&
-      navigator.mediaDevices.getUserMedia &&
-      window.RTCPeerConnection
-    ),
+    supported: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection),
     getUserMedia: !!navigator.mediaDevices?.getUserMedia,
     peerConnection: !!window.RTCPeerConnection,
     audioInput: false,
     videoInput: false,
-  }
-
+  };
   if (support.supported) {
     try {
-      const devices = await navigator.mediaDevices.enumerateDevices()
-      support.audioInput = devices.some((d) => d.kind === 'audioinput')
-      support.videoInput = devices.some((d) => d.kind === 'videoinput')
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      support.audioInput = devices.some((d) => d.kind === 'audioinput');
+      support.videoInput = devices.some((d) => d.kind === 'videoinput');
     } catch (err) {
-      console.warn('⚠️ Could not enumerate devices:', err)
+      console.warn('Could not enumerate devices:', err);
     }
   }
-
-  return support
+  return support;
 }

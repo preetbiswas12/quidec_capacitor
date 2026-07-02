@@ -1,40 +1,88 @@
 /**
  * Message encryption using Web Crypto API (AES-GCM)
  * All messages encrypted before storage in IndexedDB
- * ✅ SECURITY FIX: Per-device salt for stronger key derivation
+ * ✅ SECURITY FIX: Per-device salt stored in native Keychain/Keystore
  */
+
+import { Preferences } from '@capacitor/preferences';
+
+// ─── Key Rotation ─────────────────────────────────────────────────────────────
+
+const KEY_VERSION_KEY = 'encryption_key_version_v1';
+
+export async function getKeyVersion() {
+  const { value } = await Preferences.get({ key: KEY_VERSION_KEY });
+  return parseInt(value || '1', 10);
+}
+
+export async function rotateKeyVersion() {
+  const current = await getKeyVersion();
+  const next = current + 1;
+  await Preferences.set({ key: KEY_VERSION_KEY, value: String(next) });
+  conversationKeyCache.clear();
+  return next;
+}
+
+// ─── HMAC Authentication ──────────────────────────────────────────────────────
+
+export async function signMessage(message, signingKey) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(JSON.stringify(message));
+
+  const key = await window.crypto.subtle.importKey(
+    'raw', signingKey,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false, ['sign']
+  );
+
+  const signature = await window.crypto.subtle.sign('HMAC', key, data);
+  return Array.from(new Uint8Array(signature))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+export async function verifySignature(message, signature, signingKey) {
+  const expected = await signMessage(message, signingKey);
+  return expected === signature;
+}
 
 /**
  * Get or create device-specific salt
- * ✅ SECURITY FIX: Instead of fixed salt, use random per-device salt
- * Stored in localStorage/Preferences so it persists across sessions
+ * ✅ SECURITY FIX: Stored in native Keychain/Keystore via @capacitor/preferences
+ * Falls back to localStorage on web, then in-memory only as last resort.
  */
 async function getOrCreateDeviceSalt() {
   const SALT_KEY = 'encryption_device_salt_v1';
 
-  // Check if salt already exists
-  const stored = localStorage.getItem(SALT_KEY);
-  if (stored) {
+  try {
+    const { value } = await Preferences.get({ key: SALT_KEY });
+    if (value) {
+      return new Uint8Array(JSON.parse(value));
+    }
+  } catch {
+    // Preferences not available (web without Capacitor) — try localStorage
     try {
-      return new Uint8Array(JSON.parse(stored));
-    } catch (err) {
-      console.warn('Failed to parse stored salt, generating new one');
+      const stored = localStorage.getItem(SALT_KEY);
+      if (stored) return new Uint8Array(JSON.parse(stored));
+    } catch {
+      // Ignore
     }
   }
 
-  // Generate new random salt for this device
-  const newSalt = window.crypto.getRandomValues(new Uint8Array(32)); // 32 bytes = 256 bits
+  const newSalt = window.crypto.getRandomValues(new Uint8Array(32));
   try {
-    localStorage.setItem(SALT_KEY, JSON.stringify(Array.from(newSalt)));
-    console.info('Generated new device salt');
-  } catch (err) {
-    console.warn('Failed to store salt (localStorage might be full or disabled), using in-memory only');
+    await Preferences.set({ key: SALT_KEY, value: JSON.stringify(Array.from(newSalt)) });
+  } catch {
+    try {
+      localStorage.setItem(SALT_KEY, JSON.stringify(Array.from(newSalt)));
+    } catch {
+      console.warn('Failed to store salt anywhere — using in-memory only');
+    }
   }
 
   return newSalt;
 }
 
-// Cache device salt after first retrieval
 let cachedDeviceSalt = null;
 
 async function getDeviceSalt() {
@@ -46,7 +94,6 @@ async function getDeviceSalt() {
 
 /**
  * Derive encryption key from seed/password
- * ✅ Now uses per-device salt instead of fixed salt
  */
 export async function deriveKey(seed) {
   const encoder = new TextEncoder();
@@ -56,13 +103,12 @@ export async function deriveKey(seed) {
     'deriveBits',
   ]);
 
-  // ✅ Use per-device salt (SECURITY FIX)
   const deviceSalt = await getDeviceSalt();
 
   const derivedBits = await window.crypto.subtle.deriveBits(
     {
       name: 'PBKDF2',
-      salt: deviceSalt, // ✅ Per-device salt (was: fixed)
+      salt: deviceSalt,
       iterations: 100000,
       hash: 'SHA-256',
     },
@@ -102,19 +148,17 @@ export async function getEncryptionKey(userId) {
  */
 let conversationKeyCache = new Map()
 
-export async function getConversationKey(user1, user2) {
-  // Create a consistent key identifier (sorted so Alice->Bob = Bob->Alice)
+export async function getConversationKey(user1, user2, version) {
   const [userA, userB] = [user1, user2].sort()
-  const cacheKey = `${userA}:${userB}`
+  const ver = version || await getKeyVersion()
+  const cacheKey = `${userA}:${userB}:v${ver}`
 
   if (conversationKeyCache.has(cacheKey)) {
     return conversationKeyCache.get(cacheKey)
   }
 
   try {
-    // Derive shared key from both usernames + fixed salt
-    // Both parties compute this identically => can decrypt each other's messages
-    const sharedSeed = `${userA}|${userB}|e2e-chat`
+    const sharedSeed = `${userA}|${userB}|e2e-chat|v${ver}`
     const key = await deriveKey(sharedSeed)
     conversationKeyCache.set(cacheKey, key)
     return key

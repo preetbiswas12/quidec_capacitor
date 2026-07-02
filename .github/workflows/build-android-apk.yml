@@ -1,200 +1,84 @@
 name: Build Android APK
 
 on:
-  push:
-    branches: [main, develop, staging]
   workflow_call:
     inputs:
       build_type:
-        description: 'Build type (debug or release)'
+        description: 'Build type (debug/release)'
         required: false
-        type: string
         default: 'release'
+        type: string
   workflow_dispatch:
     inputs:
       build_type:
         description: 'Build type'
-        required: false
-        type: choice
+        required: true
         default: 'release'
-        options:
-          - release
-          - debug
+        type: choice
+        options: [debug, release]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     permissions:
       contents: read
 
-    env:
-      GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=4 -Dorg.gradle.vfs.watch=false"
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      # ─── Java ────────────────────────────────────────────────────────────────
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'gradle'
+      - uses: pnpm/action-setup@v4
 
-      # ─── Node ────────────────────────────────────────────────────────────────
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9.0.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'pnpm'
 
-      # ─── Android SDK ─────────────────────────────────────────────────────────
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Install Android SDK 36
-        run: |
-          yes | sdkmanager --licenses
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
-
-      # ─── Validate .env ───────────────────────────────────────────────────────
-      - name: Validate .env placeholders replaced
-        run: |
-          ERRORS=0
-          if grep -q "your-app.onrender.com" .env 2>/dev/null; then
-            echo "❌ VITE_NOTIFY_URL still has placeholder value"
-            ERRORS=1
-          fi
-          if grep -q "YOUR_EXPRESSTURN" .env 2>/dev/null; then
-            echo "❌ TURN placeholder found in .env"
-            ERRORS=1
-          fi
-          if [ "$ERRORS" = "1" ]; then exit 1; fi
-          echo "✅ .env validated"
-
-      # ─── Install dependencies ────────────────────────────────────────────────
       - name: Install dependencies
-        run: |
-          NODE_ENV=development pnpm install --frozen-lockfile || (
-            echo "⚠️ Frozen lockfile failed, installing with updates"
-            NODE_ENV=development pnpm install
-          )
+        run: pnpm install --frozen-lockfile
 
-      # ─── Build web app ───────────────────────────────────────────────────────
-      - name: Build web app
-        run: pnpm run build
-        env:
-          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
-          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
-          VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
-          VITE_VAPID_KEY: ${{ secrets.VITE_VAPID_KEY }}
-          VITE_NOTIFY_URL: ${{ secrets.VITE_NOTIFY_URL }}
-          VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL || 'wss://quidec-server.onrender.com' }}
-
-      # ─── Create local.properties ─────────────────────────────────────────────
-      - name: Create local.properties
-        run: |
-          echo "sdk.dir=${{ env.ANDROID_HOME }}" > android/local.properties
-          echo "✅ local.properties created"
-
-      # ─── Clean old web assets ───────────────────────────────────────────────
-      - name: Clean old web assets
-        run: rm -rf android/app/src/main/assets/public
-
-      # ─── Sync Capacitor ──────────────────────────────────────────────────────
-      - name: Sync Capacitor
-        run: pnpm exec cap sync android
-
-      # ─── Decode keystore (release builds) ────────────────────────────────────
       - name: Decode keystore
-        if: inputs.build_type == 'release' || inputs.build_type == ''
+        if: inputs.build_type == 'release' && ${{ env.KEYSTORE_BASE64 != '' }}
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "❌ KEYSTORE_BASE64 secret is not set — cannot build release APK"
-            echo "Set the following secrets in GitHub:"
-            echo "  - KEYSTORE_BASE64  (base64-encoded .keystore file)"
-            echo "  - KEYSTORE_PASSWORD"
-            echo "  - KEY_ALIAS"
-            echo "  - KEY_PASSWORD"
-            exit 1
-          fi
-          mkdir -p android/keystore-dir
-          echo "$KEYSTORE_BASE64" | base64 -d > android/keystore-dir/release.jks
-          echo "✅ Keystore decoded"
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
 
-      # ─── Build APK ───────────────────────────────────────────────────────────
-      - name: Build APK (${{ inputs.build_type || 'release' }})
-        run: |
-          cd android
-          chmod +x gradlew
-          BUILD_TYPE="${{ inputs.build_type || 'release' }}"
-          if [ "$BUILD_TYPE" = "release" ]; then
-            echo "🔒 Building release APK..."
-            ./gradlew assembleRelease --no-daemon --stacktrace --max-workers 1
-          else
-            echo "🔧 Building debug APK..."
-            ./gradlew assembleDebug --no-daemon --stacktrace --max-workers 1
-          fi
+      - name: Create keystore properties
+        if: inputs.build_type == 'release' && ${{ env.KEYSTORE_BASE64 != '' }}
         env:
-          KEYSTORE_PATH: ${{ github.workspace }}/android/keystore-dir/release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-
-      # ─── Locate APK ──────────────────────────────────────────────────────────
-      - name: Find APK
-        id: apk
         run: |
-          APK_PATH=$(find android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null | head -1)
-          if [ -z "$APK_PATH" ]; then
-            echo "❌ No APK found in android/app/build/outputs/apk/"
-            echo "=== Searching entire android directory ==="
-            find android -name "*.apk" -type f 2>/dev/null || echo "No APKs found anywhere"
-            exit 1
-          fi
-          APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
-          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-          echo "apk_name=$(basename "$APK_PATH")" >> $GITHUB_OUTPUT
-          echo "apk_size=$APK_SIZE" >> $GITHUB_OUTPUT
-          echo "✅ APK found: $APK_PATH ($APK_SIZE)"
+          cat > android/keystore.properties << EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=release.keystore
+          EOF
 
-      # ─── Upload artifact ─────────────────────────────────────────────────────
+      - name: Decode google-services.json
+        if: ${{ env.GOOGLE_SERVICES_JSON != '' }}
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          echo "$GOOGLE_SERVICES_JSON" | base64 -d > android/app/google-services.json
+
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assemble${{ inputs.build_type == 'release' && 'Release' || 'Debug' }}
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: android-apk-${{ github.sha }}
-          path: ${{ steps.apk.outputs.apk_path }}
-          retention-days: 30
+          path: android/app/build/outputs/apk/${{ inputs.build_type }}/*.apk
+          retention-days: 7
           if-no-files-found: error
-
-      # ─── Summary ─────────────────────────────────────────────────────────────
-      - name: Build summary
-        if: always()
-        run: |
-          echo "## 📱 Android APK Build" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Status | ${{ job.status == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Type | ${{ inputs.build_type || 'release' }} |" >> $GITHUB_STEP_SUMMARY
-          if [ -n "${{ steps.apk.outputs.apk_name }}" ]; then
-            echo "| APK | ${{ steps.apk.outputs.apk_name }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Size | ${{ steps.apk.outputs.apk_size }} |" >> $GITHUB_STEP_SUMMARY
-          fi

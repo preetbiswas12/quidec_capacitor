@@ -43,6 +43,7 @@ import {
   requestNotificationPermissions
 } from '../../utils/notificationSettingsManager';
 import { saveSettingsToNative, syncSettingsToFirebase } from '../../utils/settingsPersistence';
+import { rotateKeyVersion } from '../../utils/encryption';
 import { updatePassword, updateEmail, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 
 type SubPage =
@@ -763,6 +764,16 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 label="Change email"
                 sub={currentUser.email}
                 onClick={handleChangeEmail}
+              />
+              <Row
+                icon={<Lock size={18} className="text-wa-text-muted" />}
+                label="Rotate encryption keys"
+                sub="Start using a new key for future messages"
+                onClick={async () => {
+                  const newVersion = await rotateKeyVersion();
+                  setSuccess(`Encryption keys rotated. Future messages will use key v${newVersion}.`);
+                  setTimeout(() => setSuccess(null), 4000);
+                }}
               />
             </Section>
 

@@ -7,8 +7,6 @@ import Onboarding from './components/Onboarding';
 import MainLayout from './components/MainLayout';
 import ChatWindow from './components/ChatWindow';
 import GroupInfo from './components/GroupInfo';
-import VoiceCallScreen from './components/VoiceCallScreen';
-import VideoCallScreen from './components/VideoCallScreen';
 import EmailVerification from './components/EmailVerification';
 
 // ─── Protected Route ─────────────────────────────────────────────────────────
@@ -153,8 +151,6 @@ export const router = createBrowserRouter([
               { path: 'group/:id', element: <GroupInfo /> },
             ],
           },
-          { path: '/call/voice/:id', element: <VoiceCallScreen /> },
-          { path: '/call/video/:id', element: <VideoCallScreen /> },
         ],
       },
       { path: '*', element: <Navigate to="/onboarding" replace /> },

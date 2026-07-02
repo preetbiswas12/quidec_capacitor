@@ -1,4 +1,12 @@
 node_modules
 .env
+.env.*
+!.env.example
 dist
 keys
+*.keystore
+*.jks
+**/*.keystore
+google-services.json
+GoogleService-Info.plist
+

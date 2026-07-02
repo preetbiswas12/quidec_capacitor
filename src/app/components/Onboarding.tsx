@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import services from '../../utils/firebaseServices';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronRight, ChevronLeft, Mail, Shield, Camera, Check, Copy, AtSign, Loader2, Lock, User as UserIcon } from 'lucide-react';
+import { validateEmail, validatePassword, validateUsername, loginLimiter, registerLimiter } from '../../utils/validators';
 const { authService } = services;
 
 export default function Onboarding() {
@@ -52,15 +53,25 @@ export default function Onboarding() {
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isValidEmail(email) || password.length < 6) return;
     
     setError('');
     setLoading(true);
     try {
+      // Input validation
+      const validEmail = validateEmail(email);
+      validatePassword(password);
+
+      if (!isLogin) {
+        validateUsername(username);
+      }
+
+      // Rate limiting
+      const limiter = isLogin ? loginLimiter : registerLimiter;
+      await limiter.checkLimit(validEmail);
+
       if (isLogin) {
-        const result = await login(email, password);
+        const result = await login(validEmail, password);
         if (!result?.success) {
-          // Login failed — show error from result or generic message
           setError(result?.message || 'Incorrect email or password. Please try again.');
         } else if (result?.emailVerified === false) {
           setStep(2);
@@ -68,7 +79,7 @@ export default function Onboarding() {
           navigate('/app');
         }
       } else {
-        const result = await register(email, username, password);
+        const result = await register(validEmail, username, password);
         if (result?.success) {
           setStep(2);
         } else {
@@ -76,25 +87,30 @@ export default function Onboarding() {
         }
       }
     } catch (err: any) {
-      // User-friendly error mapping for thrown errors
-      switch (err.code) {
-        case 'auth/invalid-credential':
-          setError('Incorrect email or password. Please try again or register.');
-          break;
-        case 'auth/user-not-found':
-          setError('No account found with this email. Please register first.');
-          break;
-        case 'auth/wrong-password':
-          setError('Incorrect password. Please try again.');
-          break;
-        case 'auth/email-already-in-use':
-          setError('An account already exists with this email.');
-          break;
-        case 'auth/weak-password':
-          setError('Password is too weak (min 6 characters).');
-          break;
-        default:
-          setError(err.message || 'Authentication failed. Please check your credentials.');
+      if (err.message?.includes('Rate limit exceeded')) {
+        setError(err.message);
+      } else if (err.code) {
+        switch (err.code) {
+          case 'auth/invalid-credential':
+            setError('Incorrect email or password. Please try again or register.');
+            break;
+          case 'auth/user-not-found':
+            setError('No account found with this email. Please register first.');
+            break;
+          case 'auth/wrong-password':
+            setError('Incorrect password. Please try again.');
+            break;
+          case 'auth/email-already-in-use':
+            setError('An account already exists with this email.');
+            break;
+          case 'auth/weak-password':
+            setError('Password is too weak (min 6 characters).');
+            break;
+          default:
+            setError(err.message || 'Authentication failed. Please check your credentials.');
+        }
+      } else {
+        setError(err.message || 'Authentication failed. Please check your credentials.');
       }
     } finally {
       setLoading(false);
@@ -310,7 +326,7 @@ export default function Onboarding() {
 
           <button
             type="submit"
-            disabled={loading || !isValidEmail(email) || password.length < 6}
+            disabled={loading || !isValidEmail(email) || password.length < 6 || (!isLogin && username.length < 3)}
             className={`w-full rounded-full py-3.5 flex items-center justify-center gap-2 transition-all mt-2 ${loading ? 'bg-wa-secondary' : 'bg-[#4D91FB] text-white shadow-md'}`}
             style={{ fontWeight: 600 }}
           >

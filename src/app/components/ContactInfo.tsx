@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import type { ReactNode } from 'react';
 import {
-  X, Phone, Video, Search, Bell, Trash2, MessageSquare,
+  X, Search, Bell, Trash2, MessageSquare,
   FileText, ExternalLink, Download, Image as ImageIcon, Link as LinkIcon,
   Camera, Edit3, Check, ChevronRight, ShieldAlert, LogOut, UserPlus,
 } from 'lucide-react';
@@ -60,8 +60,6 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
   const docMessages   = chatMessages.filter(m => m.type === 'document');
   const linkMessages  = chatMessages.filter(m => m.type === 'link');
   const totalShared   = mediaMessages.length + docMessages.length + linkMessages.length;
-
-  const startCall = (type: 'voice' | 'video') => navigate(`/call/${type}/${contactId}`);
 
   const tabDefs: { id: MediaTab; label: string; count: number }[] = [
     { id: 'media', label: 'Media', count: mediaMessages.length },
@@ -149,8 +147,6 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
           {!contact.isGroup && (
             <>
               <ActionButton icon={<MessageSquare size={24} />} label="Message" onClick={onClose} />
-              <ActionButton icon={<Phone size={24} />} label="Voice" onClick={() => startCall('voice')} />
-              <ActionButton icon={<Video size={24} />} label="Video" onClick={() => startCall('video')} />
             </>
           )}
           <ActionButton
@@ -336,32 +332,107 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
 
       {/* ── Media, Docs & Links ── */}
       <div className="px-5 py-6 border-b border-wa-border/10">
-        <button onClick={() => {}} className="w-full flex items-center justify-between mb-4">
-          <p className="text-wa-primary" style={{ fontWeight: 700, fontSize: '0.95rem' }}>
-            Media, links and docs
-          </p>
-          <div className="flex items-center gap-1 text-wa-text-muted">
-            <span style={{ fontSize: '0.9rem' }}>{totalShared}</span>
-            <ChevronRight size={16} />
-          </div>
-        </button>
+        <p className="text-wa-primary mb-4" style={{ fontWeight: 700, fontSize: '0.95rem' }}>
+          Media, links and docs
+        </p>
 
-        {totalShared > 0 && (
-          <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            {mediaMessages.slice(0, 5).map(m => (
-              <button
-                key={m.id}
-                className="w-20 h-20 rounded-xl overflow-hidden bg-wa-secondary/20 flex-shrink-0"
-                onClick={() => setLightboxImage((m as any).imageUrl)}
-              >
-                <img src={(m as any).imageUrl} alt="media" className="w-full h-full object-cover" />
-              </button>
-            ))}
-            {totalShared > 5 && (
-              <div className="w-20 h-20 rounded-xl bg-wa-secondary/40 flex items-center justify-center text-wa-text-muted flex-shrink-0">
-                +{totalShared - 5}
+        {totalShared > 0 ? (
+          <>
+            {/* Tab bar */}
+            <div className="flex gap-1 mb-4 bg-wa-secondary/30 rounded-xl p-1">
+              {tabDefs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setMediaTab(tab.id)}
+                  className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors ${
+                    mediaTab === tab.id
+                      ? 'bg-[#4d91fb] text-white'
+                      : 'text-wa-text-muted hover:text-wa-primary'
+                  }`}
+                >
+                  {tab.label}
+                  <span className="ml-1 opacity-70">({tab.count})</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Tab content */}
+            <div className="max-h-64 overflow-y-auto no-scrollbar">
+              {mediaTab === 'media' && (
+                mediaMessages.length > 0 ? (
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {mediaMessages.map(m => (
+                      <button
+                        key={m.id}
+                        className="aspect-square rounded-lg overflow-hidden bg-wa-secondary/20"
+                        onClick={() => setLightboxImage((m as any).imageUrl)}
+                      >
+                        <img src={(m as any).imageUrl} alt="media" className="w-full h-full object-cover hover:opacity-80 transition-opacity" />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState icon={<ImageIcon size={32} />} message="No media shared yet" />
+                )
+              )}
+
+              {mediaTab === 'docs' && (
+                docMessages.length > 0 ? (
+                  <div className="space-y-2">
+                    {docMessages.map(m => (
+                      <div key={m.id} className="flex items-center gap-3 p-3 bg-wa-secondary/20 rounded-xl">
+                        <div className="w-10 h-10 rounded-lg bg-[#4d91fb]/20 flex items-center justify-center flex-shrink-0">
+                          <FileText size={20} className="text-[#4d91fb]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-wa-primary text-sm font-medium truncate">{(m as any).fileName || 'Document'}</p>
+                          <p className="text-wa-text-muted text-xs">{(m as any).fileSize || 'Unknown size'}</p>
+                        </div>
+                        <Download size={18} className="text-wa-text-muted flex-shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState icon={<FileText size={32} />} message="No documents shared yet" />
+                )
+              )}
+
+              {mediaTab === 'links' && (
+                linkMessages.length > 0 ? (
+                  <div className="space-y-2">
+                    {linkMessages.map(m => (
+                      <div key={m.id} className="flex items-center gap-3 p-3 bg-wa-secondary/20 rounded-xl">
+                        <div className="w-10 h-10 rounded-lg bg-[#4d91fb]/20 flex items-center justify-center flex-shrink-0">
+                          <LinkIcon size={20} className="text-[#4d91fb]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-wa-primary text-sm font-medium truncate">{(m as any).url || 'Link'}</p>
+                          <p className="text-wa-text-muted text-xs">{(m as any).linkTitle || ''}</p>
+                        </div>
+                        <ExternalLink size={18} className="text-wa-text-muted flex-shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState icon={<LinkIcon size={32} />} message="No links shared yet" />
+                )
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="text-center py-6">
+            <div className="flex justify-center gap-4 mb-3">
+              <div className="w-10 h-10 rounded-full bg-wa-secondary/30 flex items-center justify-center">
+                <ImageIcon size={18} className="text-wa-text-muted" />
               </div>
-            )}
+              <div className="w-10 h-10 rounded-full bg-wa-secondary/30 flex items-center justify-center">
+                <FileText size={18} className="text-wa-text-muted" />
+              </div>
+              <div className="w-10 h-10 rounded-full bg-wa-secondary/30 flex items-center justify-center">
+                <LinkIcon size={18} className="text-wa-text-muted" />
+              </div>
+            </div>
+            <p className="text-wa-text-muted text-sm">No shared content yet</p>
           </div>
         )}
       </div>
@@ -443,5 +514,14 @@ function ActionButton({ icon, label, onClick }: { icon: ReactNode; label: string
       </div>
       <span className="text-wa-text-muted font-bold" style={{ fontSize: '0.72rem', letterSpacing: '0.3px' }}>{label.toUpperCase()}</span>
     </button>
+  );
+}
+
+function EmptyState({ icon, message }: { icon: ReactNode; message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-8 text-wa-text-muted">
+      <div className="mb-3 opacity-50">{icon}</div>
+      <p className="text-sm">{message}</p>
+    </div>
   );
 }

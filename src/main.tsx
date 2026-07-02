@@ -2,6 +2,10 @@ import { createRoot } from "react-dom/client";
 import App from "./app/App.tsx";
 import "./index.css";
 import { App as CapacitorApp } from "@capacitor/app";
+import { initializeSentry } from "./utils/errorMonitoring";
+
+// Initialize Sentry error monitoring before rendering
+initializeSentry();
 
 // Register back button handler for Android
 CapacitorApp.addListener('backButton', () => {

@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import Avatar from './Avatar';
 import services from '../../utils/firebaseServices';
+import { getRTCConfig } from '../../utils/iceServers';
 
 export default function VoiceCallScreen() {
   const { id: contactId } = useParams<{ id: string }>();
@@ -63,20 +64,7 @@ export default function VoiceCallScreen() {
         localStreamRef.current = stream;
 
         // Create peer connection with STUN/TURN servers
-        const peerConnection = new RTCPeerConnection({
-          iceServers: [
-            { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-            // TURN relay (ExpressTURN free tier)
-            {
-              urls: [
-                'turn:free.expressturn.com:3478',
-                'turn:free.expressturn.com:3479?transport=tcp',
-              ],
-              username: '000000002093260049',
-              credential: 'K6KMvixuaPZkje9giLJojFTM0+Y=',
-            },
-          ],
-        });
+        const peerConnection = new RTCPeerConnection(getRTCConfig());
 
         peerConnectionRef.current = peerConnection;
 

@@ -22,6 +22,14 @@ import logger from './logger';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+export interface SearchResult {
+  chatId: string;
+  messageId: string;
+  content: string;
+  senderId: string;
+  timestamp: string;
+}
+
 export interface StoredMessage {
   id: string;
   chatId: string;
@@ -37,6 +45,9 @@ export interface StoredMessage {
   replyToSender?: string;
   mediaPath?: string; // local path for media
   expiresAt?: number; // epoch ms — message should be deleted after this time
+  isEdited?: boolean;
+  keyVersion?: number;
+  hmac?: string;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -451,6 +462,32 @@ export async function updateMessageStar(
   await writeFileBytes(filename, combined);
 }
 
+export async function updateMessageContent(
+  userUid: string,
+  chatId: string,
+  messageId: string,
+  content: string,
+  isEdited: boolean
+): Promise<void> {
+  const messages = await loadMessages(userUid, chatId);
+  const updated = messages.map(m =>
+    m.id === messageId ? { ...m, content, isEdited } : m
+  );
+
+  const { key1, key2 } = await getKeys(userUid, chatId);
+  const filename = chatFilename(chatId);
+
+  let combined = new Uint8Array(0);
+  for (const msg of updated) {
+    const payload = new TextEncoder().encode(JSON.stringify(msg));
+    const { iv1, iv2, ciphertext } = await doubleEncrypt(payload, key1, key2);
+    const chunk = encodeChunk(iv1, iv2, ciphertext);
+    combined = concat(combined, chunk);
+  }
+
+  await writeFileBytes(filename, combined);
+}
+
 /**
  * Save (rewrite) all messages for a chat to the local encrypted store.
  * Used by the disappearing-messages cleanup timer to persist deletions.
@@ -472,6 +509,24 @@ export async function saveMessages(
   }
 
   await writeFileBytes(filename, combined);
+}
+
+/**
+ * Delete a single message by id from a chat's local store.
+ * Rewrites the encrypted file with the message removed.
+ */
+export async function deleteMessageById(
+  userUid: string,
+  chatId: string,
+  messageId: string
+): Promise<void> {
+  try {
+    const messages = await loadMessages(userUid, chatId);
+    const filtered = messages.filter(m => m.id !== messageId);
+    await saveMessages(userUid, chatId, filtered);
+  } catch (err) {
+    logger.error('LocalMessageStore', `deleteMessageById failed for chat ${chatId}`, err);
+  }
 }
 
 /**
@@ -499,6 +554,45 @@ export async function getStarredMessages(
     return allStarred;
   } catch (err) {
     logger.error('LocalMessageStore', 'getStarredMessages failed', err);
+    return [];
+  }
+}
+
+/**
+ * Search messages across all chats for a given query string.
+ * Returns results sorted by timestamp (newest first), limited to 50.
+ */
+export async function searchAllMessages(
+  userUid: string,
+  query: string
+): Promise<SearchResult[]> {
+  try {
+    if (!query.trim()) return [];
+    const lowerQuery = query.toLowerCase();
+    const chatIds = await listLocalChatIds();
+    const allResults: SearchResult[] = [];
+
+    await Promise.all(
+      chatIds.map(async (chatId) => {
+        const messages = await loadMessages(userUid, chatId);
+        for (const msg of messages) {
+          if (msg.content && msg.content.toLowerCase().includes(lowerQuery)) {
+            allResults.push({
+              chatId,
+              messageId: msg.id,
+              content: msg.content,
+              senderId: msg.senderId,
+              timestamp: msg.timestamp,
+            });
+          }
+        }
+      })
+    );
+
+    allResults.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return allResults.slice(0, 50);
+  } catch (err) {
+    logger.error('LocalMessageStore', 'searchAllMessages failed', err);
     return [];
   }
 }

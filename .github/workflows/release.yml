@@ -16,97 +16,60 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
       is_prerelease: ${{ steps.version.outputs.is_prerelease }}
-      changelog: ${{ steps.changelog.outputs.changelog }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Determine version
         id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_PRERELEASE: ${{ github.event.inputs.pre_release }}
+          GITHUB_REF: ${{ github.ref }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION=${{ github.event.inputs.version }}
-            IS_PRERELEASE=${{ github.event.inputs.pre_release }}
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+            IS_PRERELEASE="$INPUT_PRERELEASE"
           else
-            VERSION=${GITHUB_REF#refs/tags/v}
+            VERSION="${GITHUB_REF#refs/tags/v}"
             IS_PRERELEASE=$(echo "$VERSION" | grep -qE 'alpha|beta|rc' && echo 'true' || echo 'false')
           fi
-          
-          # Validate version format
+
           if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
-            echo "❌ Invalid version format: $VERSION"
+            echo "Invalid version format: $VERSION"
             exit 1
           fi
-          
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
-          echo "📦 Release Version: $VERSION (Pre-release: $IS_PRERELEASE)"
-
-      - name: Generate changelog
-        id: changelog
-        run: |
-          if [ -f "CHANGELOG.md" ]; then
-            CHANGELOG=$(head -50 CHANGELOG.md)
-          else
-            CHANGELOG="See commits for changes"
-          fi
-          
-          # Properly escape multi-line output
-          {
-            echo 'changelog<<EOF'
-            echo "$CHANGELOG"
-            echo 'EOF'
-          } >> $GITHUB_OUTPUT
 
   test:
     needs: prepare
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # pnpm MUST be set up before setup-node so node caching works correctly
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: NODE_ENV=development pnpm install --frozen-lockfile || (echo "⚠️ Frozen lockfile failed, installing with updates" && NODE_ENV=development pnpm install)
-
-      - name: Type check
-        run: pnpm exec tsc --noEmit
-
-      - name: Build web app
-        run: pnpm build
-
-  build-android-apk:
-    needs: test
-    uses: ./.github/workflows/build-android-apk.yml
-    with:
-      build_type: release
-    secrets: inherit
+    uses: ./.github/workflows/ci.yml
 
   build-android-aab:
     needs: [prepare, test]
     uses: ./.github/workflows/build-android-aab.yml
     with:
       version: ${{ needs.prepare.outputs.version }}
+    secrets: inherit
+
+  build-android-apk:
+    needs: test
+    uses: ./.github/workflows/build-android-apk.yml
+    with:
+      build_type: release
     secrets: inherit
 
   build-ios:
@@ -117,17 +80,17 @@ jobs:
     secrets: inherit
 
   release:
-    needs: [prepare, build-android-apk, build-android-aab, build-ios]
+    needs: [prepare, build-android-aab, build-android-apk, build-ios]
     runs-on: ubuntu-latest
-    if: always()
-
-    permissions:
-      contents: write
-      packages: read
+    if: |
+      !cancelled() && (
+        needs.build-android-aab.result == 'success' ||
+        needs.build-android-apk.result == 'success' ||
+        needs.build-ios.result == 'success'
+      )
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Download Android APK
         uses: actions/download-artifact@v4
@@ -150,105 +113,12 @@ jobs:
           path: artifacts/
         continue-on-error: true
 
-      - name: Verify artifacts
-        run: |
-          echo "📦 Downloaded artifacts:"
-          ls -lh artifacts/ || echo "No artifacts found"
-
-      - name: Create release notes
-        id: release_notes
-        run: |
-          {
-            echo "## 🎉 Veill v${{ needs.prepare.outputs.version }}"
-            echo ""
-            echo "### 📋 Release Information"
-            echo "- **Version:** ${{ needs.prepare.outputs.version }}"
-            echo "- **Release Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-            echo "- **Pre-release:** ${{ needs.prepare.outputs.is_prerelease }}"
-            echo ""
-            echo "### 📦 Builds Included"
-            [ -f "artifacts/"*.apk ] && echo "- ✅ Android Release APK" || echo "- ⚠️ Android Release APK"
-            [ -f "artifacts/"*.aab ] && echo "- ✅ Android App Bundle (Play Store)" || echo "- ⚠️ Android App Bundle"
-            [ -f "artifacts/"*.ipa ] && echo "- ✅ iOS App Archive (TestFlight)" || echo "- ⚠️ iOS App Archive"
-            echo ""
-            echo "### 📝 Changelog"
-            echo "${{ needs.prepare.outputs.changelog }}"
-            echo ""
-            echo "### 🚀 Installation"
-            echo "- **Android:** Download APK or use Google Play Store"
-            echo "- **iOS:** Available on TestFlight and App Store"
-          } >> release_notes.md
-
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
-          body_path: release_notes.md
           tag_name: v${{ needs.prepare.outputs.version }}
+          name: Quidec v${{ needs.prepare.outputs.version }}
           draft: false
           prerelease: ${{ needs.prepare.outputs.is_prerelease }}
-          generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate release report
-        run: |
-          {
-            echo "## 🎊 Release Complete"
-            echo ""
-            echo "**Version:** v${{ needs.prepare.outputs.version }}"
-            echo "**Pre-release:** ${{ needs.prepare.outputs.is_prerelease }}"
-            echo ""
-            echo "### 📦 Available Downloads"
-            for file in artifacts/*; do
-              if [ -f "$file" ]; then
-                echo "- $(basename "$file"): $(du -h "$file" | cut -f1)"
-              fi
-            done
-          } >> $GITHUB_STEP_SUMMARY
-
-  notify:
-    needs: [prepare, release]
-    runs-on: ubuntu-latest
-    if: always()
-
-    steps:
-      - name: Slack failure notification
-        if: failure()
-        uses: slackapi/slack-github-action@v1
-        with:
-          payload: |
-            {
-              "text": "❌ Release failed for Veill v${{ needs.prepare.outputs.version }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "❌ *Release Failed*\n*Version:* ${{ needs.prepare.outputs.version }}\n*Repository:* ${{ github.repository }}\n*Branch:* ${{ github.ref }}"
-                  }
-                }
-              ]
-            }
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-        continue-on-error: true
-
-      - name: Slack success notification
-        if: success()
-        uses: slackapi/slack-github-action@v1
-        with:
-          payload: |
-            {
-              "text": "✅ Release successful for Veill v${{ needs.prepare.outputs.version }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "✅ *Release Successful*\n*Version:* ${{ needs.prepare.outputs.version }}\n*Repository:* ${{ github.repository }}"
-                  }
-                }
-              ]
-            }
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-        continue-on-error: true
+          generate_release_notes: true

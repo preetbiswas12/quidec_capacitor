@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import {
-  ArrowLeft, Phone, Video, MoreVertical, Smile, Paperclip,
+  ArrowLeft, Video, MoreVertical, Smile, Paperclip,
   Mic, Send, CheckCheck, Check, Lock, FileText, Camera,
   X, Reply, Link, Image, MapPin, User, File, MessageSquare,
   ExternalLink, ChevronDown, ChevronUp, Download, Share2, Save, Star,
-  Clock, Timer
+  Clock, Timer, Edit3, Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { useApp } from '../context/AppContext';
@@ -17,7 +17,9 @@ import { Share } from '@capacitor/share';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { validateMessage, messageLimiter } from '../../utils/validators';
 import { mediaValidator } from '../../utils/mediaValidator';
+import { compressImage, formatBytes } from '../../utils/imageCompression';
 import { messageQueue } from '../../utils/persistentMessageQueue';
+import { toast } from 'sonner';
 import { idbPaginator } from '../../utils/idbPaginator';
 import { typingService } from '../../utils/firebaseServices';
 
@@ -32,7 +34,7 @@ export default function ChatWindow() {
     chats, contacts, messages, sendMessage, typingContacts,
     setActiveChatId, contactInfoOpen, setContactInfoOpen,
     replyTo, setReplyTo, reactToMessage, clearChat,
-    addMessagesToChat, toggleStarMessage, currentUser,
+    deleteMessage, addMessagesToChat, toggleStarMessage, editMessage, currentUser,
     setDisappearingTimer, isDisappearingActive, getDisappearingRemaining, disappearingTimers
   } = useApp();
 
@@ -57,6 +59,8 @@ export default function ChatWindow() {
   // Message interaction state
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -266,20 +270,24 @@ export default function ChatWindow() {
         return;
       }
 
+      const compressedFile = await compressImage(file);
+      if (compressedFile.size < file.size) {
+        toast.info(`Image compressed: ${formatBytes(file.size)} → ${formatBytes(compressedFile.size)}`);
+      }
+
       const uploadId = `upload_${Date.now()}`;
       const abortController = new AbortController();
-      mediaValidator.registerUpload(uploadId, abortController, file.size);
-      setActiveUploads(prev => [...prev, { uploadId, name: file.name, size: file.size }]);
+      mediaValidator.registerUpload(uploadId, abortController, compressedFile.size);
+      setActiveUploads(prev => [...prev, { uploadId, name: compressedFile.name, size: compressedFile.size }]);
 
       try {
         const imageExtra: Partial<Message> = replyTo
           ? { replyToId: replyTo.id, replyToContent: getMessagePreview(replyTo), replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
           : {};
-        await sendMessage(chatId, '', 'image', imageExtra, file);
+        await sendMessage(chatId, '', 'image', imageExtra, compressedFile);
       } finally {
-        // Ensure unregister is always called
         try {
-          mediaValidator.unregisterUpload(uploadId, file.size);
+          mediaValidator.unregisterUpload(uploadId, compressedFile.size);
         } catch (err) {
           console.warn('Failed to unregister upload:', err);
         }
@@ -548,8 +556,47 @@ export default function ChatWindow() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
-    if (e.key === 'Escape') { setReplyTo(null); setShowEmojiPicker(false); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (editingMsgId) {
+        handleEditSend();
+      } else {
+        handleSend();
+      }
+    }
+    if (e.key === 'Escape') {
+      if (editingMsgId) {
+        cancelEditing();
+      } else {
+        setReplyTo(null);
+        setShowEmojiPicker(false);
+      }
+    }
+  };
+
+  const startEditing = (msgId: string) => {
+    const msg = chatMessages.find(m => m.id === msgId);
+    if (!msg) return;
+    setEditingMsgId(msgId);
+    setEditingText(msg.content);
+    setText('');
+    setReplyTo(null);
+    setShowEmojiPicker(false);
+    setShowAttachSheet(false);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  const cancelEditing = () => {
+    setEditingMsgId(null);
+    setEditingText('');
+  };
+
+  const handleEditSend = async () => {
+    if (!editingText.trim() || !chatId || !editingMsgId) return;
+    await editMessage(chatId, editingMsgId, editingText.trim());
+    setEditingMsgId(null);
+    setEditingText('');
+    inputRef.current?.focus();
   };
 
   const cancelUpload = (uploadId: string, size: number) => {
@@ -736,6 +783,23 @@ export default function ChatWindow() {
                 >
                   <Reply size={18} className="text-wa-text-muted" /> Reply
                 </button>
+                {(() => {
+                  const menuMsg = chatMessages.find(m => m.id === activeMenuId);
+                  if (menuMsg?.senderId === 'me' && menuMsg?.type === 'text') {
+                    return (
+                      <button
+                        onClick={() => {
+                          if (menuMsg) startEditing(menuMsg.id);
+                          setActiveMenuId(null);
+                        }}
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 text-wa-primary text-sm font-medium"
+                      >
+                        <Edit3 size={18} className="text-wa-text-muted" /> Edit
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
                 <button
                   onClick={() => {
                     const msg = chatMessages.find(m => m.id === activeMenuId);
@@ -774,6 +838,23 @@ export default function ChatWindow() {
                 >
                   <Check size={18} /> Copy Text
                 </button>
+                {(() => {
+                  const activeMsg = chatMessages.find(m => m.id === activeMenuId);
+                  if (activeMsg?.senderId === 'me') {
+                    return (
+                      <button
+                        onClick={() => {
+                          if (chatId && activeMenuId) deleteMessage(chatId, activeMenuId);
+                          setActiveMenuId(null);
+                        }}
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 text-wa-primary text-sm font-medium text-red-400"
+                      >
+                        <Trash2 size={18} className="text-red-400" /> Delete
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             </motion.div>
           </>
@@ -845,8 +926,6 @@ export default function ChatWindow() {
             </div>
           </button>
           <div className="flex items-center gap-1">
-            <button onClick={() => navigate(`/call/video/${contact.id}`)} className="text-wa-header-icon hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"><Video size={20} /></button>
-            <button onClick={() => navigate(`/call/voice/${contact.id}`)} className="text-wa-header-icon hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"><Phone size={20} /></button>
             <div className="relative" ref={menuRef}>
               <button onClick={() => setShowHeaderMenu(v => !v)} className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showHeaderMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}><MoreVertical size={20} /></button>
               {showHeaderMenu && (
@@ -985,6 +1064,21 @@ export default function ChatWindow() {
           </div>
         )}
 
+        <AnimatePresence>
+          {editingMsgId && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-[#182229] border-t border-[#4d91fb]/30 overflow-hidden shrink-0">
+              <div className="flex items-center gap-3 px-4 py-2.5">
+                <div className="w-1 h-10 bg-[#4d91fb] rounded-full shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[#4d91fb]" style={{ fontSize: '0.78rem', fontWeight: 600 }}>Editing message</p>
+                  <p className="text-wa-text-muted truncate" style={{ fontSize: '0.82rem' }}>{editingText}</p>
+                </div>
+                <button onClick={cancelEditing} className="text-wa-text-muted hover:text-wa-primary p-1 shrink-0"><X size={18} /></button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="flex items-end gap-2 px-3 py-3 bg-wa-header shrink-0 border-t border-wa-border/5">
           {sendError && (
             <motion.div
@@ -998,35 +1092,43 @@ export default function ChatWindow() {
             </motion.div>
           )}
           <div className="flex items-end gap-2 flex-1 bg-wa-secondary/40 rounded-2xl px-3 py-2 border border-wa-border/5">
-            <button onClick={() => { setShowEmojiPicker(v => !v); setShowAttachSheet(false); }} className={`transition-colors shrink-0 mb-0.5 ${showEmojiPicker ? 'text-[#4d91fb]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Smile size={22} /></button>
+            {!editingMsgId && <button onClick={() => { setShowEmojiPicker(v => !v); setShowAttachSheet(false); }} className={`transition-colors shrink-0 mb-0.5 ${showEmojiPicker ? 'text-[#4d91fb]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Smile size={22} /></button>}
             <textarea
               ref={inputRef}
-              value={text}
+              value={editingMsgId ? editingText : text}
               onChange={e => {
-                setText(e.target.value);
-                if (contact?.isGroup) {
-                  typingService.setGroupTyping(chatId!, currentUser?.userId || '', true);
+                if (editingMsgId) {
+                  setEditingText(e.target.value);
                 } else {
-                  typingService.setTyping(currentUser?.userId || '', contact?.id || '', true);
+                  setText(e.target.value);
+                  if (contact?.isGroup) {
+                    typingService.setGroupTyping(chatId!, currentUser?.userId || '', true);
+                  } else {
+                    typingService.setTyping(currentUser?.userId || '', contact?.id || '', true);
+                  }
                 }
               }}
               onBlur={() => {
-                if (contact?.isGroup) {
-                  typingService.setGroupTyping(chatId!, currentUser?.userId || '', false);
-                } else {
-                  typingService.setTyping(currentUser?.userId || '', contact?.id || '', false);
+                if (!editingMsgId) {
+                  if (contact?.isGroup) {
+                    typingService.setGroupTyping(chatId!, currentUser?.userId || '', false);
+                  } else {
+                    typingService.setTyping(currentUser?.userId || '', contact?.id || '', false);
+                  }
                 }
               }}
               onKeyDown={handleKeyDown}
-              placeholder="Message" rows={1}
+              placeholder={editingMsgId ? 'Edit message' : 'Message'} rows={1}
               className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted/50 resize-none py-0.5 max-h-32 overflow-y-auto"
               style={{ fontSize: '0.95rem', lineHeight: '1.4' }}
             />
-            {!text && <button onClick={() => { setShowAttachSheet(v => !v); setShowLinkInput(false); setShowEmojiPicker(false); }} className={`transition-colors shrink-0 mb-0.5 ${showAttachSheet ? 'text-[#4d91fb]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Paperclip size={22} /></button>}
-            {!text && <button onClick={() => { setShowAttachSheet(true); setShowLinkInput(false); setShowEmojiPicker(false); }} className="text-wa-header-icon hover:text-wa-primary transition-colors shrink-0 mb-0.5"><Camera size={22} /></button>}
+            {!editingMsgId && !text && <button onClick={() => { setShowAttachSheet(v => !v); setShowLinkInput(false); setShowEmojiPicker(false); }} className={`transition-colors shrink-0 mb-0.5 ${showAttachSheet ? 'text-[#4d91fb]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Paperclip size={22} /></button>}
+            {!editingMsgId && !text && <button onClick={() => { setShowAttachSheet(true); setShowLinkInput(false); setShowEmojiPicker(false); }} className="text-wa-header-icon hover:text-wa-primary transition-colors shrink-0 mb-0.5"><Camera size={22} /></button>}
           </div>
           <AnimatePresence mode="wait">
-            {text ? <motion.button key="send" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleSend} disabled={isLoading} className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all shadow-md active:scale-90 ${isLoading ? 'bg-[#4d91fb]/50 cursor-not-allowed' : 'bg-[#4d91fb] hover:bg-[#3b8eea]'}`}><Send size={20} className="text-white ml-0.5" /></motion.button>
+            {editingMsgId ? (
+              <motion.button key="confirm" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleEditSend} className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all shadow-md active:scale-90 ${!editingText.trim() ? 'bg-[#4d91fb]/50 cursor-not-allowed' : 'bg-[#4d91fb] hover:bg-[#3b8eea]'}`} disabled={!editingText.trim()}><Check size={22} className="text-white" /></motion.button>
+            ) : text ? <motion.button key="send" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleSend} disabled={isLoading} className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all shadow-md active:scale-90 ${isLoading ? 'bg-[#4d91fb]/50 cursor-not-allowed' : 'bg-[#4d91fb] hover:bg-[#3b8eea]'}`}><Send size={20} className="text-white ml-0.5" /></motion.button>
             : <motion.button key="mic" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} className="w-12 h-12 bg-[#4d91fb] rounded-full flex items-center justify-center shrink-0 hover:bg-[#3b8eea] transition-all shadow-md active:scale-90"><Mic size={20} className="text-white" /></motion.button>}
           </AnimatePresence>
         </div>
@@ -1218,7 +1320,16 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
           </a>
         )}
 
-        {message.type === 'text' && <p className="text-wa-primary leading-relaxed" style={{ fontSize: '0.9rem', paddingRight: '76px' }}>{message.content}</p>}
+        {message.type === 'text' && (
+          <p className="text-wa-primary leading-relaxed" style={{ fontSize: '0.9rem', paddingRight: '76px' }}>
+            {message.content}
+            {message.isEdited && <span className="text-wa-text-muted ml-1" style={{ fontSize: '0.75rem' }}>(edited)</span>}
+          </p>
+        )}
+
+        {message.content === '[Deleted]' && (
+          <p className="text-wa-text-muted italic leading-relaxed" style={{ fontSize: '0.85rem' }}>{message.content}</p>
+        )}
 
         {/* Reaction Display */}
         {message.reactions && message.reactions.length > 0 && (
@@ -1229,7 +1340,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         )}
 
         {/* Info row */}
-        {!(isImage && !message.content) && (
+        {!(isImage && !message.content) && message.content !== '[Deleted]' && (
           <div className={`flex items-center gap-1 whitespace-nowrap ${(message.type === 'document' || message.type === 'link') ? 'justify-end mt-1.5' : 'absolute bottom-1.5 right-2.5'}`}>
             <span className="text-wa-text-muted" style={{ fontSize: '0.65rem' }}>{message.timestamp}</span>
             {isMe && (

@@ -3,11 +3,13 @@ import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import services, { sanitizePathComponent } from '../../utils/firebaseServices';
 const { messageService, authService, presenceService, friendRequestService, typingService, userService, groupService, statusService, callService, conversationService } = services;
+import { getCustomUsernameByFirebaseUid } from '../../utils/services/shared';
 import { getDoc, doc, query, collection, where, getDocs, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../utils/firebase';
 import { initializePushNotifications } from '../../utils/fcm';
-import { loadMessages as loadLocalMessages, clearKeyCache, updateMessageReactions, updateMessageStar, getStarredMessages } from '../../utils/localMessageStore';
-import { getEncryptionKey } from '../../utils/encryption';
+import { loadMessages as loadLocalMessages, clearKeyCache, updateMessageReactions, updateMessageStar, updateMessageContent, getStarredMessages, searchAllMessages as searchLocalMessages } from '../../utils/localMessageStore';
+import type { SearchResult as LocalSearchResult } from '../../utils/localMessageStore';
+import { getEncryptionKey, getKeyVersion } from '../../utils/encryption';
 import { uploadMediaWithProgress, loadMediaWithCache } from '../../utils/mediaUploadHandler';
 import { permissionManager } from '../../utils/permissionManager';
 import { initializeProductionCollections } from '../../scripts/initCollections';
@@ -66,6 +68,9 @@ export interface Message {
   linkTitle?: string;
   linkDomain?: string;
   expiresAt?: number; // epoch ms — message should be deleted after this time
+  isEdited?: boolean;
+  keyVersion?: number;
+  hmac?: string;
 }
 
 export interface Chat {
@@ -78,6 +83,15 @@ export interface Chat {
   isPinned?: boolean;
   isMuted?: boolean;
   isArchived?: boolean;
+}
+
+export interface SearchResult {
+  chatId: string;
+  messageId: string;
+  content: string;
+  senderId: string;
+  timestamp: string;
+  contactName?: string;
 }
 
 export interface CallRecord {
@@ -183,6 +197,7 @@ interface AppContextType {
   markAsRead: (chatId: string) => Promise<void>;
   clearAllChats: () => Promise<void>;
   clearChat: (chatId: string) => Promise<void>;
+  deleteMessage: (chatId: string, messageId: string) => Promise<void>;
   typingContacts: Record<string, boolean>;
 
   // Groups
@@ -214,6 +229,7 @@ interface AppContextType {
   // Starred Messages
   starredMessages: Message[];
   toggleStarMessage: (chatId: string, messageId: string) => Promise<void>;
+  editMessage: (chatId: string, messageId: string, newContent: string) => Promise<void>;
   refreshStarredMessages: () => Promise<void>;
 
   // Contact Info
@@ -228,6 +244,9 @@ interface AppContextType {
 
   // Contact discovery
   searchUsers: (query: string) => void;
+
+  // Cross-chat search
+  searchAllMessages: (query: string) => Promise<SearchResult[]>;
 
   // Disappearing messages
   disappearingTimers: Record<string, number>;
@@ -650,7 +669,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             let customUsernameForUnverified = currentFirebaseUser.displayName || currentFirebaseUser.email?.split('@')[0] || 'User';
             // Also try Firestore lookup to confirm, but prefer displayName
             try {
-              const customUsername = await authService.getCustomUsernameByFirebaseUid(currentFirebaseUser.uid);
+              const customUsername = await getCustomUsernameByFirebaseUid(currentFirebaseUser.uid);
               if (customUsername) {
                 customUsernameForUnverified = customUsername;
               }
@@ -690,9 +709,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.error('❌ Auth init error:', err);
         setIsOnboarded(false);
       } finally {
-        // Wait for animation delay
-        console.log('⏳ Ensuring splash duration...');
-        await splashDelay;
         setIsAuthenticating(false);
         initialAuthChecked.current = true;
         console.log('🏁 Auth Initialization Complete');
@@ -1346,9 +1362,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
     });
 
-    // 5. Listen to Typing Indicators
-    typingUnsubscribeRef.current = typingService.listenToTyping(uid, 'all', (typingData) => {
-      setTypingContacts(typingData);
+    // 5. Listen to Typing Indicators (global — convert string[] to Record<string, boolean>)
+    typingUnsubscribeRef.current = typingService.listenToTyping(uid, 'all', (typingUsers) => {
+      const typingRecord: Record<string, boolean> = {};
+      typingUsers.forEach(u => { typingRecord[u] = true; });
+      setTypingContacts(typingRecord);
     });
 
     // 6. Listen to Receipts (delivered double tick, read double blue tick)
@@ -1382,11 +1400,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    // 5. Global Call Signaling Listener (Detect Incoming Calls)
+    // 5. Global Call Signaling Listener (Detect Incoming Calls) — DISABLED (PeerJS down)
     const unsubscribeSignaling = presenceService.listenToSignaling(uid, (data) => {
       if (data.type === 'webrtc-offer') {
-        console.log('📞 Incoming call detected from:', data.fromUid);
-        navigate(`/call/${data.callType || 'video'}/${data.fromUid}?received=true`);
+        console.log('📞 Incoming call detected from:', data.fromUid, '(calls disabled, ignoring)');
       }
     });
 
@@ -1585,6 +1602,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         status: 'sent',
         ...extra,
         expiresAt: ttl > 0 ? Date.now() + ttl * 1000 : undefined,
+        keyVersion: await getKeyVersion(),
       };
 
       // Optimistic update
@@ -1676,6 +1694,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...extra,
         imageUrl: finalImageUrl,
         expiresAt: ttl > 0 ? Date.now() + ttl * 1000 : undefined,
+        keyVersion: await getKeyVersion(),
       };
 
       setMessages((prev) => ({
@@ -1888,6 +1907,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     console.log(`🧹 Chat ${chatId} cleared.`);
   }, []);
 
+  const deleteMessage = useCallback(async (chatId: string, messageId: string) => {
+    if (!currentUser) return;
+
+    // 1. Optimistic update — replace content with [Deleted] so both sides see it
+    setMessages(prev => ({
+      ...prev,
+      [chatId]: (prev[chatId] || []).map(m =>
+        m.id === messageId ? { ...m, content: '[Deleted]', type: 'system' as const } : m
+      ),
+    }));
+
+    // 2. Persist to local store
+    const { deleteMessageById } = await import('../../utils/localMessageStore');
+    await deleteMessageById(currentUser.userId, chatId, messageId);
+  }, [currentUser]);
+
   // ─── Friend Request Methods ────────────────────────────────────────────────
 
   const sendChatRequest = useCallback(async (contactId: string) => {
@@ -2079,6 +2114,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [currentUser, messages, refreshStarredMessages],
   );
 
+  const editMessage = useCallback(
+    async (chatId: string, messageId: string, newContent: string) => {
+      if (!currentUser) return;
+
+      setMessages(prev => ({
+        ...prev,
+        [chatId]: (prev[chatId] || []).map(m =>
+          m.id === messageId ? { ...m, content: newContent, isEdited: true } : m
+        ),
+      }));
+
+      try {
+        await updateMessageContent(currentUser.userId, chatId, messageId, newContent, true);
+      } catch (err) {
+        console.error('Failed to persist edited message:', err);
+      }
+    },
+    [currentUser],
+  );
+
   // Refresh starred messages on load and when messages change
   useEffect(() => {
     if (currentUser) {
@@ -2094,6 +2149,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const normalized = results.map((u: any, i: number) => normalizeContact(u, i));
     setDiscoverableContacts(normalized);
   }, [currentUser, normalizeContact]);
+
+  const searchAllMessagesFn = useCallback(async (query: string): Promise<SearchResult[]> => {
+    if (!currentUser) return [];
+    const localResults = await searchLocalMessages(currentUser.userId, query);
+    return localResults.map(r => {
+      const contact = contacts.find(c => c.id === r.chatId);
+      return { ...r, contactName: contact?.name };
+    });
+  }, [currentUser, contacts]);
 
   // NOTE: Session restore is handled entirely by Firebase's browserLocalPersistence.
   // The initializeAuth useEffect above (using authService.getCurrentUser()) is
@@ -2172,7 +2236,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const unsubscribe = typingService.listenToTyping(currentUser.userId, contact, (typingData) => {
       setTypingContacts(prev => ({
         ...prev,
-        [activeChatId]: typingData[contact] || false
+        [activeChatId]: typingData.includes(contact)
       }));
     });
 
@@ -2218,9 +2282,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     clearAllCalls,
     starredMessages,
     toggleStarMessage,
+    editMessage,
     refreshStarredMessages,
     statuses,
     searchUsers,
+    searchAllMessages: searchAllMessagesFn,
     disappearingTimers,
     setDisappearingTimer,
     getDisappearingRemaining,
@@ -2242,6 +2308,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     markAsRead,
     clearAllChats,
     clearChat,
+    deleteMessage,
     addMessagesToChat,
     typingContacts,
     searchQuery,

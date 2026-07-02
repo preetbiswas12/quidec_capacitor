@@ -1,6 +1,46 @@
 {
   "rules": {
-    ".read": "auth != null",
-    ".write": "auth != null"
+    "typing": {
+      "$conversationId": {
+        ".read": "auth != null",
+        ".write": "auth != null && ($conversationId.split('_').indexOf(auth.uid) >= 0 || newData.hasChildren(['uid']))"
+      }
+    },
+    "groupTyping": {
+      "$groupId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "presence": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && $uid === auth.uid"
+      }
+    },
+    "delivery": {
+      "$uid": {
+        ".read": "auth != null && $uid === auth.uid",
+        ".write": "auth != null && $uid === auth.uid"
+      }
+    },
+    "receipts": {
+      "$conversationId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "signaling": {
+      "$userId": {
+        ".read": "auth != null && $userId === auth.uid",
+        ".write": "auth != null"
+      }
+    },
+    "notifications": {
+      "$uid": {
+        ".read": "auth != null && $uid === auth.uid",
+        ".write": "auth != null && $uid === auth.uid"
+      }
+    }
   }
 }

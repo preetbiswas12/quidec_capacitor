@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Phone, MoreVertical, PenSquare, ArrowLeft, X, Search, AtSign, UserPlus, Check, Clock, Users, Circle } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { MessageSquare, MoreVertical, PenSquare, ArrowLeft, X, Search, AtSign, UserPlus, Check, Clock, Users, Circle } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
+import type { SearchResult } from '../context/AppContext';
 import ChatList from './ChatList';
-import CallsTab from './CallsTab';
 import StatusTab from './StatusTab';
 import SettingsPage from './SettingsPage';
 import MessageRequests from './MessageRequests';
@@ -22,6 +22,7 @@ export default function LeftPanel() {
     showRequests, setShowRequests,
     createGroup,
     searchUsers,
+    searchAllMessages,
   } = useApp();
 
   const [showMenu, setShowMenu] = useState(false);
@@ -42,6 +43,14 @@ export default function LeftPanel() {
   const [groupSearch, setGroupSearch] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
 
+  // Global search state
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [globalSearchResults, setGlobalSearchResults] = useState<SearchResult[]>([]);
+  const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
+  const globalSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const globalSearchInputRef = useRef<HTMLInputElement>(null);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -51,12 +60,41 @@ export default function LeftPanel() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const handleGlobalSearch = useCallback((query: string) => {
+    setGlobalSearchQuery(query);
+    if (globalSearchTimerRef.current) clearTimeout(globalSearchTimerRef.current);
+    if (!query.trim()) {
+      setGlobalSearchResults([]);
+      setGlobalSearchLoading(false);
+      return;
+    }
+    setGlobalSearchLoading(true);
+    globalSearchTimerRef.current = setTimeout(async () => {
+      const results = await searchAllMessages(query);
+      setGlobalSearchResults(results);
+      setGlobalSearchLoading(false);
+    }, 300);
+  }, [searchAllMessages]);
+
+  const resetGlobalSearch = () => {
+    setShowGlobalSearch(false);
+    setGlobalSearchQuery('');
+    setGlobalSearchResults([]);
+    setGlobalSearchLoading(false);
+    if (globalSearchTimerRef.current) clearTimeout(globalSearchTimerRef.current);
+  };
+
+  useEffect(() => {
+    if (showGlobalSearch) {
+      setTimeout(() => globalSearchInputRef.current?.focus(), 100);
+    }
+  }, [showGlobalSearch]);
+
   if (!currentUser) return null;
 
   const tabs = [
     { id: 'chats', icon: MessageSquare, label: 'Chats' },
     { id: 'status', icon: Circle, label: 'Status' },
-    { id: 'calls', icon: Phone, label: 'Calls' },
   ] as const;
 
   const menuItems = [
@@ -185,55 +223,91 @@ export default function LeftPanel() {
             </div>
           ) : (
             <div className="flex items-center justify-between px-4 py-3">
-              <button onClick={() => setActiveTab('settings')} className="hover:opacity-80 transition-opacity">
-                <div className="w-9 h-9 rounded-full bg-wa-secondary flex items-center justify-center overflow-hidden border border-wa-border/20">
-                  {currentUser.avatar ? (
-                    <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-wa-primary" style={{ fontSize: '0.9rem', fontWeight: 700 }}>
-                      {currentUser.name ? currentUser.name[0].toUpperCase() : 'M'}
-                    </span>
-                  )}
-                </div>
-              </button>
-
-              <h1 className="text-wa-primary" style={{ fontSize: '1.1rem', fontWeight: 700 }}>
-                {activeTab === 'chats' ? 'WhatsApp' : 'Calls'}
-              </h1>
-
-              <div className="flex items-center gap-1">
-                {activeTab === 'chats' && (
-                  <button
-                    onClick={() => setShowNewChat(true)}
-                    className="text-wa-header-icon hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"
-                    title="New chat"
-                  >
-                    <PenSquare size={18} />
+              {showGlobalSearch ? (
+                <>
+                  <button onClick={resetGlobalSearch} className="text-wa-header-icon hover:text-wa-primary p-1">
+                    <ArrowLeft size={20} />
                   </button>
-                )}
-                <div className="relative" ref={menuRef}>
-                  <button
-                    onClick={() => setShowMenu(v => !v)}
-                    className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}
-                  >
-                    <MoreVertical size={18} />
-                  </button>
-                  {showMenu && (
-                    <div className="absolute right-0 top-full mt-1 w-52 bg-[#233138] rounded-xl shadow-2xl overflow-hidden z-50 border border-wa-border">
-                      {menuItems.map(item => (
-                        <button
-                          key={item.label}
-                          onClick={item.action}
-                          className="w-full text-left px-5 py-3.5 text-wa-primary hover:bg-[#2A3942] transition-colors"
-                          style={{ fontSize: '0.9rem' }}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
+                  <div className="flex-1 mx-3 flex items-center gap-2">
+                    <Search size={16} className="text-wa-text-muted flex-shrink-0" />
+                    <input
+                      ref={globalSearchInputRef}
+                      type="text"
+                      value={globalSearchQuery}
+                      onChange={e => handleGlobalSearch(e.target.value)}
+                      placeholder="Search all messages..."
+                      className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted"
+                      style={{ fontSize: '0.95rem' }}
+                    />
+                    {globalSearchQuery && (
+                      <button onClick={() => handleGlobalSearch('')}>
+                        <X size={16} className="text-wa-text-muted" />
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => setActiveTab('settings')} className="hover:opacity-80 transition-opacity">
+                    <div className="w-9 h-9 rounded-full bg-wa-secondary flex items-center justify-center overflow-hidden border border-wa-border/20">
+                      {currentUser.avatar ? (
+                        <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-wa-primary" style={{ fontSize: '0.9rem', fontWeight: 700 }}>
+                          {currentUser.name ? currentUser.name[0].toUpperCase() : 'M'}
+                        </span>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </button>
+
+                  <h1 className="text-wa-primary" style={{ fontSize: '1.1rem', fontWeight: 700 }}>
+                    {activeTab === 'chats' ? 'WhatsApp' : 'Status'}
+                  </h1>
+
+                  <div className="flex items-center gap-1">
+                    {activeTab === 'chats' && (
+                      <button
+                        onClick={() => setShowGlobalSearch(true)}
+                        className="text-wa-header-icon hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"
+                        title="Search messages"
+                      >
+                        <Search size={18} />
+                      </button>
+                    )}
+                    {activeTab === 'chats' && (
+                      <button
+                        onClick={() => setShowNewChat(true)}
+                        className="text-wa-header-icon hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"
+                        title="New chat"
+                      >
+                        <PenSquare size={18} />
+                      </button>
+                    )}
+                    <div className="relative" ref={menuRef}>
+                      <button
+                        onClick={() => setShowMenu(v => !v)}
+                        className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}
+                      >
+                        <MoreVertical size={18} />
+                      </button>
+                      {showMenu && (
+                        <div className="absolute right-0 top-full mt-1 w-52 bg-[#233138] rounded-xl shadow-2xl overflow-hidden z-50 border border-wa-border">
+                          {menuItems.map(item => (
+                            <button
+                              key={item.label}
+                              onClick={item.action}
+                              className="w-full text-left px-5 py-3.5 text-wa-primary hover:bg-[#2A3942] transition-colors"
+                              style={{ fontSize: '0.9rem' }}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -241,10 +315,80 @@ export default function LeftPanel() {
 
       {/* Content */}
       <div className="flex-1 overflow-hidden relative">
-        {activeTab === 'chats' && !showRequests && <ChatList />}
-        {activeTab === 'chats' && showRequests && <MessageRequests />}
+        {activeTab === 'chats' && showGlobalSearch && (
+          <div className="flex-1 overflow-y-auto h-full">
+            {globalSearchLoading ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-3 text-wa-text-muted">
+                <div className="w-6 h-6 rounded-full border-2 border-t-transparent border-wa-text-muted animate-spin" />
+                <p style={{ fontSize: '0.85rem' }}>Searching messages...</p>
+              </div>
+            ) : globalSearchQuery.trim() && globalSearchResults.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-2 text-wa-text-muted">
+                <Search size={32} className="opacity-30" />
+                <p style={{ fontSize: '0.9rem' }}>No results found</p>
+                <p style={{ fontSize: '0.75rem' }}>Try a different search term</p>
+              </div>
+            ) : (
+              <div>
+                {globalSearchResults.map((result) => {
+                  const contact = contacts.find(c => c.id === result.chatId);
+                  const name = result.contactName || contact?.name || result.chatId;
+                  const snippet = result.content.length > 80
+                    ? result.content.substring(0, 80) + '...'
+                    : result.content;
+                  const time = new Date(result.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                  const lowerContent = result.content.toLowerCase();
+                  const lowerQuery = globalSearchQuery.toLowerCase();
+                  const matchIdx = lowerContent.indexOf(lowerQuery);
+
+                  let highlightedSnippet;
+                  if (matchIdx >= 0) {
+                    const before = snippet.substring(0, matchIdx);
+                    const match = snippet.substring(matchIdx, matchIdx + globalSearchQuery.length);
+                    const after = snippet.substring(matchIdx + globalSearchQuery.length);
+                    highlightedSnippet = (
+                      <span>{before}<mark className="bg-[#4D91FB]/30 text-wa-primary rounded px-0.5">{match}</mark>{after}</span>
+                    );
+                  } else {
+                    highlightedSnippet = snippet;
+                  }
+
+                  return (
+                    <button
+                      key={result.messageId}
+                      onClick={() => {
+                        resetGlobalSearch();
+                        setActiveChatId(result.chatId);
+                        navigate(`/app/chat/${result.chatId}`);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-wa-secondary/50 transition-colors border-b border-wa-border/30 text-left"
+                    >
+                      <Avatar
+                        src={contact?.avatar ?? null}
+                        name={name}
+                        color={contact?.avatarColor ?? '#667781'}
+                        size={44}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <p className="text-wa-primary truncate" style={{ fontWeight: 500, fontSize: '0.95rem' }}>{name}</p>
+                          <span className="text-wa-text-muted flex-shrink-0 ml-2" style={{ fontSize: '0.7rem' }}>{time}</span>
+                        </div>
+                        <p className="text-wa-text-muted truncate" style={{ fontSize: '0.8rem' }}>
+                          {highlightedSnippet}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+        {activeTab === 'chats' && !showGlobalSearch && !showRequests && <ChatList />}
+        {activeTab === 'chats' && !showGlobalSearch && showRequests && <MessageRequests />}
         {activeTab === 'status' && <StatusTab />}
-        {activeTab === 'calls' && <CallsTab />}
         {activeTab === 'settings' && !settingsSubPage && <SettingsPage onSubPageChange={setSettingsSubPage} />}
       </div>
 
