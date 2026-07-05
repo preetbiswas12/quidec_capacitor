@@ -54,16 +54,16 @@ jobs:
           echo "$GOOGLE_SERVICE_INFO_PLIST" | base64 --decode > ios/App/App/GoogleService-Info.plist
 
       - name: Build iOS
-        env:
-          CODE_SIGN_IDENTITY: ""
-          CODE_SIGNING_REQUIRED: "NO"
-          CODE_SIGNING_ALLOWED: "NO"
         run: |
           xcodebuild -project ios/App/App.xcodeproj \
             -scheme App \
             -configuration ${{ inputs.build_config || 'Release' }} \
             -archivePath build/App.xcarchive \
             -allowProvisioningUpdates \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
             archive
 
       - name: Export IPA
