@@ -126,9 +126,11 @@ describe('sanitizeHTML', () => {
     expect(sanitizeHTML(null as any)).toBe('');
   });
 
-  it('throws on suspicious content patterns (script, onerror, onload)', () => {
-    expect(() => sanitizeHTML('<script>alert(1)</script>')).toThrow('suspicious content');
-    expect(() => sanitizeHTML('<img onerror=alert(1)>')).toThrow('suspicious content');
+  it('strips suspicious content patterns (script, onerror, onload)', () => {
+    expect(sanitizeHTML('<script>alert(1)</script>')).not.toContain('<script>');
+    expect(sanitizeHTML('<script>alert(1)</script>')).toContain('&lt;script&gt;');
+    expect(sanitizeHTML('<img onerror=alert(1)>')).not.toContain('<img');
+    expect(sanitizeHTML('Hello <b>world</b>')).toBe('Hello &lt;b&gt;world&lt;/b&gt;');
   });
 });
 

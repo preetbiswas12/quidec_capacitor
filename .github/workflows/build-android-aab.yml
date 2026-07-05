@@ -1,6 +1,8 @@
 name: Build Android AAB
 
 on:
+  push:
+    branches: [main, develop]
   workflow_call:
     inputs:
       version:

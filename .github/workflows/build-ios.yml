@@ -1,6 +1,8 @@
 name: Build iOS
 
 on:
+  push:
+    branches: [main, develop]
   workflow_call:
     inputs:
       build_config:
@@ -52,13 +54,13 @@ jobs:
         run: |
           xcodebuild -workspace ios/App/App.xcworkspace \
             -scheme App \
-            -configuration ${{ inputs.build_config }} \
+            -configuration ${{ inputs.build_config || 'Release' }} \
             -archivePath build/App.xcarchive \
             -allowProvisioningUpdates \
             archive
 
       - name: Export IPA
-        if: inputs.build_config == 'Release'
+        if: (inputs.build_config || 'Release') == 'Release'
         run: |
           xcodebuild -exportArchive \
             -archivePath build/App.xcarchive \

@@ -1,6 +1,8 @@
 name: Build Android APK
 
 on:
+  push:
+    branches: [main, develop]
   workflow_call:
     inputs:
       build_type:
@@ -44,7 +46,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Decode keystore
-        if: inputs.build_type == 'release'
+        if: (inputs.build_type || 'release') == 'release'
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
@@ -65,12 +67,12 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assemble${{ inputs.build_type == 'release' && 'Release' || 'Debug' }}
+        run: ./gradlew assemble${{ (inputs.build_type || 'release') == 'release' && 'Release' || 'Debug' }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: android-apk-${{ github.sha }}
-          path: android/app/build/outputs/apk/${{ inputs.build_type }}/*.apk
+          path: android/app/build/outputs/apk/${{ (inputs.build_type || 'release') }}/*.apk
           retention-days: 7
           if-no-files-found: error
