@@ -55,7 +55,7 @@ jobs:
 
       - name: Build iOS
         run: |
-          xcodebuild -workspace ios/App/App.xcworkspace \
+          xcodebuild -project ios/App/App.xcodeproj \
             -scheme App \
             -configuration ${{ inputs.build_config || 'Release' }} \
             -archivePath build/App.xcarchive \
