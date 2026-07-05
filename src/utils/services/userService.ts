@@ -12,6 +12,7 @@ import { Timestamp, serverTimestamp } from 'firebase/firestore';
 import { ref, remove } from 'firebase/database';
 import logger from '../logger';
 import { db, realtimeDb } from '../firebase';
+import { sanitizePathComponent } from './shared';
 import { validateEmail, validatePassword, validateUsername, loginLimiter, registerLimiter, validateDisplayName, validateAbout, profileUpdateLimiter } from '../validators';
 import { auth } from '../firebase';
 
@@ -178,7 +179,7 @@ export const userService = {
       await batch.commit();
 
       // Delete from Realtime Database
-      await remove(ref(realtimeDb, `presence/${uid}`));
+      await remove(ref(realtimeDb, `presence/${sanitizePathComponent(uid)}`));
 
       console.log(`✅ User account deleted`);
       return { success: true };

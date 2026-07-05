@@ -33,7 +33,7 @@ export default function WelcomeScreen() {
           transition={{ delay: 0.2, duration: 0.4 }}
         >
           <h1 className="text-wa-primary mb-3" style={{ fontSize: '1.75rem', fontWeight: 300 }}>
-            WhatsApp
+            Veill
           </h1>
           <p className="text-wa-text-muted max-w-xs mx-auto leading-relaxed" style={{ fontSize: '0.875rem' }}>
             Select a chat to start messaging.

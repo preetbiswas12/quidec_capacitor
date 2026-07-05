@@ -64,7 +64,7 @@ export async function getCustomUsernameByFirebaseUid(firebaseUid: string): Promi
 
 /**
  * Generate a unique-looking user ID
- * Pattern: username.1234
+ * Pattern: username_1234
  * Checks Firestore to ensure uniqueness
  */
 export async function generateUniqueUserId(name: string): Promise<string> {
@@ -75,7 +75,7 @@ export async function generateUniqueUserId(name: string): Promise<string> {
 
   while (!isUnique && attempts < 15) {
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    generatedId = `${cleanName}.${randomSuffix}`;
+    generatedId = `${cleanName}_${randomSuffix}`;
 
     try {
       const q = query(collection(db, 'users'), where('username', '==', generatedId));
@@ -96,7 +96,7 @@ export async function generateUniqueUserId(name: string): Promise<string> {
 export function generateUserIdSync(name: string): string {
   const cleanName = name.toLowerCase().replace(/\s+/g, '');
   const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-  return `${cleanName}.${randomSuffix}`;
+  return `${cleanName}_${randomSuffix}`;
 }
 
 /**

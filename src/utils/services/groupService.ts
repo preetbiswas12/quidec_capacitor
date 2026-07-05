@@ -24,6 +24,7 @@ import {
 } from 'firebase/firestore';
 import { ref, set } from 'firebase/database';
 import { db, realtimeDb } from '../firebase';
+import { sanitizePathComponent } from './shared';
 import { getGroupKey } from './shared';
 import { encryptMessage, decryptMessage } from '../encryption';
 import { validateGroupName, validateGroupDescription, groupCreateLimiter } from '../validators';
@@ -434,7 +435,7 @@ export const groupService = {
     content: string
   ): Promise<void> {
     try {
-      const notifRef = ref(realtimeDb, `notifications/${memberId}/${Date.now()}`);
+      const notifRef = ref(realtimeDb, `notifications/${sanitizePathComponent(memberId)}/${Date.now()}`);
       await set(notifRef, {
         type: 'group_message',
         groupId,

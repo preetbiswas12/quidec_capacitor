@@ -70,6 +70,9 @@ export const authService = {
     }
 
     try {
+      if (auth.currentUser) {
+        try { await signOut(auth); } catch (_) {}
+      }
       await setPersistence(auth, browserLocalPersistence);
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
@@ -226,8 +229,17 @@ export const authService = {
   async reloadUser() {
     const user = auth.currentUser;
     if (user) {
-      await user.reload();
-      return user;
+      try {
+        await user.reload();
+        return user;
+      } catch (err: any) {
+        if (err.code === 'auth/user-token-expired' || err.code === 'auth/user-disabled') {
+          logger.warn('authService', `Token expired or user disabled, signing out: ${err.code}`);
+          await signOut(auth);
+          return null;
+        }
+        throw err;
+      }
     }
     return null;
   },
@@ -307,6 +319,46 @@ export const authService = {
     return { success: true, migratedCount };
   },
 
+  async migrateDotToUnderscoreUserIds() {
+    const migratedUsers: string[] = [];
+    const migratedFriendships: string[] = [];
+
+    // Migrate users collection
+    const usersRef = collection(db, 'users');
+    const usersSnapshot = await getDocs(usersRef);
+    for (const userDoc of usersSnapshot.docs) {
+      const oldId = userDoc.id;
+      if (!oldId.includes('.') || oldId === 'system_config') continue;
+
+      const newId = oldId.replace(/\./g, '_');
+      const data = { ...userDoc.data(), username: newId };
+
+      await setDoc(doc(db, 'users', newId), data);
+      await deleteDoc(doc(db, 'users', oldId));
+      migratedUsers.push(`${oldId} → ${newId}`);
+    }
+
+    // Migrate friendships collection
+    const friendshipsRef = collection(db, 'friendships');
+    const friendshipsSnapshot = await getDocs(friendshipsRef);
+    for (const fsDoc of friendshipsSnapshot.docs) {
+      const oldId = fsDoc.id;
+      if (!oldId.includes('.')) continue;
+
+      const newId = oldId.replace(/\./g, '_');
+      await setDoc(doc(db, 'friendships', newId), fsDoc.data());
+      await deleteDoc(doc(db, 'friendships', oldId));
+      migratedFriendships.push(`${oldId} → ${newId}`);
+    }
+
+    return {
+      success: true,
+      migratedUsers: migratedUsers.length,
+      migratedFriendships: migratedFriendships.length,
+      details: { users: migratedUsers, friendships: migratedFriendships },
+    };
+  },
+
   async cleanupDuplicateUsers() {
     const usersRef = collection(db, 'users');
     const snapshot = await getDocs(usersRef);
@@ -315,7 +367,7 @@ export const authService = {
 
     for (const userDoc of snapshot.docs) {
       const id = userDoc.id;
-      if (id.includes('.') || id.startsWith('@') || (id.length < 20 && id !== 'system_config')) {
+      if (id.startsWith('@') || (id.length < 20 && !id.includes('_') && id !== 'system_config')) {
         deletePromises.push(deleteDoc(doc(db, 'users', id)));
         deletedCount++;
       }

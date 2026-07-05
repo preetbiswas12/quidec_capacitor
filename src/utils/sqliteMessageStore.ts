@@ -156,7 +156,14 @@ let currentUid: string | null = null;
 async function initDatabase(userUid: string): Promise<Database> {
   if (db && currentUid === userUid) return db;
 
-  const SQL = await initSqlJs();
+  const SQL = await initSqlJs({
+    locateFile: (file: string) => {
+      if (file.endsWith('.wasm')) {
+        return `/sql-wasm-browser.wasm`;
+      }
+      return file;
+    },
+  });
 
   try {
     const { data } = await Filesystem.readFile({

@@ -10,7 +10,7 @@
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, Auth } from 'firebase/auth';
-import { initializeFirestore, getFirestore, Firestore } from 'firebase/firestore';
+import { initializeFirestore, Firestore } from 'firebase/firestore';
 import { getDatabase, Database } from 'firebase/database';
 import { getMessaging, Messaging, onMessage } from 'firebase/messaging';
 import logger from './logger';

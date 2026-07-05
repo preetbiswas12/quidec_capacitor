@@ -7,17 +7,21 @@ vi.mock('../../firebase', () => ({
   EMBEDDED_VAPID_KEY: 'test-vapid-key',
 }));
 
-const { mockGetMessaging, mockGetToken, mockOnMessage, mockGetFirestore, mockDoc, mockUpdateDoc, mockCollection, mockQuery, mockOrderBy, mockOnSnapshot } = vi.hoisted(() => ({
+vi.mock('@capacitor/core', () => ({
+  Capacitor: { getPlatform: () => 'web' },
+}));
+
+vi.mock('@capawesome/capacitor-badge', () => ({
+  Badge: { setBadge: vi.fn(), clear: vi.fn() },
+}));
+
+const { mockGetMessaging, mockGetToken, mockOnMessage, mockGetFirestore, mockDoc, mockUpdateDoc } = vi.hoisted(() => ({
   mockGetMessaging: vi.fn(),
   mockGetToken: vi.fn(),
   mockOnMessage: vi.fn(),
   mockGetFirestore: vi.fn(() => 'firestoreInstance'),
   mockDoc: vi.fn((_db: any, ...parts: string[]) => ({ path: parts.join('/') })),
   mockUpdateDoc: vi.fn().mockResolvedValue(undefined),
-  mockCollection: vi.fn(),
-  mockQuery: vi.fn(),
-  mockOrderBy: vi.fn(() => ({})),
-  mockOnSnapshot: vi.fn(),
 }));
 
 vi.mock('firebase/messaging', () => ({
@@ -30,10 +34,6 @@ vi.mock('firebase/firestore', () => ({
   getFirestore: mockGetFirestore,
   doc: mockDoc,
   updateDoc: mockUpdateDoc,
-  collection: mockCollection,
-  query: mockQuery,
-  orderBy: mockOrderBy,
-  onSnapshot: mockOnSnapshot,
 }));
 
 import { notificationService } from '../notificationService';
@@ -212,72 +212,5 @@ describe('sendLocalNotification', () => {
     const result = await notificationService.sendLocalNotification('Test Title');
 
     expect(result).toBeUndefined();
-  });
-});
-
-describe('listenToUserNotifications', () => {
-  it('sets up onSnapshot listener and returns unsubscribe', () => {
-    const unsubscribe = vi.fn();
-    mockOnSnapshot.mockReturnValue(unsubscribe);
-    mockCollection.mockReturnValue('notificationsCollection');
-    mockQuery.mockReturnValue('queryRef');
-
-    const result = notificationService.listenToUserNotifications('uid1', vi.fn());
-
-    expect(mockCollection).toHaveBeenCalled();
-    expect(mockOnSnapshot).toHaveBeenCalledTimes(1);
-    expect(result).toBe(unsubscribe);
-  });
-
-  it('invokes callback with mapped notifications on snapshot', () => {
-    const callback = vi.fn();
-    mockCollection.mockReturnValue('notificationsCollection');
-    mockQuery.mockReturnValue('queryRef');
-    mockOnSnapshot.mockImplementation((_q: any, onNext: (...args: unknown[]) => void) => {
-      onNext({
-        docs: [
-          { id: 'notif1', data: () => ({ title: 'Hello', read: false }) },
-          { id: 'notif2', data: () => ({ title: 'World', read: true }) },
-        ],
-      });
-      return vi.fn();
-    });
-
-    notificationService.listenToUserNotifications('uid1', callback);
-
-    expect(callback).toHaveBeenCalledTimes(1);
-    expect(callback).toHaveBeenCalledWith([
-      { id: 'notif1', title: 'Hello', read: false },
-      { id: 'notif2', title: 'World', read: true },
-    ]);
-  });
-
-  it('passes orderBy to query', () => {
-    mockCollection.mockReturnValue('notificationsCollection');
-    mockQuery.mockReturnValue('queryRef');
-    mockOnSnapshot.mockReturnValue(vi.fn());
-
-    notificationService.listenToUserNotifications('uid1', vi.fn());
-
-    expect(mockOrderBy).toHaveBeenCalledWith('createdAt', 'desc');
-  });
-});
-
-describe('markNotificationAsRead', () => {
-  it('calls updateDoc with correct path and read: true', async () => {
-    await notificationService.markNotificationAsRead('uid1', 'notif1');
-
-    expect(mockUpdateDoc).toHaveBeenCalledOnce();
-    const [ref, data] = mockUpdateDoc.mock.calls[0];
-    expect(ref.path).toBe('users/uid1/notifications/notif1');
-    expect(data).toEqual({ read: true });
-  });
-
-  it('silently handles errors', async () => {
-    mockUpdateDoc.mockRejectedValueOnce(new Error('not-found'));
-
-    await expect(
-      notificationService.markNotificationAsRead('uid1', 'missing'),
-    ).resolves.toBeUndefined();
   });
 });

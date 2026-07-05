@@ -1,6 +1,6 @@
 /**
  * Notification Service
- * Handles FCM push notifications, local notifications, and in-app notification storage.
+ * Handles FCM push notifications, local notifications, and app icon badge.
  */
 
 import {
@@ -9,18 +9,10 @@ import {
   onMessage,
 } from 'firebase/messaging';
 import {
-  getFirestore,
   doc,
-  setDoc,
   updateDoc,
-  collection,
-  query,
-  where,
-  orderBy,
-  getDocs,
-  onSnapshot,
 } from 'firebase/firestore';
-import { getDatabase, ref, set } from 'firebase/database';
+import { Capacitor } from '@capacitor/core';
 import { db, realtimeDb, getFCMToken, EMBEDDED_VAPID_KEY } from '../firebase';
 
 export const notificationService = {
@@ -34,7 +26,7 @@ export const notificationService = {
           vapidKey: EMBEDDED_VAPID_KEY,
         });
 
-        await updateDoc(doc(getFirestore(), 'users', uid), {
+        await updateDoc(doc(db, 'users', uid), {
           fcmToken: token,
           notificationsEnabled: true,
         });
@@ -79,38 +71,42 @@ export const notificationService = {
       return new Notification(title, options);
     }
   },
-
-  listenToUserNotifications(
-    uid: string,
-    callback: (notifications: any[]) => void
-  ) {
-    const notificationsRef = collection(
-      getFirestore(),
-      'users',
-      uid,
-      'notifications'
-    );
-    const q = query(notificationsRef, orderBy('createdAt', 'desc'));
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const notifications = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      callback(notifications);
-    });
-
-    return unsubscribe;
-  },
-
-  async markNotificationAsRead(uid: string, notificationId: string) {
-    try {
-      await updateDoc(
-        doc(getFirestore(), 'users', uid, 'notifications', notificationId),
-        { read: true }
-      );
-    } catch (error: any) {
-      console.error('❌ Error marking notification as read:', error.message);
-    }
-  },
 };
+
+/**
+ * App icon badge utilities using @capawesome/capacitor-badge.
+ * Shows the OS-native red circle with number on the app icon.
+ */
+let Badge: any = null;
+
+async function getBadgePlugin() {
+  if (Badge) return Badge;
+  if (Capacitor.getPlatform() === 'web') return null;
+  try {
+    const mod = await import('@capawesome/capacitor-badge');
+    Badge = mod.Badge;
+    return Badge;
+  } catch {
+    return null;
+  }
+}
+
+export async function setAppBadge(count: number) {
+  const plugin = await getBadgePlugin();
+  if (!plugin) return;
+  try {
+    if (count > 0) {
+      await plugin.setBadge({ count });
+    } else {
+      await plugin.clear();
+    }
+  } catch { /* non-critical */ }
+}
+
+export async function clearAppBadge() {
+  const plugin = await getBadgePlugin();
+  if (!plugin) return;
+  try {
+    await plugin.clear();
+  } catch { /* non-critical */ }
+}

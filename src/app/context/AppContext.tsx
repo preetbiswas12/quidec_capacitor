@@ -13,6 +13,7 @@ import { getEncryptionKey, getKeyVersion, checkAndRotateKey } from '../../utils/
 import { sendMessageWhenAvailable, startAutoFlushOnReconnect, queueReadReceipt } from '../../utils/offlineMessageSender';
 import { uploadMediaWithProgress, loadMediaWithCache } from '../../utils/mediaUploadHandler';
 import { permissionManager } from '../../utils/permissionManager';
+import { setAppBadge } from '../../utils/services/notificationService';
 import { initializeProductionCollections } from '../../scripts/initCollections';
 import { 
   initSettingsPersistence, 
@@ -393,6 +394,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [settings.theme]);
 
+  // ─── App Icon Badge (red circle with number on home screen) ────────────────
+  useEffect(() => {
+    const totalUnread = chats.reduce((sum, c) => sum + c.unreadCount, 0);
+    setAppBadge(totalUnread);
+  }, [chats]);
+
   // ─── Network Status Listener ──────────────────────────────────────────────
   useEffect(() => {
     const handleOnline = () => {
@@ -631,7 +638,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const loginInProgress = useRef(false);
 
   // ─── Splash Screen Timer ──────────────────────────────────────────────────
-  // Always show splash screen for minimum 2.5s on every app open (like WhatsApp)
+  // Always show splash screen for minimum 2.5s on every app open
   useEffect(() => {
     const timer = setTimeout(() => {
       setShowSplash(false);
@@ -1166,6 +1173,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.log('✅ Profile saved to Firestore and local storage');
     } catch (err) {
       console.error('❌ Failed to save profile:', err);
+      throw err;
     }
   }, [currentUser]);
 

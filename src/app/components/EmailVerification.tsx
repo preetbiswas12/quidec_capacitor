@@ -31,8 +31,12 @@ export default function EmailVerification() {
               navigate('/app', { replace: true });
             }, 2000);
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error('Error checking verification:', err);
+          if (err.code === 'auth/user-token-expired') {
+            clearInterval(interval);
+            logout();
+          }
         }
       }, 5000);
     }
@@ -56,8 +60,12 @@ export default function EmailVerification() {
       } else {
         setError('Email not verified yet. Please check your inbox and click the link.');
       }
-    } catch (err) {
-      setError('Verification check failed. Please try again.');
+    } catch (err: any) {
+      if (err.code === 'auth/user-token-expired') {
+        logout();
+      } else {
+        setError('Verification check failed. Please try again.');
+      }
     } finally {
       setVerifying(false);
     }

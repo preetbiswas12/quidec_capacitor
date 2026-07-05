@@ -581,7 +581,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               </p>
             </div>
 
-            {/* User ID - Sleek WhatsApp Style */}
+            {/* User ID - Sleek Handle Style */}
             <Section label="YOUR VEILL ID">
               <div className="px-4 py-3.5 flex items-center justify-between gap-4 group">
                 <div className="flex items-center gap-4 min-w-0">
@@ -1203,7 +1203,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               <Row icon={<Globe size={18} className="text-wa-text-muted" />} label="Terms of Service" onClick={() => navigate('/terms')} />
             </Section>
             <div className="px-4 py-6 text-center">
-              <p className="text-wa-text-muted" style={{ fontSize: '0.75rem' }}>WhatsApp from Meta</p>
+              <p className="text-wa-text-muted" style={{ fontSize: '0.75rem' }}>Veill</p>
               <p className="text-wa-text-muted" style={{ fontSize: '0.75rem' }}>Version 2.25.1.1</p>
             </div>
           </SubPageShell>
@@ -1295,7 +1295,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
         </button>
 
         <p className="text-center text-wa-text-muted py-6" style={{ fontSize: '0.75rem' }}>
-          WhatsApp from Meta · Version 2.25.1.1
+          Veill · Version 2.25.1.1
         </p>
 
         {/* Developer Test Tools removed */}

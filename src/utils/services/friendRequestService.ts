@@ -4,7 +4,6 @@
  */
 
 import {
-  getFirestore,
   doc,
   setDoc,
   updateDoc,
@@ -21,7 +20,7 @@ import {
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
-import { getDatabase, ref, set, remove } from 'firebase/database';
+import { ref, set, remove } from 'firebase/database';
 import { db, realtimeDb } from '../firebase';
 import { sanitizePathComponent } from './shared';
 import { friendRequestLimiter } from '../validators';
@@ -60,7 +59,7 @@ export const friendRequestService = {
       }
 
       // Create request document
-      await setDoc(doc(getFirestore(), 'friendRequests', requestId), {
+      await setDoc(doc(db, 'friendRequests', requestId), {
         fromUid,
         toUid,
         fromUsername: (fromUserInfo as any)?.username || 'Unknown',
@@ -101,20 +100,20 @@ export const friendRequestService = {
     try {
       console.log(`👥 Accepting friend request ${requestId}`);
 
-      const batch = writeBatch(getFirestore());
+      const batch = writeBatch(db);
 
       // Update request status
-      batch.update(doc(getFirestore(), 'friendRequests', requestId), {
+      batch.update(doc(db, 'friendRequests', requestId), {
         status: 'accepted',
         updatedAt: serverTimestamp(),
       });
 
       // Add to both users' friend lists
-      batch.update(doc(getFirestore(), 'friendships', fromUid), {
+      batch.update(doc(db, 'friendships', fromUid), {
         friends: arrayUnion(toUid),
       });
 
-      batch.update(doc(getFirestore(), 'friendships', toUid), {
+      batch.update(doc(db, 'friendships', toUid), {
         friends: arrayUnion(fromUid),
       });
 
@@ -147,7 +146,7 @@ export const friendRequestService = {
    */
   async rejectFriendRequest(requestId: string, toUid: string) {
     try {
-      await updateDoc(doc(getFirestore(), 'friendRequests', requestId), {
+      await updateDoc(doc(db, 'friendRequests', requestId), {
         status: 'rejected',
         updatedAt: serverTimestamp(),
       });
@@ -166,7 +165,7 @@ export const friendRequestService = {
   async getPendingRequests(uid: string) {
     try {
       const q = query(
-        collection(getFirestore(), 'friendRequests'),
+        collection(db, 'friendRequests'),
         where('toUid', '==', uid),
         where('status', '==', 'pending')
       );
@@ -189,7 +188,7 @@ export const friendRequestService = {
    */
   listenToPendingRequests(uid: string, callback: (requests: any[]) => void) {
     const q = query(
-      collection(getFirestore(), 'friendRequests'),
+      collection(db, 'friendRequests'),
       where('toUid', '==', uid),
       where('status', '==', 'pending')
     );
@@ -210,13 +209,13 @@ export const friendRequestService = {
    */
   async removeFriend(uid1: string, uid2: string) {
     try {
-      const batch = writeBatch(getFirestore());
+      const batch = writeBatch(db);
 
-      batch.update(doc(getFirestore(), 'friendships', uid1), {
+      batch.update(doc(db, 'friendships', uid1), {
         friends: arrayRemove(uid2),
       });
 
-      batch.update(doc(getFirestore(), 'friendships', uid2), {
+      batch.update(doc(db, 'friendships', uid2), {
         friends: arrayRemove(uid1),
       });
 
@@ -234,7 +233,7 @@ export const friendRequestService = {
    */
   async getFriendsList(uid: string) {
     try {
-      const friendshipDoc = await getDoc(doc(getFirestore(), 'friendships', uid));
+      const friendshipDoc = await getDoc(doc(db, 'friendships', uid));
       const friends = friendshipDoc.data()?.friends || [];
 
       // Get friend details
@@ -257,7 +256,7 @@ export const friendRequestService = {
    */
   async getUserInfo(uid: string) {
     try {
-      const userDoc = await getDoc(doc(getFirestore(), 'users', uid));
+      const userDoc = await getDoc(doc(db, 'users', uid));
       return userDoc.data();
     } catch (error: any) {
       console.error('❌ Error getting user info:', error.message);
@@ -273,7 +272,7 @@ export const friendRequestService = {
   async sendNotificationToUser(uid: string, notification: any) {
     try {
       const notificationsRef = collection(
-        getFirestore(),
+        db,
         'users',
         uid,
         'notifications'

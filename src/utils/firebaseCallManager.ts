@@ -1,5 +1,4 @@
 import {
-  getFirestore,
   doc,
   setDoc,
   updateDoc,
@@ -13,6 +12,7 @@ import {
   getDocs,
   serverTimestamp,
 } from 'firebase/firestore';
+import { db } from './firebase';
 import logger from './logger';
 
 export type CallStatus = 'ringing' | 'accepted' | 'rejected' | 'ended' | 'missed';
@@ -32,7 +32,7 @@ export interface CallSession {
 }
 
 export class FirebaseCallManager {
-  private db = getFirestore();
+  private firestore = db;
   private unsubscribers: Map<string, Unsubscribe> = new Map();
   private debug: boolean = false;
 
@@ -78,7 +78,7 @@ export class FirebaseCallManager {
         timestamp: Date.now(),
       };
 
-      await setDoc(doc(this.db, 'calls', callId), callData);
+      await setDoc(doc(this.firestore, 'calls', callId), callData);
       this.log(`✅ Call initiated: ${callId}`);
     } catch (err) {
       this.error('Failed to initiate call', err);
@@ -94,7 +94,7 @@ export class FirebaseCallManager {
     try {
       this.log(`✅ Accepting call: ${callId}`);
 
-      await updateDoc(doc(this.db, 'calls', callId), {
+      await updateDoc(doc(this.firestore, 'calls', callId), {
         status: 'accepted',
         startTime: Date.now(),
       });
@@ -113,7 +113,7 @@ export class FirebaseCallManager {
     try {
       this.log(`❌ Rejecting call: ${callId}`);
 
-      await updateDoc(doc(this.db, 'calls', callId), {
+      await updateDoc(doc(this.firestore, 'calls', callId), {
         status: 'rejected',
         endTime: Date.now(),
       });
@@ -132,7 +132,7 @@ export class FirebaseCallManager {
     try {
       this.log(`📵 Ending call: ${callId}`);
 
-      const callRef = doc(this.db, 'calls', callId);
+      const callRef = doc(this.firestore, 'calls', callId);
       const callSnap = await getDoc(callRef);
 
       if (callSnap.exists()) {
@@ -175,7 +175,7 @@ export class FirebaseCallManager {
     try {
       this.log(`⏭️ Marking call as missed: ${callId}`);
 
-      await updateDoc(doc(this.db, 'calls', callId), {
+      await updateDoc(doc(this.firestore, 'calls', callId), {
         status: 'missed',
         endTime: Date.now(),
       });
@@ -199,7 +199,7 @@ export class FirebaseCallManager {
       this.log(`👂 Listening to call: ${callId}`);
 
       const unsubscribe = onSnapshot(
-        doc(this.db, 'calls', callId),
+        doc(this.firestore, 'calls', callId),
         (snapshot) => {
           if (snapshot.exists()) {
             const callData = snapshot.data() as CallSession;
@@ -235,7 +235,7 @@ export class FirebaseCallManager {
    */
   async getCall(callId: string): Promise<CallSession | null> {
     try {
-      const snapshot = await getDoc(doc(this.db, 'calls', callId));
+      const snapshot = await getDoc(doc(this.firestore, 'calls', callId));
       return snapshot.exists() ? (snapshot.data() as CallSession) : null;
     } catch (err) {
       this.error('Failed to get call', err);
@@ -249,7 +249,7 @@ export class FirebaseCallManager {
   async getActiveCalls(userId: string): Promise<CallSession[]> {
     try {
       const q = query(
-        collection(this.db, 'calls'),
+        collection(this.firestore, 'calls'),
         where('receiverId', '==', userId),
         where('status', 'in', ['ringing', 'accepted'])
       );
@@ -268,7 +268,7 @@ export class FirebaseCallManager {
   async getCallHistory(userId: string, limit: number = 50): Promise<CallSession[]> {
     try {
       const q = query(
-        collection(this.db, 'calls'),
+        collection(this.firestore, 'calls'),
         where('callerId', '==', userId),
         where('status', 'in', ['ended', 'missed', 'rejected'])
       );

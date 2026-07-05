@@ -17,6 +17,7 @@ import {
 import { db } from '../firebase';
 import { ref, get, remove } from 'firebase/database';
 import { realtimeDb } from '../firebase';
+import { sanitizePathComponent } from './shared';
 
 const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -164,7 +165,7 @@ export const dataRetention = {
    */
   async cleanupDeliveryPipe(uid: string): Promise<number> {
     try {
-      const deliveryRef = ref(realtimeDb, `delivery/${uid}`);
+      const deliveryRef = ref(realtimeDb, `delivery/${sanitizePathComponent(uid)}`);
       const snapshot = await get(deliveryRef);
       if (!snapshot.exists()) return 0;
 
@@ -179,7 +180,7 @@ export const dataRetention = {
         const createdAt = node?._createdAt;
         const ts = typeof createdAt === 'number' ? createdAt : 0;
         if (ts > 0 && now - ts > TTL_MS) {
-          deletes.push(remove(ref(realtimeDb, `delivery/${uid}/${key}`)));
+          deletes.push(remove(ref(realtimeDb, `delivery/${sanitizePathComponent(uid)}/${key}`)));
           deleted++;
         }
       }

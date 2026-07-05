@@ -56,6 +56,9 @@ importers:
       '@capacitor/status-bar':
         specifier: ^8.0.2
         version: 8.0.2(@capacitor/core@8.3.1)
+      '@capawesome/capacitor-badge':
+        specifier: ^8.0.2
+        version: 8.0.2(@capacitor/core@8.3.1)
       '@emotion/react':
         specifier: ^11.14.0
         version: 11.14.0(@types/react@18.3.28)(react@18.3.1)
@@ -540,6 +543,11 @@ packages:
 
   '@capacitor/synapse@1.0.4':
     resolution: {integrity: sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==}
+
+  '@capawesome/capacitor-badge@8.0.2':
+    resolution: {integrity: sha512-4ZnRyFvViaokupdrOi3OkoBurH+23hnxni+PYq5C1ObNLYbhty/WK8BzMtndCv0S47XjGBLjQ9DJsYj3JDVxGQ==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
 
   '@colors/colors@1.5.0':
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
@@ -6556,6 +6564,10 @@ snapshots:
       '@capacitor/core': 8.3.1
 
   '@capacitor/synapse@1.0.4': {}
+
+  '@capawesome/capacitor-badge@8.0.2(@capacitor/core@8.3.1)':
+    dependencies:
+      '@capacitor/core': 8.3.1
 
   '@colors/colors@1.5.0':
     optional: true

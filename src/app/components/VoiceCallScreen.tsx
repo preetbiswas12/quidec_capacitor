@@ -297,7 +297,7 @@ export default function VoiceCallScreen() {
         <div className="flex items-center justify-between w-full pt-14 mb-auto">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-[#4D91FB] animate-pulse" />
-            <span className="text-white/80 text-sm">WhatsApp</span>
+            <span className="text-white/80 text-sm">Veill</span>
           </div>
           <button className="text-white/60 hover:text-white p-2">
             <MoreVertical size={20} />

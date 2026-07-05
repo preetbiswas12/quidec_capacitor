@@ -7,8 +7,8 @@
  * Data schemas: Presence data in RTDB, friendship document with friends array
  */
 
-import { getFirestore, doc, setDoc, collection, query, where, getDocs, onSnapshot, serverTimestamp, documentId, getDoc } from 'firebase/firestore';
-import { getDatabase, ref, set, onValue, serverTimestamp as rtdbServerTimestamp, get, remove, onChildAdded } from 'firebase/database';
+import { doc, setDoc, collection, query, where, getDocs, onSnapshot, serverTimestamp, documentId, getDoc } from 'firebase/firestore';
+import { ref, set, onValue, serverTimestamp as rtdbServerTimestamp, get, remove, onChildAdded } from 'firebase/database';
 import { db, realtimeDb } from '../firebase';
 import logger from '../logger';
 import { sanitizePathComponent } from './shared';

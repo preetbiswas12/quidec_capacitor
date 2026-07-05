@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { MessageSquare, MoreVertical, PenSquare, ArrowLeft, X, Search, AtSign, UserPlus, Check, Clock, Users, Circle, Bell } from 'lucide-react';
+import { MessageSquare, MoreVertical, PenSquare, ArrowLeft, X, Search, AtSign, UserPlus, Check, Clock, Users, Circle } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
@@ -9,7 +9,7 @@ import StatusTab from './StatusTab';
 import SettingsPage from './SettingsPage';
 import MessageRequests from './MessageRequests';
 import Avatar from './Avatar';
-import NotificationPanel from './NotificationPanel';
+
 
 type NewChatTab = 'contacts' | 'find-id';
 
@@ -29,7 +29,6 @@ export default function LeftPanel() {
 
   const [showMenu, setShowMenu] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
   const [newChatTab, setNewChatTab] = useState<NewChatTab>('contacts');
   const [newChatSearch, setNewChatSearch] = useState('');
   const [idQuery, setIdQuery] = useState('');
@@ -295,7 +294,7 @@ export default function LeftPanel() {
                   </button>
 
                   <h1 className="text-wa-primary" style={{ fontSize: '1.1rem', fontWeight: 700 }}>
-                    {activeTab === 'chats' ? 'WhatsApp' : 'Status'}
+                    {activeTab === 'chats' ? 'Veill' : 'Status'}
                   </h1>
 
                   <div className="flex items-center gap-1">
@@ -307,20 +306,6 @@ export default function LeftPanel() {
                       >
                         <Search size={18} />
                       </button>
-                    )}
-                    {activeTab === 'chats' && (
-                      <div className="relative">
-                        <button
-                          onClick={() => setShowNotifications(v => !v)}
-                          className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showNotifications ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}
-                          title="Notifications"
-                        >
-                          <Bell size={18} />
-                        </button>
-                        <AnimatePresence>
-                          {showNotifications && <NotificationPanel onClose={() => setShowNotifications(false)} />}
-                        </AnimatePresence>
-                      </div>
                     )}
                     {activeTab === 'chats' && (
                       <button

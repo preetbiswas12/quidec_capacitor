@@ -18,7 +18,7 @@ export async function setTyping(
 ): Promise<void> {
   if (!navigator.onLine) return;
   try {
-    const conversationId = [fromUid, toUid].sort().join('_');
+    const conversationId = sanitizePathComponent([fromUid, toUid].sort().join('_'));
     const typingRef = ref(realtimeDb, `typing/${conversationId}/${sanitizePathComponent(fromUid)}`);
 
     if (isTyping) {
@@ -76,7 +76,7 @@ export function listenToTyping(
   toUid: string,
   callback: (typingUsers: string[]) => void
 ): () => void {
-  const conversationId = [fromUid, toUid].sort().join('_');
+  const conversationId = sanitizePathComponent([fromUid, toUid].sort().join('_'));
   const typingRef = ref(realtimeDb, `typing/${conversationId}`);
 
   const unsubscribe = onValue(typingRef, (snapshot) => {

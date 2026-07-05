@@ -6,12 +6,22 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Check if user document exists and the uid field matches the auth UID
     function isUser(handle) {
-      return request.auth.uid == get(/databases/$(database)/documents/users/$(handle)).data.uid;
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/users/$(handle))
+        && request.auth.uid == get(/databases/$(database)/documents/users/$(handle)).data.uid;
     }
 
+    // Same as isUser — owner check via uid field in user document
     function isOwner(userId) {
-      return request.auth.uid == get(/databases/$(database)/documents/users/$(userId)).data.uid;
+      return isUser(userId);
+    }
+
+    // Alternative ownership check: userId in the path matches auth UID directly
+    // (useful for subcollections where the parent doc ID is the auth UID)
+    function isOwnerByPath(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -28,36 +38,36 @@ service cloud.firestore {
         && resource.data.uid == request.auth.uid;
 
       match /settings/{settingDoc} {
-        allow read, write: if isAuthenticated() && isOwner(userId);
+        allow read, write: if isAuthenticated() && (isOwner(userId) || isOwnerByPath(userId));
       }
 
       match /chatSettings/{chatId} {
-        allow read, write: if isAuthenticated() && isOwner(userId);
+        allow read, write: if isAuthenticated() && (isOwner(userId) || isOwnerByPath(userId));
       }
 
       match /callHistory/{callId} {
-        allow read, write: if isAuthenticated() && isOwner(userId);
+        allow read, write: if isAuthenticated() && (isOwner(userId) || isOwnerByPath(userId));
       }
 
       match /deviceSessions/{deviceId} {
-        allow read, write, delete: if isAuthenticated() && isOwner(userId);
+        allow read, write, delete: if isAuthenticated() && (isOwner(userId) || isOwnerByPath(userId));
       }
 
       match /syncRequests/{requestId} {
-        allow read, write: if isAuthenticated() && isOwner(userId);
+        allow read, write: if isAuthenticated() && (isOwner(userId) || isOwnerByPath(userId));
       }
 
       match /linkedDevices/{deviceId} {
-        allow read, write: if isAuthenticated() && isOwner(userId);
+        allow read, write: if isAuthenticated() && (isOwner(userId) || isOwnerByPath(userId));
       }
 
       match /notifications/{notifId} {
-        allow read, write: if isAuthenticated() && isOwner(userId);
+        allow read, write: if isAuthenticated() && (isOwner(userId) || isOwnerByPath(userId));
       }
 
       match /statuses/{statusId} {
         allow read: if isAuthenticated();
-        allow write: if isAuthenticated() && isOwner(userId);
+        allow write: if isAuthenticated() && (isOwner(userId) || isOwnerByPath(userId));
       }
     }
 
@@ -86,7 +96,7 @@ service cloud.firestore {
 
     match /friendships/{userId} {
       allow read, write: if isAuthenticated()
-        && isUser(userId);
+        && (isUser(userId) || isOwnerByPath(userId));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -96,15 +106,18 @@ service cloud.firestore {
     match /friendRequests/{requestId} {
       allow read: if isAuthenticated() && (
         isUser(resource.data.fromUid) || isUser(resource.data.toUid)
+        || request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid
       );
       allow create: if isAuthenticated()
-        && isUser(request.resource.data.fromUid)
+        && (isUser(request.resource.data.fromUid) || request.auth.uid == request.resource.data.fromUid)
         && request.resource.data.toUid != request.auth.uid;
       allow update: if isAuthenticated() && (
         isUser(resource.data.fromUid) || isUser(resource.data.toUid)
+        || request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid
       );
       allow delete: if isAuthenticated() && (
         isUser(resource.data.fromUid) || isUser(resource.data.toUid)
+        || request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid
       );
     }
 
@@ -116,12 +129,16 @@ service cloud.firestore {
       allow read, write: if isAuthenticated() && (
         isUser(conversationId.split('_')[0])
         || isUser(conversationId.split('_')[1])
+        || request.auth.uid == conversationId.split('_')[0]
+        || request.auth.uid == conversationId.split('_')[1]
       );
 
       match /messages/{messageId} {
         allow read, write: if isAuthenticated() && (
           isUser(conversationId.split('_')[0])
           || isUser(conversationId.split('_')[1])
+          || request.auth.uid == conversationId.split('_')[0]
+          || request.auth.uid == conversationId.split('_')[1]
         );
       }
     }
@@ -134,13 +151,10 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated();
       allow update: if isAuthenticated()
-        && isUser(resource.data.creatorId);
+        && (isUser(resource.data.creatorId) || request.auth.uid == resource.data.creatorId);
       allow delete: if isAuthenticated()
-        && isUser(resource.data.creatorId);
+        && (isUser(resource.data.creatorId) || request.auth.uid == resource.data.creatorId);
 
-      // Group messages: authenticated members can read.
-      // Membership is enforced client-side and by the group document's members array.
-      // Server-side: any authenticated user who can read the group can read/write messages.
       match /messages/{messageId} {
         allow read: if isAuthenticated()
           && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
@@ -156,14 +170,17 @@ service cloud.firestore {
     match /calls/{callId} {
       allow read: if isAuthenticated() && (
         isUser(resource.data.callerId) || isUser(resource.data.receiverId)
+        || request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.receiverId
       );
       allow create: if isAuthenticated()
-        && isUser(request.resource.data.callerId);
+        && (isUser(request.resource.data.callerId) || request.auth.uid == request.resource.data.callerId);
       allow update: if isAuthenticated() && (
         isUser(resource.data.callerId) || isUser(resource.data.receiverId)
+        || request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.receiverId
       );
       allow delete: if isAuthenticated() && (
         isUser(resource.data.callerId) || isUser(resource.data.receiverId)
+        || request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.receiverId
       );
     }
 
@@ -176,6 +193,8 @@ service cloud.firestore {
       allow read, delete: if isAuthenticated() && (
         isUser(resource.data.metadata.uploadedBy)
         || isUser(resource.data.metadata.intendedFor)
+        || request.auth.uid == resource.data.metadata.uploadedBy
+        || request.auth.uid == resource.data.metadata.intendedFor
       );
     }
 

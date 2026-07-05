@@ -266,7 +266,7 @@ export const messageService = {
         : `Sent a ${messageType}`;
 
       // Store notification request in RTDB (transient, not persisted)
-      const notificationRef = ref(realtimeDb, `notifications/${toUid}/${Date.now()}`);
+      const notificationRef = ref(realtimeDb, `notifications/${sanitizePathComponent(toUid)}/${Date.now()}`);
       await set(notificationRef, {
         type: 'new_message',
         fromUid,

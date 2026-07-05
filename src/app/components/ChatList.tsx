@@ -174,7 +174,7 @@ export default function ChatList() {
           <div className="flex flex-col items-center justify-center py-16 text-wa-text-muted gap-3">
             <Search size={40} className="opacity-30" />
             <p style={{ fontSize: '0.95rem' }}>
-              {searchQuery ? `No results for "${searchQuery}"` : `No ${chatFilter} chats`}
+              {searchQuery ? `No results for "${searchQuery}"` : chatFilter === 'all' ? 'No chats yet' : `No ${chatFilter} chats`}
             </p>
           </div>
         )}

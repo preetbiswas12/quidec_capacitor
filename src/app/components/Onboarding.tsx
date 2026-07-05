@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useApp } from '../context/AppContext';
 import services from '../../utils/firebaseServices';
@@ -29,8 +29,35 @@ export default function Onboarding() {
   const [verifying, setVerifying] = useState(false);
   const [verified, setVerified] = useState(false);
   const [resendSent, setResendSent] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
   const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+
+  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 256;
+        let w = img.width;
+        let h = img.height;
+        if (w > h) { if (w > MAX_SIZE) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; } }
+        else { if (h > MAX_SIZE) { w = Math.round(w * MAX_SIZE / h); h = MAX_SIZE; } }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, w, h);
+        setAvatarPreview(canvas.toDataURL('image/jpeg', 0.8));
+      };
+      img.src = ev.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   // ─── Verification Polling ──────────────────────────────────────────────────
   
@@ -147,11 +174,16 @@ export default function Onboarding() {
 
   const handleFinish = async () => {
     if (!name.trim()) return;
+    if (!generatedId) {
+      setError('Please wait for your unique ID to generate.');
+      return;
+    }
     setLoading(true);
     try {
-      // Use the already generated unique ID
       const userId = generatedId;
-      await updateCurrentUser({ name: name.trim(), userId, about: 'Available' });
+      const updates: any = { name: name.trim(), userId, about: 'Available' };
+      if (avatarPreview) updates.avatar = avatarPreview;
+      await updateCurrentUser(updates);
       navigate('/app');
     } catch (err) {
       setError('Failed to save profile. Please try again.');
@@ -462,15 +494,20 @@ export default function Onboarding() {
         </div>
         <div className="w-full space-y-5">
           <div className="flex justify-center">
-            <div className="relative">
+            <div className="relative cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
               <div className="w-24 h-24 rounded-full bg-[#DFE5E7] flex items-center justify-center overflow-hidden">
-                <Camera size={32} className="text-[#8696A0]" />
+                {avatarPreview ? (
+                  <img src={avatarPreview} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  <Camera size={32} className="text-[#8696A0]" />
+                )}
               </div>
-               <button className="absolute bottom-0 right-0 w-8 h-8 bg-[#4D91FB] rounded-full flex items-center justify-center shadow-md" aria-label="Upload profile photo">
+              <div className="absolute bottom-0 right-0 w-8 h-8 bg-[#4D91FB] rounded-full flex items-center justify-center shadow-md">
                 <Camera size={14} className="text-white" />
-              </button>
+              </div>
             </div>
           </div>
+          <input ref={avatarInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleAvatarSelect} />
           <div className="border-b-2 border-[#4D91FB] flex items-center gap-2">
             <input
               type="text"

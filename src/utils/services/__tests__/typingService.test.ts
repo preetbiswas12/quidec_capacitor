@@ -85,6 +85,17 @@ describe('setTyping', () => {
 
     expect(mockRemove).toHaveBeenCalledTimes(1);
   });
+
+  it('sanitizes UIDs with dots in the path', async () => {
+    await setTyping('preetb.5815', 'user_abc', true);
+
+    // conversationId = ['preetb.5815', 'user_abc'].sort().join('_') = 'preetb.5815_user_abc'
+    // sanitizePathComponent('preetb.5815_user_abc') = 'preetb_5815_user_abc'
+    expect(mockRef).toHaveBeenCalledWith(
+      {},
+      'typing/preetb_5815_user_abc/preetb_5815',
+    );
+  });
 });
 
 describe('setGroupTyping', () => {
@@ -171,6 +182,15 @@ describe('listenToTyping', () => {
     listenToTyping('uid_a', 'uid_b', callback);
 
     expect(callback).toHaveBeenCalledWith(['uid_c', 'uid_d']);
+  });
+
+  it('sanitizes UIDs with dots in the listener path', () => {
+    listenToTyping('preetb.5815', 'all', vi.fn());
+
+    const [refArg] = mockOnValue.mock.calls[0] as any[];
+    // ['all', 'preetb.5815'].sort().join('_') = 'all_preetb.5815'
+    // sanitizePathComponent('all_preetb.5815') = 'all_preetb_5815'
+    expect(refArg.path).toBe('typing/all_preetb_5815');
   });
 });
 

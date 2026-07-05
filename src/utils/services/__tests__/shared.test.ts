@@ -72,24 +72,24 @@ describe('normalizeFirestoreTimestamp', () => {
 });
 
 describe('generateUserIdSync', () => {
-  it('generates username.1234 pattern', () => {
+  it('generates username_1234 pattern', () => {
     const result = generateUserIdSync('Alice');
-    expect(result).toMatch(/^alice\.\d{4}$/);
+    expect(result).toMatch(/^alice_\d{4}$/);
   });
 
   it('strips spaces from name', () => {
     const result = generateUserIdSync('John Doe');
-    expect(result).toMatch(/^johndoe\.\d{4}$/);
+    expect(result).toMatch(/^johndoe_\d{4}$/);
   });
 
   it('lowercases the name', () => {
     const result = generateUserIdSync('ADMIN');
-    expect(result).toMatch(/^admin\.\d{4}$/);
+    expect(result).toMatch(/^admin_\d{4}$/);
   });
 
   it('generates 4-digit numeric suffix', () => {
     const result = generateUserIdSync('test');
-    const suffix = parseInt(result.split('.')[1], 10);
+    const suffix = parseInt(result.split('_')[1], 10);
     expect(suffix).toBeGreaterThanOrEqual(1000);
     expect(suffix).toBeLessThanOrEqual(9999);
   });

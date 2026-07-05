@@ -162,6 +162,16 @@ async function handleIncomingNotification(notification) {
       extra: data,
     }],
   });
+
+  // Increment app icon badge
+  try {
+    const { setAppBadge } = await import('./services/notificationService');
+    // Badge is managed by AppContext via setAppBadge on chats state change.
+    // Here we just ensure it's set for native foreground scenarios.
+    const { Badge } = await import('@capawesome/capacitor-badge');
+    const current = await Badge.getBadge();
+    await Badge.setBadge({ count: (current.count || 0) + 1 });
+  } catch { /* non-critical, badge managed by AppContext */ }
 }
 
 /**
