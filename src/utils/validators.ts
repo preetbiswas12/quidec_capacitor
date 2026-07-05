@@ -184,15 +184,7 @@ export function sanitizeHTML(text: string): string {
   const div = document.createElement('div');
   div.textContent = text; // textContent prevents HTML parsing
 
-  // Get the escaped HTML
-  const sanitized = div.innerHTML;
-
-  // Additional check: remove any suspicious patterns
-  if (sanitized.includes('script') || sanitized.includes('onerror') || sanitized.includes('onload')) {
-    throw new Error('Invalid message: contains suspicious content');
-  }
-
-  return sanitized;
+  return div.innerHTML;
 }
 
 /**

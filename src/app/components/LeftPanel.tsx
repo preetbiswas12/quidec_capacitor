@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { MessageSquare, MoreVertical, PenSquare, ArrowLeft, X, Search, AtSign, UserPlus, Check, Clock, Users, Circle } from 'lucide-react';
+import { MessageSquare, MoreVertical, PenSquare, ArrowLeft, X, Search, AtSign, UserPlus, Check, Clock, Users, Circle, Bell } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
@@ -9,6 +9,7 @@ import StatusTab from './StatusTab';
 import SettingsPage from './SettingsPage';
 import MessageRequests from './MessageRequests';
 import Avatar from './Avatar';
+import NotificationPanel from './NotificationPanel';
 
 type NewChatTab = 'contacts' | 'find-id';
 
@@ -23,10 +24,12 @@ export default function LeftPanel() {
     createGroup,
     searchUsers,
     searchAllMessages,
+    isOffline,
   } = useApp();
 
   const [showMenu, setShowMenu] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [newChatTab, setNewChatTab] = useState<NewChatTab>('contacts');
   const [newChatSearch, setNewChatSearch] = useState('');
   const [idQuery, setIdQuery] = useState('');
@@ -50,6 +53,12 @@ export default function LeftPanel() {
   const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
   const globalSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const globalSearchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (globalSearchTimerRef.current) clearTimeout(globalSearchTimerRef.current);
+    };
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -157,7 +166,15 @@ export default function LeftPanel() {
   const isExistingContact = (contactId: string) => contacts.some(c => c.id === contactId);
   const hasExistingChat = (contactId: string) => chats.some(c => c.contactId === contactId);
 
-  const handleSendRequest = (contactId: string) => sendChatRequest(contactId);
+  const handleSendRequest = (contactId: string) => {
+    if (!navigator.onLine) {
+      import('sonner').then(({ toast }) => {
+        toast.info('Friend request will be sent when you\'re back online');
+      });
+      return;
+    }
+    sendChatRequest(contactId);
+  };
 
   const resetNewChat = () => {
     setShowNewChat(false);
@@ -170,6 +187,23 @@ export default function LeftPanel() {
 
   return (
     <div className="flex flex-col h-full bg-wa-main text-wa-primary transition-colors duration-200 relative">
+      {/* Offline indicator */}
+      <AnimatePresence>
+        {isOffline && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-1.5 flex items-center gap-2 shrink-0"
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+            <span className="text-amber-400" style={{ fontSize: '0.7rem', fontWeight: 500 }}>
+              You're offline
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       {!settingsSubPage && (
         <div className="flex-shrink-0 bg-wa-header border-b border-wa-border/10 pt-10">
@@ -273,6 +307,20 @@ export default function LeftPanel() {
                       >
                         <Search size={18} />
                       </button>
+                    )}
+                    {activeTab === 'chats' && (
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowNotifications(v => !v)}
+                          className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showNotifications ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}
+                          title="Notifications"
+                        >
+                          <Bell size={18} />
+                        </button>
+                        <AnimatePresence>
+                          {showNotifications && <NotificationPanel onClose={() => setShowNotifications(false)} />}
+                        </AnimatePresence>
+                      </div>
                     )}
                     {activeTab === 'chats' && (
                       <button

@@ -32,6 +32,7 @@ import { db, auth, realtimeDb, getFCMToken } from '../firebase';
 import { validateEmail, validatePassword, validateUsername, loginLimiter, registerLimiter } from '../validators';
 import logger from '../logger';
 import { sanitizePathComponent, getCustomUsernameByFirebaseUid, generateUniqueUserId } from './shared';
+import { setUserContext, clearUserContext } from '../errorMonitoring';
 
 // Re-export from shared for barrel
 export { sanitizePathComponent, getCustomUsernameByFirebaseUid, generateUniqueUserId, generateUserIdSync } from './shared';
@@ -104,6 +105,8 @@ export const authService = {
         blockedUsers: [],
         createdAt: serverTimestamp(),
       });
+
+      setUserContext(user.uid, generatedUserId, email);
 
       console.log(`✅ User registered: ${username}`);
       return { success: true, user, uid: user.uid, username: generatedUserId, message: 'Please check your email to verify your account' };
@@ -178,6 +181,8 @@ export const authService = {
         console.warn('⚠️ FCM token setup skipped:', fcmErr);
       }
 
+      setUserContext(user.uid, customUsername, user.email || undefined);
+
       console.log(`✅ User logged in: ${user.email}`);
       return { success: true, user, uid: user.uid, username: customUsername, emailVerified: true };
     } catch (error: any) {
@@ -237,17 +242,22 @@ export const authService = {
   async logoutUser() {
     const user = auth.currentUser;
     if (user) {
-      const customUsername = await getCustomUsernameByFirebaseUid(user.uid);
-      await set(ref(realtimeDb, `presence/${sanitizePathComponent(user.uid)}`), {
-        online: false,
-        lastSeen: rtdbServerTimestamp(),
-        username: customUsername || user.displayName || user.email,
-      });
-      if (customUsername) {
-        await setDoc(doc(db, 'users', customUsername), { isOnline: false, lastSeen: serverTimestamp() }, { merge: true });
+      try {
+        const customUsername = await getCustomUsernameByFirebaseUid(user.uid);
+        await set(ref(realtimeDb, `presence/${sanitizePathComponent(user.uid)}`), {
+          online: false,
+          lastSeen: rtdbServerTimestamp(),
+          username: customUsername || user.displayName || user.email,
+        });
+        if (customUsername) {
+          await setDoc(doc(db, 'users', customUsername), { isOnline: false, lastSeen: serverTimestamp() }, { merge: true });
+        }
+      } catch (presenceErr) {
+        logger.warn('logoutUser', `Failed to update presence: ${presenceErr}`);
       }
     }
     await signOut(auth);
+    clearUserContext();
     return { success: true };
   },
 

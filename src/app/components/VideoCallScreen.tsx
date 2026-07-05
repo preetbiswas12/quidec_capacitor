@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   PhoneOff, Mic, MicOff, Video, VideoOff, RotateCcw,
-  Volume2, VolumeX, MessageSquare, Users,
+  Volume2, VolumeX, MessageSquare, Users, RefreshCw,
 } from 'lucide-react';
 import { MediaConnection } from 'peerjs';
 import { useApp } from '../context/AppContext';
@@ -17,7 +17,7 @@ interface VideoCallScreenProps {
   isIncoming?: boolean;
 }
 
-type CallState = 'initializing' | 'ringing' | 'connecting' | 'connected' | 'ended' | 'error';
+type CallState = 'initializing' | 'ringing' | 'connecting' | 'connected' | 'reconnecting' | 'ended' | 'error';
 
 export default function VideoCallScreen(props: VideoCallScreenProps) {
   const { id: routeCallId } = useParams<{ id?: string }>();
@@ -39,6 +39,10 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
   const [isFrontCamera, setIsFrontCamera] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [callSessionData, setCallSessionData] = useState<CallSession | null>(null);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+
+  const MAX_RECONNECT_ATTEMPTS = 5;
+  const RECONNECT_BASE_DELAY = 1000;
 
   // Refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -50,6 +54,11 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const unsubscribeCallRef = useRef<(() => void) | null>(null);
   const unsubscribeCallListenerRef = useRef<(() => void) | null>(null);
+  const navigateTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectAttemptRef = useRef(0);
+  const isReconnectingRef = useRef(false);
+  const callEndedRef = useRef(false);
 
   const remoteContact = contacts.find((c) => c.id === remoteUserId);
 
@@ -114,6 +123,46 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
     }
   }, []);
 
+  const attemptReconnect = useCallback(async () => {
+    if (callEndedRef.current || isReconnectingRef.current) return;
+
+    isReconnectingRef.current = true;
+    setCallState('reconnecting');
+
+    const attempt = reconnectAttemptRef.current + 1;
+    reconnectAttemptRef.current = attempt;
+    setReconnectAttempt(attempt);
+
+    if (attempt > MAX_RECONNECT_ATTEMPTS) {
+      console.warn('Max reconnection attempts reached');
+      setErrorMessage('Connection lost. Please try again.');
+      setCallState('error');
+      return;
+    }
+
+    const delay = RECONNECT_BASE_DELAY * Math.pow(2, attempt - 1);
+    console.log(`PeerJS reconnecting in ${delay}ms (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`);
+
+    reconnectTimerRef.current = setTimeout(async () => {
+      try {
+        const peer = peerService.getInstance();
+        if (peer && !peer.destroyed) {
+          if (!peer.open) {
+            peer.reconnect();
+          }
+          isReconnectingRef.current = false;
+        } else {
+          isReconnectingRef.current = false;
+          attemptReconnect();
+        }
+      } catch (err) {
+        console.error('Reconnection failed:', err);
+        isReconnectingRef.current = false;
+        attemptReconnect();
+      }
+    }, delay);
+  }, []);
+
   /**
    * Initialize PeerJS and listen for incoming calls (receiver only)
    */
@@ -145,6 +194,21 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
             console.log('Incoming call closed');
             handleEndCall();
           });
+
+          const pc = (incomingCall as any).peerConnection;
+          if (pc) {
+            pc.oniceconnectionstatechange = () => {
+              const iceState = pc.iceConnectionState;
+              if (iceState === 'disconnected' || iceState === 'failed') {
+                console.warn('ICE state:', iceState);
+                attemptReconnect();
+              } else if (iceState === 'connected' || iceState === 'completed') {
+                reconnectAttemptRef.current = 0;
+                isReconnectingRef.current = false;
+                setCallState('connected');
+              }
+            };
+          }
         }
       );
     } catch (err) {
@@ -205,7 +269,20 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
                   remoteVideoRef.current.srcObject = remoteStream;
                 }
                 setCallState('connected');
+                reconnectAttemptRef.current = 0;
+                isReconnectingRef.current = false;
               });
+
+              const pc = (call as any).peerConnection;
+              if (pc) {
+                pc.oniceconnectionstatechange = () => {
+                  const iceState = pc.iceConnectionState;
+                  if (iceState === 'disconnected' || iceState === 'failed') {
+                    console.warn('ICE state:', iceState);
+                    attemptReconnect();
+                  }
+                };
+              }
 
               call.on('error', (err) => {
                 console.error('WebRTC call error:', err);
@@ -336,6 +413,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
   const handleEndCall = useCallback(async () => {
     try {
       console.log('Ending call...');
+      callEndedRef.current = true;
 
       // Close PeerJS connection
       await peerService.hangUp();
@@ -354,13 +432,14 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
       // Cleanup
       if (timerRef.current) clearInterval(timerRef.current);
       if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      if (navigateTimerRef.current) clearTimeout(navigateTimerRef.current);
       if (unsubscribeCallRef.current) unsubscribeCallRef.current();
       if (unsubscribeCallListenerRef.current) unsubscribeCallListenerRef.current();
 
       setCallState('ended');
 
-      // Navigate back after 2 seconds
-      setTimeout(() => {
+      navigateTimerRef.current = setTimeout(() => {
         navigate(-1);
       }, 2000);
     } catch (err) {
@@ -460,6 +539,9 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
     return () => {
       // Cleanup
       stopMediaTracks();
+      peerService.destroy();
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      if (navigateTimerRef.current) clearTimeout(navigateTimerRef.current);
       if (unsubscribeCallRef.current) unsubscribeCallRef.current();
       if (unsubscribeCallListenerRef.current) unsubscribeCallListenerRef.current();
     };
@@ -738,6 +820,27 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Reconnecting banner */}
+      {callState === 'reconnecting' && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute top-20 left-0 right-0 z-30 flex justify-center"
+        >
+          <div className="flex items-center gap-2 bg-yellow-500/20 backdrop-blur-sm rounded-full px-4 py-2">
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+            >
+              <RefreshCw size={14} className="text-yellow-400" />
+            </motion.div>
+            <span className="text-yellow-400 text-sm font-medium">
+              Reconnecting... ({reconnectAttempt}/{MAX_RECONNECT_ATTEMPTS})
+            </span>
+          </div>
+        </motion.div>
+      )}
 
       {/* Bottom controls */}
       <AnimatePresence>

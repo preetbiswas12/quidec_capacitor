@@ -21,6 +21,11 @@ import {
   encryptMessage,
   decryptMessage,
   generateHash,
+  signMessage,
+  verifySignature,
+  deriveSigningKey,
+  getKeyVersion,
+  rotateKeyVersion,
 } from '../encryption';
 
 describe('deriveKey', () => {
@@ -114,5 +119,63 @@ describe('generateHash', () => {
     const hash1 = await generateHash('input-a');
     const hash2 = await generateHash('input-b');
     expect(hash1).not.toBe(hash2);
+  });
+});
+
+describe('HMAC Authentication', () => {
+  it('signMessage produces a hex string', async () => {
+    const signingKey = await deriveSigningKey('alice:bob');
+    const sig = await signMessage({ content: 'hello', from: 'alice' }, signingKey);
+    expect(typeof sig).toBe('string');
+    expect(sig).toMatch(/^[a-f0-9]+$/);
+  });
+
+  it('verifySignature returns true for valid signature', async () => {
+    const signingKey = await deriveSigningKey('alice:bob');
+    const msg = { content: 'secret', ts: 12345 };
+    const sig = await signMessage(msg, signingKey);
+    const valid = await verifySignature(msg, sig, signingKey);
+    expect(valid).toBe(true);
+  });
+
+  it('verifySignature returns false for tampered message', async () => {
+    const signingKey = await deriveSigningKey('alice:bob');
+    const msg = { content: 'original' };
+    const sig = await signMessage(msg, signingKey);
+    const tampered = { content: 'tampered' };
+    const valid = await verifySignature(tampered, sig, signingKey);
+    expect(valid).toBe(false);
+  });
+
+  it('verifySignature returns false for wrong key', async () => {
+    const signingKey1 = await deriveSigningKey('alice:bob');
+    const signingKey2 = await deriveSigningKey('alice:charlie');
+    const msg = { content: 'hello' };
+    const sig = await signMessage(msg, signingKey1);
+    const valid = await verifySignature(msg, sig, signingKey2);
+    expect(valid).toBe(false);
+  });
+
+  it('deriveSigningKey produces consistent keys', async () => {
+    const sk1 = await deriveSigningKey('alice:bob');
+    const sk2 = await deriveSigningKey('alice:bob');
+    const msg = { test: true };
+    const sig1 = await signMessage(msg, sk1);
+    const sig2 = await signMessage(msg, sk2);
+    expect(sig1).toBe(sig2);
+  });
+});
+
+describe('Key Rotation', () => {
+  it('getKeyVersion returns a number', async () => {
+    const v = await getKeyVersion();
+    expect(typeof v).toBe('number');
+    expect(v).toBeGreaterThanOrEqual(1);
+  });
+
+  it('rotateKeyVersion increments the version', async () => {
+    const before = await getKeyVersion();
+    const after = await rotateKeyVersion();
+    expect(after).toBe(before + 1);
   });
 });

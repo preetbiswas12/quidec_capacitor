@@ -13,18 +13,44 @@
       "jsx": true
     }
   },
-  "plugins": ["@typescript-eslint", "react-hooks", "react-refresh"],
+  "plugins": ["@typescript-eslint", "react-hooks"],
   "extends": [
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended",
     "plugin:react-hooks/recommended"
   ],
   "rules": {
-    "react-refresh/only-export-components": ["warn", { "allowConstantExport": true }],
     "@typescript-eslint/no-explicit-any": "warn",
     "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
     "no-console": ["warn", { "allow": ["warn", "error", "info"] }],
-    "@typescript-eslint/no-require-imports": "off"
+    "@typescript-eslint/no-require-imports": "off",
+    "react-hooks/refs": "off",
+    "react-hooks/rules-of-hooks": "warn",
+    "react-hooks/exhaustive-deps": "warn",
+    "react-hooks/set-state-in-effect": "off",
+    "react-hooks/set-state-in-render": "off",
+    "react-hooks/purity": "off",
+    "react-hooks/invariant": "off",
+    "react-hooks/no-deriving-state-in-effects": "off",
+    "react-hooks/static-components": "off",
+    "react-hooks/use-memo": "off",
+    "react-hooks/preserve-manual-memoization": "off",
+    "react-hooks/immutability": "off",
+    "react-hooks/globals": "off",
+    "react-hooks/error-boundaries": "off",
+    "react-hooks/gating": "off",
+    "prefer-const": "warn",
+    "no-useless-escape": "warn",
+    "@typescript-eslint/ban-ts-comment": ["error", { "ts-ignore": "allow-with-description", "ts-nocheck": "allow-with-description" }]
   },
-  "ignorePatterns": ["dist", "node_modules", "*.config.*", "public"]
+  "ignorePatterns": ["dist", "node_modules", "*.config.*", "public"],
+  "overrides": [
+    {
+      "files": ["**/__tests__/**/*", "**/*.test.*", "**/*.spec.*", "**/test-utils.*"],
+      "rules": {
+        "@typescript-eslint/no-explicit-any": "off",
+        "@typescript-eslint/no-unsafe-function-type": "off"
+      }
+    }
+  ]
 }

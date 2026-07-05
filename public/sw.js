@@ -1,4 +1,4 @@
-const CACHE_NAME = 'veill-v1'
+const CACHE_NAME = 'veill-v2'
 const URLS_TO_CACHE = [
   '/',
   '/manifest.json',
@@ -23,9 +23,28 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Skip API requests and Firebase - always network first
-  if (request.url.includes('/api/') || request.url.includes('ws') ||
-      request.url.includes('googleapis.com') || request.url.includes('firebase')) {
+  // Stale-while-revalidate for API requests
+  if (request.url.includes('/api/') || request.url.includes('googleapis.com') || request.url.includes('firebase')) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then((cache) => {
+        return cache.match(request).then((cached) => {
+          const fetched = fetch(request).then((response) => {
+            if (response.ok) {
+              cache.put(request, response.clone())
+            }
+            return response
+          }).catch(() => {
+            return cached || new Response('Offline', { status: 503 })
+          })
+          return cached || fetched
+        })
+      })
+    )
+    return
+  }
+
+  // Skip WebSocket requests - always network
+  if (request.url.includes('ws')) {
     event.respondWith(fetch(request).catch(() => {
       return new Response('Offline', { status: 503 })
     }))
@@ -108,8 +127,8 @@ self.addEventListener('push', (event) => {
   const data = event.data.json()
   const options = {
     body: data.body,
-    icon: '/icon-192x192.png',
-    badge: '/icon-96x96.png',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
     tag: 'veill-notification',
     requireInteraction: false,
     silent: false,

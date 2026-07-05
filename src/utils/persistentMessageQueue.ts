@@ -11,7 +11,6 @@
  */
 
 import logger from './logger';
-import { reportError } from './errorMonitoring';
 
 export interface QueuedMessage {
   id: string;
@@ -20,33 +19,54 @@ export interface QueuedMessage {
   toUid: string;
   content: string;
   mediaFile?: File;
-  messageType: 'text' | 'image' | 'video' | 'audio';
+  messageType: 'text' | 'image' | 'video' | 'audio' | 'document' | 'link';
+  mediaUrl?: string | null;
+  replyToId?: string;
+  replyToContent?: string;
+  replyToSender?: string;
+  expiresAt?: number;
+  keyVersion?: number;
   timestamp: string;
   attempts: number;
   maxRetries: number;
+  createdAt: number;
+  groupId?: string;
+}
+
+export interface QueuedReadReceipt {
+  id: string;
+  conversationId: string;
+  messageId: string;
+  senderUid: string;
+  readerUid: string;
+  receiptType: 'delivered' | 'read';
+  timestamp: number;
   createdAt: number;
   expiresAt: number;
 }
 
 const QUEUE_KEY = 'message_queue_v1';
+const RECEIPT_QUEUE_KEY = 'read_receipt_queue_v1';
 const MAX_QUEUE_SIZE = 1000;
-const MESSAGE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const MESSAGE_TTL = 24 * 60 * 60 * 1000;
 const MAX_RETRIES = 10;
 
 class PersistentMessageQueue {
   private queue: Map<string, QueuedMessage> = new Map();
+  private receiptQueue: Map<string, QueuedReadReceipt> = new Map();
   private flushInterval: ReturnType<typeof setInterval> | null = null;
   private isProcessing = false;
 
   constructor() {
     this.loadQueue();
+    this.loadReceiptQueue();
     this.startAutoFlush();
   }
 
   /**
    * Add message to queue
    */
-  addMessage(message: Omit<QueuedMessage, 'id' | 'attempts' | 'expiresAt' | 'createdAt'>): string {
+  addMessage(message: Omit<QueuedMessage, 'id' | 'attempts' | 'createdAt'>): string {
     const now = Date.now();
     const messageId = `msg_${now}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -54,9 +74,9 @@ class PersistentMessageQueue {
       ...message,
       id: messageId,
       attempts: 0,
-      maxRetries: MAX_RETRIES,
+      maxRetries: message.maxRetries || MAX_RETRIES,
       createdAt: now,
-      expiresAt: now + MESSAGE_TTL,
+      expiresAt: message.expiresAt || now + MESSAGE_TTL,
     };
 
     // Check queue size
@@ -82,7 +102,7 @@ class PersistentMessageQueue {
    */
   getMessages(): QueuedMessage[] {
     return Array.from(this.queue.values())
-      .filter(msg => msg.expiresAt > Date.now()) // Remove expired
+      .filter(msg => !msg.expiresAt || msg.expiresAt > Date.now()) // Remove expired
       .sort((a, b) => a.createdAt - b.createdAt);
   }
 
@@ -150,6 +170,47 @@ class PersistentMessageQueue {
   }
 
   /**
+   * Add read receipt to queue
+   */
+  addReceipt(receipt: Omit<QueuedReadReceipt, 'id' | 'createdAt' | 'expiresAt'>): string {
+    const now = Date.now();
+    const id = `rcpt_${now}_${Math.random().toString(36).substr(2, 9)}`;
+    const queuedReceipt: QueuedReadReceipt = {
+      ...receipt,
+      id,
+      createdAt: now,
+      expiresAt: now + MESSAGE_TTL,
+    };
+    this.receiptQueue.set(id, queuedReceipt);
+    this.persistReceiptQueue();
+    return id;
+  }
+
+  /**
+   * Get all queued read receipts
+   */
+  getReceipts(): QueuedReadReceipt[] {
+    return Array.from(this.receiptQueue.values())
+      .filter(r => !r.expiresAt || r.expiresAt > Date.now())
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  /**
+   * Remove read receipt from queue
+   */
+  removeReceipt(receiptId: string): void {
+    this.receiptQueue.delete(receiptId);
+    this.persistReceiptQueue();
+  }
+
+  /**
+   * Get receipt queue size
+   */
+  getReceiptQueueSize(): number {
+    return this.receiptQueue.size;
+  }
+
+  /**
    * Persist queue to localStorage
    */
   private persistQueue(): void {
@@ -183,7 +244,7 @@ class PersistentMessageQueue {
 
       messages.forEach(msg => {
         // Skip expired messages
-        if (msg.expiresAt < Date.now()) {
+        if (msg.expiresAt && msg.expiresAt < Date.now()) {
           skippedExpired++;
           return;
         }
@@ -198,8 +259,37 @@ class PersistentMessageQueue {
       );
     } catch (err) {
       logger.error('messageQueue', `Failed to load queue: ${err}`);
-      // Start fresh if load fails
       this.queue.clear();
+    }
+  }
+
+  /**
+   * Persist read receipts to localStorage
+   */
+  private persistReceiptQueue(): void {
+    try {
+      const data = Array.from(this.receiptQueue.values());
+      localStorage.setItem(RECEIPT_QUEUE_KEY, JSON.stringify(data));
+    } catch (err) {
+      logger.error('messageQueue', `Failed to persist receipt queue: ${err}`);
+    }
+  }
+
+  /**
+   * Load read receipts from localStorage
+   */
+  private loadReceiptQueue(): void {
+    try {
+      const stored = localStorage.getItem(RECEIPT_QUEUE_KEY);
+      if (!stored) return;
+      const receipts: QueuedReadReceipt[] = JSON.parse(stored);
+      receipts.forEach(r => {
+        if (!r.expiresAt || r.expiresAt > Date.now()) {
+          this.receiptQueue.set(r.id, r);
+        }
+      });
+    } catch {
+      this.receiptQueue.clear();
     }
   }
 
@@ -248,6 +338,8 @@ class PersistentMessageQueue {
     );
   }
 }
+
+export { PersistentMessageQueue };
 
 // Singleton instance
 export const messageQueue = new PersistentMessageQueue();

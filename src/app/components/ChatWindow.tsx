@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import {
   ArrowLeft, Video, MoreVertical, Smile, Paperclip,
@@ -19,6 +19,7 @@ import { validateMessage, messageLimiter } from '../../utils/validators';
 import { mediaValidator } from '../../utils/mediaValidator';
 import { compressImage, formatBytes } from '../../utils/imageCompression';
 import { messageQueue } from '../../utils/persistentMessageQueue';
+import { sanitizeUrl } from '../../utils/sanitize';
 import { toast } from 'sonner';
 import { idbPaginator } from '../../utils/idbPaginator';
 import { typingService } from '../../utils/firebaseServices';
@@ -31,7 +32,7 @@ export default function ChatWindow() {
   const { id: chatId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const {
-    chats, contacts, messages, sendMessage, typingContacts,
+    chats, contacts, messages, sendMessage, typingContacts, isOffline, isReconnecting, syncProgress,
     setActiveChatId, contactInfoOpen, setContactInfoOpen,
     replyTo, setReplyTo, reactToMessage, clearChat,
     deleteMessage, addMessagesToChat, toggleStarMessage, editMessage, currentUser,
@@ -766,14 +767,16 @@ export default function ChatWindow() {
                     key={e} 
                     onClick={() => { reactToMessage(chatId!, activeMenuId, e); setActiveMenuId(null); }}
                     className="text-2xl hover:scale-125 transition-transform p-1.5 active:scale-90"
+                    aria-label={`React with ${e}`}
                   >
                     {e}
                   </button>
                 ))}
               </div>
               {/* Actions List */}
-              <div className="flex flex-col">
+              <div className="flex flex-col" role="menu">
                 <button
+                  role="menuitem"
                   onClick={() => {
                     const msg = chatMessages.find(m => m.id === activeMenuId);
                     if (msg) setReplyTo(msg);
@@ -788,6 +791,7 @@ export default function ChatWindow() {
                   if (menuMsg?.senderId === 'me' && menuMsg?.type === 'text') {
                     return (
                       <button
+                        role="menuitem"
                         onClick={() => {
                           if (menuMsg) startEditing(menuMsg.id);
                           setActiveMenuId(null);
@@ -801,6 +805,7 @@ export default function ChatWindow() {
                   return null;
                 })()}
                 <button
+                  role="menuitem"
                   onClick={() => {
                     const msg = chatMessages.find(m => m.id === activeMenuId);
                     if (msg && chatId) toggleStarMessage(chatId, msg.id);
@@ -811,6 +816,7 @@ export default function ChatWindow() {
                   <Star size={18} className="text-[#f9a825]" /> {chatMessages.find(m => m.id === activeMenuId)?.isStarred ? 'Unstar' : 'Star'}
                 </button>
                 <button
+                  role="menuitem"
                   onClick={() => {
                     const msg = chatMessages.find(m => m.id === activeMenuId);
                     if (msg) handleShareMessage(msg);
@@ -820,6 +826,7 @@ export default function ChatWindow() {
                   <Share2 size={18} className="text-wa-text-muted" /> Share
                 </button>
                 <button 
+                  role="menuitem"
                   onClick={() => {
                     const msg = chatMessages.find(m => m.id === activeMenuId);
                     if (msg?.imageUrl) handleSaveImage(msg.imageUrl);
@@ -830,6 +837,7 @@ export default function ChatWindow() {
                   <Save size={18} className="text-wa-text-muted" /> Save to Device
                 </button>
                 <button 
+                  role="menuitem"
                   onClick={() => {
                     navigator.clipboard.writeText(chatMessages.find(m => m.id === activeMenuId)?.content || '');
                     setActiveMenuId(null);
@@ -843,6 +851,7 @@ export default function ChatWindow() {
                   if (activeMsg?.senderId === 'me') {
                     return (
                       <button
+                        role="menuitem"
                         onClick={() => {
                           if (chatId && activeMenuId) deleteMessage(chatId, activeMenuId);
                           setActiveMenuId(null);
@@ -866,18 +875,19 @@ export default function ChatWindow() {
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="absolute inset-0 z-200 bg-black flex flex-col"
+            role="dialog" aria-modal="true" aria-label="Photo viewer"
           >
             <div className="flex items-center gap-3 px-4 py-3 bg-black/60 shrink-0">
-              <button onClick={() => setLightboxImage(null)} className="text-white p-1 rounded-full hover:bg-white/10">
+              <button onClick={() => setLightboxImage(null)} className="text-white p-1 rounded-full hover:bg-white/10" aria-label="Close photo viewer">
                 <ArrowLeft size={22} />
               </button>
               <span className="text-white flex-1" style={{ fontWeight: 500 }}>Photo</span>
-              <button onClick={() => handleSaveImage(lightboxImage!)} className="text-white p-1 rounded-full hover:bg-white/10">
+              <button onClick={() => handleSaveImage(lightboxImage!)} className="text-white p-1 rounded-full hover:bg-white/10" aria-label="Download photo">
                 <Download size={20} />
               </button>
             </div>
             <div className="flex-1 flex items-center justify-center p-2" onClick={() => setLightboxImage(null)}>
-              <img src={lightboxImage} alt="fullscreen" className="max-w-full max-h-full rounded-lg" style={{ objectFit: 'contain' }} onClick={e => e.stopPropagation()} />
+              <img src={lightboxImage} alt="Full-screen photo preview" className="max-w-full max-h-full rounded-lg" style={{ objectFit: 'contain' }} onClick={e => e.stopPropagation()} />
             </div>
           </motion.div>
         )}
@@ -891,21 +901,22 @@ export default function ChatWindow() {
               className="bg-wa-header border-b border-wa-border shrink-0 overflow-hidden pt-10"
             >
               <div className="flex items-center gap-2 px-3 py-2.5">
-                <button onClick={closeSearch} className="text-[#aebac1] p-1 shrink-0"><ArrowLeft size={20} /></button>
+                <button onClick={closeSearch} className="text-[#aebac1] p-1 shrink-0" aria-label="Close search"><ArrowLeft size={20} /></button>
                 <input
                   ref={msgSearchRef} type="text" value={msgSearch} onChange={e => { setMsgSearch(e.target.value); setMsgSearchIndex(0); }}
                   placeholder="Search messages…" className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]" style={{ fontSize: '0.9rem' }}
+                  aria-label="Search messages"
                 />
                 {msgSearch && <span className="text-wa-text-muted shrink-0" style={{ fontSize: '0.78rem' }}>{matchedMsgIds.length > 0 ? `${msgSearchIndex + 1}/${matchedMsgIds.length}` : '0/0'}</span>}
-                <button onClick={() => navigateSearchResult(-1)} disabled={matchedMsgIds.length === 0} className="text-[#aebac1] p-1 disabled:opacity-30"><ChevronUp size={18} /></button>
-                <button onClick={() => navigateSearchResult(1)} disabled={matchedMsgIds.length === 0} className="text-[#aebac1] p-1 disabled:opacity-30"><ChevronDown size={18} /></button>
+                <button onClick={() => navigateSearchResult(-1)} disabled={matchedMsgIds.length === 0} className="text-[#aebac1] p-1 disabled:opacity-30" aria-label="Previous search result"><ChevronUp size={18} /></button>
+                <button onClick={() => navigateSearchResult(1)} disabled={matchedMsgIds.length === 0} className="text-[#aebac1] p-1 disabled:opacity-30" aria-label="Next search result"><ChevronDown size={18} /></button>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
         <div className="flex items-center gap-3 px-3 py-2.5 pt-10 bg-wa-header shrink-0 border-b border-wa-border/10">
-          <button onClick={handleBack} className="text-wa-header-icon hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5"><ArrowLeft size={20} /></button>
+          <button onClick={handleBack} className="text-wa-header-icon hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5" aria-label="Go back to chats"><ArrowLeft size={20} /></button>
           <button onClick={() => setContactInfoOpen(!contactInfoOpen)} className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity">
             <div className="relative">
               <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={40} />
@@ -927,7 +938,7 @@ export default function ChatWindow() {
           </button>
           <div className="flex items-center gap-1">
             <div className="relative" ref={menuRef}>
-              <button onClick={() => setShowHeaderMenu(v => !v)} className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showHeaderMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}><MoreVertical size={20} /></button>
+              <button onClick={() => setShowHeaderMenu(v => !v)} className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showHeaderMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`} aria-label="Chat options" aria-expanded={showHeaderMenu}><MoreVertical size={20} /></button>
               {showHeaderMenu && (
                 <div className="absolute right-0 top-full mt-1 w-52 bg-[#233138] rounded-xl shadow-2xl overflow-hidden z-50 border border-wa-border">
                   {headerMenuItems.map(item => (
@@ -938,6 +949,34 @@ export default function ChatWindow() {
             </div>
           </div>
         </div>
+
+        {/* Offline indicator bar */}
+        <AnimatePresence>
+          {(isOffline || isReconnecting) && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className={`border-b px-4 py-2 flex items-center gap-2 shrink-0 ${
+                isReconnecting
+                  ? 'bg-blue-500/15 border-blue-500/30'
+                  : 'bg-amber-500/15 border-amber-500/30'
+              }`}
+              role="status" aria-live="polite"
+            >
+              <div className={`w-2 h-2 rounded-full animate-pulse ${
+                isReconnecting ? 'bg-blue-500' : 'bg-amber-500'
+              }`} />
+              <span className={isReconnecting ? 'text-blue-400' : 'text-amber-400'} style={{ fontSize: '0.8rem', fontWeight: 500 }}>
+                {isReconnecting
+                  ? syncProgress
+                    ? `Syncing... ${syncProgress.sent}/${syncProgress.total}`
+                    : 'Reconnecting — syncing messages...'
+                  : "You're offline — messages will be sent when you reconnect"}
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Recording indicator bar */}
         {(isRecordingVideo || isRecordingAudio) && (
@@ -957,7 +996,7 @@ export default function ChatWindow() {
 
         <div
           ref={messagesContainerRef}
-          className="flex-1 overflow-y-auto py-4 px-3 space-y-1"
+          className="flex-1 overflow-y-auto py-4 px-3"
           style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E")`, backgroundColor: 'var(--wa-bg-main)' }}
           onClick={() => { setShowAttachSheet(false); setShowEmojiPicker(false); setShowHeaderMenu(false); }}
         >
@@ -985,17 +1024,33 @@ export default function ChatWindow() {
             </div>
           )}
 
-          {chatMessages.map((msg, idx) => (
-            <MessageBubble
-              key={msg.id} message={msg} contact={contact} contacts={contacts}
-              showAvatar={msg.senderId !== 'me' && msg.senderId !== 'system' && (idx === chatMessages.length - 1 || chatMessages[idx + 1]?.senderId !== msg.senderId)}
-              showSenderName={!!contact.isGroup && msg.senderId !== 'me' && msg.senderId !== 'system' && (idx === 0 || chatMessages[idx - 1]?.senderId !== msg.senderId)}
-              isGroup={contact.isGroup} onReply={(m) => { setReplyTo(m); inputRef.current?.focus(); }}
-              isSearchHighlight={msgSearch.trim() !== '' && msg.content.toLowerCase().includes(msgSearch.toLowerCase())}
-              isSearchActive={matchedMsgIds[msgSearchIndex] === msg.id} onImageClick={(url) => setLightboxImage(url)}
-              onContextMenu={(e) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); setActiveMenuId(msg.id); }}
-            />
-          ))}
+          {chatMessages.map((msg, idx) => {
+            const prevMsg = idx > 0 ? chatMessages[idx - 1] : null;
+            const showDateSep = !prevMsg || formatDateSep(prevMsg.timestamp) !== formatDateSep(msg.timestamp);
+            const isConsecutive = !!(prevMsg && prevMsg.senderId === msg.senderId && !showDateSep &&
+              (new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime()) < 60000);
+            return (
+              <React.Fragment key={msg.id}>
+                {showDateSep && (
+                  <div className="flex justify-center my-3">
+                    <div className="bg-[#182229] rounded-lg px-3 py-1 shadow-sm">
+                      <span className="text-wa-text-muted" style={{ fontSize: '0.72rem', fontWeight: 500 }}>{formatDateSep(msg.timestamp)}</span>
+                    </div>
+                  </div>
+                )}
+                <MessageBubble
+                  message={msg} contact={contact} contacts={contacts}
+                  showAvatar={msg.senderId !== 'me' && msg.senderId !== 'system' && (idx === chatMessages.length - 1 || chatMessages[idx + 1]?.senderId !== msg.senderId)}
+                  showSenderName={!!contact.isGroup && msg.senderId !== 'me' && msg.senderId !== 'system' && (idx === 0 || chatMessages[idx - 1]?.senderId !== msg.senderId)}
+                  isGroup={contact.isGroup} onReply={(m) => { setReplyTo(m); inputRef.current?.focus(); }}
+                  isSearchHighlight={msgSearch.trim() !== '' && msg.content.toLowerCase().includes(msgSearch.toLowerCase())}
+                  isSearchActive={matchedMsgIds[msgSearchIndex] === msg.id} onImageClick={(url) => setLightboxImage(url)}
+                  onContextMenu={(e) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); setActiveMenuId(msg.id); }}
+                  isConsecutive={isConsecutive}
+                />
+              </React.Fragment>
+            );
+          })}
           <div ref={messagesEndRef} />
         </div>
 
@@ -1008,7 +1063,7 @@ export default function ChatWindow() {
                   <p className="text-[#4d91fb]" style={{ fontSize: '0.78rem', fontWeight: 600 }}>{replyTo.senderId === 'me' ? 'You' : contact.name}</p>
                   <p className="text-wa-text-muted truncate" style={{ fontSize: '0.82rem' }}>{getMessagePreview(replyTo)}</p>
                 </div>
-                <button onClick={() => setReplyTo(null)} className="text-wa-text-muted hover:text-wa-primary p-1 shrink-0"><X size={18} /></button>
+                <button onClick={() => setReplyTo(null)} className="text-wa-text-muted hover:text-wa-primary p-1 shrink-0" aria-label="Cancel reply"><X size={18} /></button>
               </div>
             </motion.div>
           )}
@@ -1030,7 +1085,7 @@ export default function ChatWindow() {
               {showLinkInput ? (
                 <div className="px-4 py-4">
                   <div className="flex items-center gap-2 mb-3"><button onClick={() => setShowLinkInput(false)} className="text-wa-text-muted"><ArrowLeft size={18} /></button><span className="text-wa-primary" style={{ fontWeight: 600 }}>Share a Link</span></div>
-                  <div className="flex items-center gap-2 bg-wa-secondary rounded-xl px-4 py-2.5"><Link size={16} className="text-wa-text-muted shrink-0" /><input type="url" value={linkInput} onChange={e => setLinkInput(e.target.value)} placeholder="https://example.com" className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]" style={{ fontSize: '0.9rem' }} autoFocus onKeyDown={e => e.key === 'Enter' && handleSendLink()} /></div>
+                  <div className="flex items-center gap-2 bg-wa-secondary rounded-xl px-4 py-2.5"><Link size={16} className="text-wa-text-muted shrink-0" /><input type="url" value={linkInput} onChange={e => setLinkInput(e.target.value)} placeholder="https://example.com" className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]" style={{ fontSize: '0.9rem' }} autoFocus onKeyDown={e => e.key === 'Enter' && handleSendLink()} aria-label="Enter URL" /></div>
                   <button onClick={handleSendLink} disabled={!linkInput.trim()} className={`w-full mt-3 rounded-full py-3 flex items-center justify-center gap-2 transition-colors ${linkInput.trim() ? 'bg-[#4d91fb] text-white' : 'bg-wa-secondary text-wa-text-muted'}`} style={{ fontWeight: 600 }}>Send Link <Send size={16} /></button>
                 </div>
               ) : (
@@ -1057,7 +1112,7 @@ export default function ChatWindow() {
               {activeUploads.map(u => (
                 <div key={u.uploadId} className="flex items-center gap-2 bg-[#11161a] text-wa-text-muted px-3 py-2 rounded-md border border-wa-border/20">
                   <div className="min-w-0 truncate text-sm" style={{ maxWidth: 200 }}>{u.name}</div>
-                  <button onClick={() => cancelUpload(u.uploadId, u.size)} className="text-wa-text-muted hover:text-wa-primary p-1">✕</button>
+                  <button onClick={() => cancelUpload(u.uploadId, u.size)} className="text-wa-text-muted hover:text-wa-primary p-1" aria-label="Cancel upload">✕</button>
                 </div>
               ))}
             </div>
@@ -1073,7 +1128,7 @@ export default function ChatWindow() {
                   <p className="text-[#4d91fb]" style={{ fontSize: '0.78rem', fontWeight: 600 }}>Editing message</p>
                   <p className="text-wa-text-muted truncate" style={{ fontSize: '0.82rem' }}>{editingText}</p>
                 </div>
-                <button onClick={cancelEditing} className="text-wa-text-muted hover:text-wa-primary p-1 shrink-0"><X size={18} /></button>
+                <button onClick={cancelEditing} className="text-wa-text-muted hover:text-wa-primary p-1 shrink-0" aria-label="Cancel editing"><X size={18} /></button>
               </div>
             </motion.div>
           )}
@@ -1086,13 +1141,25 @@ export default function ChatWindow() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="absolute bottom-full left-0 right-0 px-3 py-2 bg-red-600/90 text-white text-sm flex items-center justify-between"
+              role="alert" aria-live="assertive"
             >
               <span>{sendError}</span>
-              <button onClick={() => setSendError(null)} className="ml-2 text-white/80 hover:text-white">✕</button>
+              <button onClick={() => setSendError(null)} className="ml-2 text-white/80 hover:text-white" aria-label="Dismiss error">✕</button>
+            </motion.div>
+          )}
+          {queuedMessages > 0 && !sendError && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute bottom-full left-0 right-0 px-3 py-2 bg-amber-600/90 text-white text-sm"
+              role="status" aria-live="polite"
+            >
+              <span>{queuedMessages} message{queuedMessages > 1 ? 's' : ''} queued — will send when online</span>
             </motion.div>
           )}
           <div className="flex items-end gap-2 flex-1 bg-wa-secondary/40 rounded-2xl px-3 py-2 border border-wa-border/5">
-            {!editingMsgId && <button onClick={() => { setShowEmojiPicker(v => !v); setShowAttachSheet(false); }} className={`transition-colors shrink-0 mb-0.5 ${showEmojiPicker ? 'text-[#4d91fb]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Smile size={22} /></button>}
+            {!editingMsgId && <button onClick={() => { setShowEmojiPicker(v => !v); setShowAttachSheet(false); }} className={`transition-colors shrink-0 mb-0.5 ${showEmojiPicker ? 'text-[#4d91fb]' : 'text-wa-header-icon hover:text-wa-primary'}`} aria-label={showEmojiPicker ? 'Close emoji picker' : 'Open emoji picker'} aria-expanded={showEmojiPicker}><Smile size={22} /></button>}
             <textarea
               ref={inputRef}
               value={editingMsgId ? editingText : text}
@@ -1121,15 +1188,16 @@ export default function ChatWindow() {
               placeholder={editingMsgId ? 'Edit message' : 'Message'} rows={1}
               className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted/50 resize-none py-0.5 max-h-32 overflow-y-auto"
               style={{ fontSize: '0.95rem', lineHeight: '1.4' }}
+              aria-label="Type a message"
             />
-            {!editingMsgId && !text && <button onClick={() => { setShowAttachSheet(v => !v); setShowLinkInput(false); setShowEmojiPicker(false); }} className={`transition-colors shrink-0 mb-0.5 ${showAttachSheet ? 'text-[#4d91fb]' : 'text-wa-header-icon hover:text-wa-primary'}`}><Paperclip size={22} /></button>}
-            {!editingMsgId && !text && <button onClick={() => { setShowAttachSheet(true); setShowLinkInput(false); setShowEmojiPicker(false); }} className="text-wa-header-icon hover:text-wa-primary transition-colors shrink-0 mb-0.5"><Camera size={22} /></button>}
+            {!editingMsgId && !text && <button onClick={() => { setShowAttachSheet(v => !v); setShowLinkInput(false); setShowEmojiPicker(false); }} className={`transition-colors shrink-0 mb-0.5 ${showAttachSheet ? 'text-[#4d91fb]' : 'text-wa-header-icon hover:text-wa-primary'}`} aria-label={showAttachSheet ? 'Close attachments' : 'Attach file'} aria-expanded={showAttachSheet}><Paperclip size={22} /></button>}
+            {!editingMsgId && !text && <button onClick={() => { setShowAttachSheet(true); setShowLinkInput(false); setShowEmojiPicker(false); }} className="text-wa-header-icon hover:text-wa-primary transition-colors shrink-0 mb-0.5" aria-label="Take photo or record video"><Camera size={22} /></button>}
           </div>
           <AnimatePresence mode="wait">
             {editingMsgId ? (
-              <motion.button key="confirm" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleEditSend} className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all shadow-md active:scale-90 ${!editingText.trim() ? 'bg-[#4d91fb]/50 cursor-not-allowed' : 'bg-[#4d91fb] hover:bg-[#3b8eea]'}`} disabled={!editingText.trim()}><Check size={22} className="text-white" /></motion.button>
-            ) : text ? <motion.button key="send" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleSend} disabled={isLoading} className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all shadow-md active:scale-90 ${isLoading ? 'bg-[#4d91fb]/50 cursor-not-allowed' : 'bg-[#4d91fb] hover:bg-[#3b8eea]'}`}><Send size={20} className="text-white ml-0.5" /></motion.button>
-            : <motion.button key="mic" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} className="w-12 h-12 bg-[#4d91fb] rounded-full flex items-center justify-center shrink-0 hover:bg-[#3b8eea] transition-all shadow-md active:scale-90"><Mic size={20} className="text-white" /></motion.button>}
+              <motion.button key="confirm" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleEditSend} className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all shadow-md active:scale-90 ${!editingText.trim() ? 'bg-[#4d91fb]/50 cursor-not-allowed' : 'bg-[#4d91fb] hover:bg-[#3b8eea]'}`} disabled={!editingText.trim()} aria-label="Confirm edit"><Check size={22} className="text-white" /></motion.button>
+            ) : text ? <motion.button key="send" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={handleSend} disabled={isLoading} className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all shadow-md active:scale-90 ${isLoading ? 'bg-[#4d91fb]/50 cursor-not-allowed' : 'bg-[#4d91fb] hover:bg-[#3b8eea]'}`} aria-label="Send message"><Send size={20} className="text-white ml-0.5" /></motion.button>
+            : <motion.button key="mic" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} onClick={() => startAudioRecording()} className="w-12 h-12 bg-[#4d91fb] rounded-full flex items-center justify-center shrink-0 hover:bg-[#3b8eea] transition-all shadow-md active:scale-90" aria-label="Record voice message"><Mic size={20} className="text-white" /></motion.button>}
           </AnimatePresence>
         </div>
       </div>
@@ -1163,7 +1231,7 @@ export default function ChatWindow() {
                   <Timer size={20} className="text-[#4d91fb]" />
                   <h3 className="text-wa-primary font-bold" style={{ fontSize: '1.1rem' }}>Disappearing messages</h3>
                 </div>
-                <button onClick={() => setShowTimerSheet(false)} className="text-wa-text-muted p-1"><X size={20} /></button>
+                <button onClick={() => setShowTimerSheet(false)} className="text-wa-text-muted p-1" aria-label="Close disappearing messages settings"><X size={20} /></button>
               </div>
               <p className="text-wa-text-muted mb-4" style={{ fontSize: '0.85rem' }}>
                 When enabled, new messages in this chat will disappear after the selected time.
@@ -1201,9 +1269,26 @@ export default function ChatWindow() {
   );
 }
 
+// ─── Date Separator ─────────────────────────────────────────────────────────
+
+function formatDateSep(timestamp: string): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const msgDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.floor((today.getTime() - msgDay.getTime()) / 86400000);
+
+  if (diffDays === 0) return 'TODAY';
+  if (diffDays === 1) return 'YESTERDAY';
+  if (diffDays < 7) {
+    return date.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+  }
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
+}
+
 // ─── MessageBubble ────────────────────────────────────────────────────────────
 
-function MessageBubble({ message, contact, contacts, showAvatar, showSenderName, isGroup, onReply, isSearchHighlight, isSearchActive, onImageClick, onContextMenu }: {
+function MessageBubble({ message, contact, contacts, showAvatar, showSenderName, isGroup, onReply, isSearchHighlight, isSearchActive, onImageClick, onContextMenu, isConsecutive }: {
   message: Message;
   contact: any;
   contacts: any[];
@@ -1215,6 +1300,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
   isSearchActive?: boolean;
   onImageClick?: (url: string) => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  isConsecutive?: boolean;
 }) {
   const isMe = message.senderId === 'me';
   const isSystem = message.senderId === 'system';
@@ -1252,7 +1338,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
 
   return (
     <div
-      className={`flex items-end gap-1.5 mb-0.5 relative group ${isMe ? 'justify-end' : 'justify-start'}`}
+      className={`flex items-end gap-1.5 ${isConsecutive ? 'mb-0' : 'mb-0.5'} relative group ${isMe ? 'justify-end' : 'justify-start'}`}
       onContextMenu={onContextMenu}
     >
       {/* Swipe Reply Visual */}
@@ -1312,7 +1398,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         })()}
 
         {message.type === 'link' && (
-          <a href={message.linkUrl} target="_blank" rel="noopener noreferrer" className="block" onClick={e => e.stopPropagation()}>
+          <a href={sanitizeUrl(message.linkUrl)} target="_blank" rel="noopener noreferrer" className="block" onClick={e => e.stopPropagation()}>
             <div className={`rounded-lg overflow-hidden border ${isMe ? 'border-[#4d91fb]/30' : 'border-wa-border'}`}>
               <div className={`px-3 py-2 flex items-center gap-2 ${isMe ? 'bg-[#4d91fb]/10' : 'bg-wa-secondary/50'}`}><ExternalLink size={14} className="text-[#4d91fb]" /><div className="min-w-0"><p className="text-wa-primary truncate" style={{ fontSize: '0.85rem', fontWeight: 500 }}>{message.linkTitle || message.linkUrl}</p><p className="text-wa-text-muted truncate" style={{ fontSize: '0.72rem' }}>{message.linkDomain || message.linkUrl}</p></div></div>
               <div className="px-3 py-1.5"><p className="text-[#53bdeb] truncate" style={{ fontSize: '0.78rem' }}>{message.linkUrl}</p></div>
@@ -1361,7 +1447,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
 // ─── Reply Preview Helpers ────────────────────────────────────────────────────
 
 /** Get a human-readable preview string for a message (used in reply previews) */
-function getMessagePreview(msg: Message): string {
+export function getMessagePreview(msg: Message): string {
   switch (msg.type) {
     case 'image':
       return '📷 Photo';
@@ -1380,7 +1466,7 @@ function getMessagePreview(msg: Message): string {
 }
 
 /** Get preview text for a reply-quoted message (from stored reply metadata) */
-function getReplyPreviewText(message: Message): string {
+export function getReplyPreviewText(message: Message): string {
   // If we have the full reply content, use type-aware formatting
   if (message.replyToContent) {
     switch (message.type) {
@@ -1410,15 +1496,17 @@ function LocalMedia({ fileId, mediaType, senderId, chatId, isImageOnly, message,
   useEffect(() => {
     if (!fileId) return;
     if (fileId.startsWith('data:') || fileId.startsWith('blob:')) { setUrl(fileId); setLoading(false); return; }
+    let cancelled = false;
     const resolve = async () => {
       if (!currentUser) return;
       try {
         const otherParty = isMe ? chatId : senderId;
         const decryptedUrl = await loadMediaWithCache(fileId, mediaType, currentUser.userId, otherParty);
-        setUrl(decryptedUrl);
-      } catch (err) { console.warn('⚠️ Media resolution failed:', err); } finally { setLoading(false); }
+        if (!cancelled) setUrl(decryptedUrl);
+      } catch (err) { console.warn('⚠️ Media resolution failed:', err); } finally { if (!cancelled) setLoading(false); }
     };
     resolve();
+    return () => { cancelled = true; };
   }, [fileId, currentUser, isMe, chatId, senderId, mediaType]);
 
   if (loading) return <div className="w-full flex items-center justify-center bg-[#1F2C34]" style={{ height: '200px' }}><div className="w-8 h-8 rounded-full border-2 border-[#4d91fb] border-t-transparent animate-spin" /></div>;
@@ -1426,7 +1514,7 @@ function LocalMedia({ fileId, mediaType, senderId, chatId, isImageOnly, message,
 
   return (
     <>
-      <img src={url} alt="shared" className="w-full block" style={{ maxHeight: isImageOnly ? '320px' : '220px', minHeight: '120px', objectFit: 'cover', cursor: 'pointer' }} />
+      <img src={url} alt="Shared image" className="w-full block" style={{ maxHeight: isImageOnly ? '320px' : '220px', minHeight: '120px', objectFit: 'cover', cursor: 'pointer' }} />
       {isImageOnly && (
         <div className="absolute bottom-1.5 right-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-full px-1.5 py-0.5">
           <span style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,0.92)' }}>{message.timestamp}</span>

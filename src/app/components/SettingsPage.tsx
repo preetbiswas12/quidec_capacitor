@@ -13,6 +13,7 @@ import { useApp } from '../context/AppContext';
 import Avatar from './Avatar';
 import SecurityActionModal from './SecurityActionModal';
 import services from '../../utils/firebaseServices';
+import { userService } from '../../utils/services/userService';
 import { auth } from '../../utils/firebase';
 import {
   getPrivacySettings,
@@ -380,7 +381,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
   }, [subPage, currentUser]);
 
   const handleDeleteAccount = async () => {
-    if (!window.confirm('WARNING: This will permanently delete your account and all messages. This cannot be undone. Are you sure?')) return;
+    if (!window.confirm('WARNING: This will permanently delete your account, all messages, friendships, and data. This cannot be undone. Are you sure?')) return;
     
     const password = window.prompt('Please enter your password to confirm deletion:');
     if (!password) return;
@@ -395,12 +396,28 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
       const credential = EmailAuthProvider.credential(user.email, password);
       await reauthenticateWithCredential(user, credential);
 
-      // 1. Delete from Firestore — user doc is keyed by custom handle, not auth UID
-      const { deleteDoc, doc } = await import('firebase/firestore');
-      const { db } = await import('../../utils/firebase');
-      await deleteDoc(doc(db, 'users', currentUser.userId));
+      // 1. Delete user data from Firestore + RTDB (friendships, friend requests, presence)
+      await userService.deleteUserAccount(currentUser.userId);
       
-      // 2. Delete Auth User
+      // 2. Delete local message storage
+      try {
+        const { Filesystem, Directory } = await import('@capacitor/filesystem');
+        // Remove SQLite database
+        await Filesystem.deleteFile({ path: 'qchat_messages.db', directory: Directory.Data }).catch(() => {});
+        // Remove binary chunk files
+        const readdirResult = await Filesystem.readdir({ path: '', directory: Directory.Data });
+        for (const file of readdirResult.files) {
+          if (file.name.startsWith('qchat_') && file.name.endsWith('.bin')) {
+            await Filesystem.deleteFile({ path: file.name, directory: Directory.Data }).catch(() => {});
+          }
+        }
+        // Remove encrypted media chunks directory
+        await Filesystem.deleteFile({ path: 'media', directory: Directory.Data }).catch(() => {});
+      } catch {
+        // Non-critical — local storage cleanup
+      }
+
+      // 3. Delete Auth User
       await user.delete();
 
       console.log('✅ Account deleted');
@@ -552,6 +569,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                   )}
                 </div>
                 <button
+                  aria-label="Change profile photo"
                   onClick={() => avatarInputRef.current?.click()}
                   className="absolute bottom-0 right-0 w-10 h-10 bg-[#4d91fb] rounded-full flex items-center justify-center border-[3px] border-[#111B21] hover:bg-[#3b8eea] transition-colors shadow-lg active:scale-95"
                 >
@@ -579,6 +597,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 </div>
                 <div className="flex items-center gap-2">
                   <button
+                    aria-label={idCopied ? 'Copied' : 'Copy user ID'}
                     onClick={() => {
                       navigator.clipboard.writeText(currentUser.userId || '').catch(() => {});
                       setIdCopied(true);
@@ -605,15 +624,16 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               <p className="text-[#4d91fb] px-4 pb-2" style={{ fontSize: '0.8rem', fontWeight: 600 }}>NAME</p>
               {editingName ? (
                 <div className="px-4 py-3 flex items-center gap-3">
-                  <input
+                   <input
                     value={editName}
                     onChange={e => setEditName(e.target.value)}
+                    aria-label="Edit display name"
                     className="flex-1 bg-wa-secondary text-wa-primary rounded-lg px-3 py-2 outline-none border border-[#4d91fb]"
                     style={{ fontSize: '0.95rem' }}
                     maxLength={25}
                     autoFocus
                   />
-                  <button onClick={saveName} className="w-9 h-9 bg-[#4d91fb] rounded-full flex items-center justify-center">
+                  <button aria-label="Save name" onClick={saveName} className="w-9 h-9 bg-[#4d91fb] rounded-full flex items-center justify-center">
                     <Check size={16} className="text-white" />
                   </button>
                 </div>
@@ -630,15 +650,16 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               <p className="text-[#4d91fb] px-4 pb-2" style={{ fontSize: '0.8rem', fontWeight: 600 }}>ABOUT</p>
               {editingAbout ? (
                 <div className="px-4 py-3 flex items-center gap-3">
-                  <input
+                   <input
                     value={editAbout}
                     onChange={e => setEditAbout(e.target.value)}
+                    aria-label="Edit about"
                     className="flex-1 bg-wa-secondary text-wa-primary rounded-lg px-3 py-2 outline-none border border-[#4d91fb]"
                     style={{ fontSize: '0.95rem' }}
                     maxLength={139}
                     autoFocus
                   />
-                  <button onClick={saveAbout} className="w-9 h-9 bg-[#4d91fb] rounded-full flex items-center justify-center">
+                  <button aria-label="Save about" onClick={saveAbout} className="w-9 h-9 bg-[#4d91fb] rounded-full flex items-center justify-center">
                     <Check size={16} className="text-white" />
                   </button>
                 </div>
@@ -654,6 +675,28 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
 
             <Section>
             <div className="px-6 py-12 flex flex-col items-center gap-6 mt-4">
+              <button
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    setError(null);
+                    const { exportAllUserData, downloadGdprExport } = await import('../../utils/gdprExportService');
+                    const data = await exportAllUserData(currentUser.userId);
+                    downloadGdprExport(data);
+                    setSuccess('Data export downloaded successfully');
+                    setTimeout(() => setSuccess(null), 3000);
+                  } catch (err) {
+                    setError('Failed to export data: ' + (err as any).message);
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-2 text-[#4D91FB] hover:text-[#6BA3FF] transition-colors"
+                style={{ fontWeight: 600, fontSize: '0.95rem' }}
+              >
+                <Download size={18} />
+                <span>Export my data (GDPR)</span>
+              </button>
               <button
                 onClick={handleDeleteAccount}
                 className="w-full flex items-center justify-center gap-2 text-red-500 hover:text-red-400 transition-colors"
@@ -1154,10 +1197,10 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
         return (
           <SubPageShell title="Help" onBack={back}>
             <Section>
-              <Row icon={<HelpCircle size={18} className="text-wa-text-muted" />} label="Help Centre" sub="Visit our Help Centre" onClick={() => window.open('https://quidec.io/help', '_blank')} />
+              <Row icon={<HelpCircle size={18} className="text-wa-text-muted" />} label="Help Centre" sub="Visit our Help Centre" onClick={() => window.open('https://quidec.io/help', '_blank', 'noopener,noreferrer')} />
               <Row icon={<Mail size={18} className="text-wa-text-muted" />} label="Contact us" sub="support@quidec.io" onClick={() => window.location.href = 'mailto:support@quidec.io'} />
-              <Row icon={<Lock size={18} className="text-wa-text-muted" />} label="Privacy policy" onClick={() => window.open('https://quidec.io/privacy', '_blank')} />
-              <Row icon={<Globe size={18} className="text-wa-text-muted" />} label="Terms of Service" onClick={() => window.open('https://quidec.io/terms', '_blank')} />
+              <Row icon={<Lock size={18} className="text-wa-text-muted" />} label="Privacy policy" onClick={() => navigate('/privacy')} />
+              <Row icon={<Globe size={18} className="text-wa-text-muted" />} label="Terms of Service" onClick={() => navigate('/terms')} />
             </Section>
             <div className="px-4 py-6 text-center">
               <p className="text-wa-text-muted" style={{ fontSize: '0.75rem' }}>WhatsApp from Meta</p>
@@ -1201,6 +1244,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
             </div>
           </div>
           <button
+            aria-label="Change profile photo"
             onClick={e => { e.stopPropagation(); avatarInputRef.current?.click(); }}
             className="absolute bottom-1 right-1 w-10 h-10 bg-[#4d91fb] rounded-full flex items-center justify-center border-4 border-wa-main hover:bg-[#3b8eea] transition-all shadow-xl active:scale-90 text-white"
           >
@@ -1375,6 +1419,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 value={blockUserId}
                 onChange={e => setBlockUserId(e.target.value)}
                 placeholder="User ID or email to block"
+                aria-label="User ID or email to block"
                 className="flex-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#4d91fb]"
               />
               <button
@@ -1559,6 +1604,9 @@ function ToggleRow({ icon, label, desc, value, onChange }: {
 }) {
   return (
     <button
+      role="switch"
+      aria-checked={value}
+      aria-label={`${label}: ${value ? 'on' : 'off'}`}
       onClick={() => onChange(!value)}
       className="w-full flex items-center gap-4 px-4 py-4 hover:bg-wa-secondary/30 transition-colors text-left border-b border-wa-border/10 last:border-0"
     >
@@ -1583,18 +1631,30 @@ function ToggleRow({ icon, label, desc, value, onChange }: {
 // ─── Modal Components ────────────────────────────────────────────────────────────
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const modalTitleId = `modal-title-${title.replace(/\s+/g, '-').toLowerCase()}`;
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-end z-50" role="dialog" aria-modal="true" aria-labelledby={modalTitleId} onClick={onClose}>
       <motion.div
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         className="w-full bg-wa-main rounded-t-2xl p-6 max-h-[80vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-wa-primary font-bold text-lg">{title}</h2>
+          <h2 id={modalTitleId} className="text-wa-primary font-bold text-lg">{title}</h2>
           <button
+            aria-label="Close dialog"
             onClick={onClose}
             className="text-wa-text-muted hover:text-wa-primary p-2 -mr-2 rounded-full hover:bg-wa-secondary transition-colors"
           >

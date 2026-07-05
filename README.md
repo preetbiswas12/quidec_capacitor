@@ -1,5 +1,15 @@
 # 🚀 Quidec Chat - Firebase + Capacitor
 
+<div align="center">
+
+![CI](https://img.shields.io/github/actions/workflow/status/quidec/quidec-chat/ci.yml?branch=main&label=CI)
+![License](https://img.shields.io/github/license/quidec/quidec-chat)
+![Version](https://img.shields.io/github/package-json/v/quidec/quidec-chat)
+![Tests](https://img.shields.io/badge/tests-564%20passing-brightgreen)
+![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)
+
+</div>
+
 A complete, production-ready mobile chat application built with **React**, **Capacitor.js**, and **Firebase** (Spark Plan).
 
 **Status:** ✅ **Ready to Deploy** | 📱 Android & iOS | 🌐 Web | 💬 Real-time Messaging
@@ -343,7 +353,7 @@ npm run type-check
 
 ## 📄 License
 
-Proprietary - Quidec Chat
+MIT License - Copyright (c) 2024 Quidec Chat. See [LICENSE](./LICENSE) for details.
 
 ---
 

@@ -103,36 +103,48 @@ export const presenceService = {
     currentUserUid: string,
     callback: (friendsStatus: Record<string, any>) => void
   ) {
-    const unsubscribers: (() => void)[] = [];
+    const friendsUnsubs = new Map<string, () => void>();
+    let friendshipUnsub: (() => void) | null = null;
+    const friendsStatus: Record<string, any> = {};
 
-    // First get the user's friend list
     const friendshipRef = doc(db, 'friendships', currentUserUid);
-    const unsubFriendship = onSnapshot(friendshipRef, async (snapshot) => {
-      const friendsList = snapshot.data()?.friends || [];
+    friendshipUnsub = onSnapshot(friendshipRef, async (snapshot) => {
+      const friendsList: string[] = snapshot.data()?.friends || [];
+      const newFriendSet = new Set(friendsList);
 
-      const friendsStatus: Record<string, any> = {};
+      // Remove listeners for friends no longer in the list
+      for (const [uid, unsub] of friendsUnsubs) {
+        if (!newFriendSet.has(uid)) {
+          unsub();
+          friendsUnsubs.delete(uid);
+          delete friendsStatus[uid];
+        }
+      }
 
-      // Listen to each friend's presence
-      friendsList.forEach((friendUid: string) => {
-        const presenceRef = ref(realtimeDb, `presence/${sanitizePathComponent(friendUid)}`);
-        const unsubPresence = onValue(presenceRef, (snapshot: any) => {
-          const presenceData = snapshot.val();
-          friendsStatus[friendUid] = {
-            online: presenceData?.online || false,
-            lastSeen: presenceData?.lastSeen,
-            username: presenceData?.username,
-          };
-          callback(friendsStatus);
-        });
-        unsubscribers.push(unsubPresence);
-      });
+      // Add listeners only for new friends
+      for (const friendUid of friendsList) {
+        if (!friendsUnsubs.has(friendUid)) {
+          const presenceRef = ref(realtimeDb, `presence/${sanitizePathComponent(friendUid)}`);
+          const unsubPresence = onValue(presenceRef, (snap: any) => {
+            const presenceData = snap.val();
+            friendsStatus[friendUid] = {
+              online: presenceData?.online || false,
+              lastSeen: presenceData?.lastSeen,
+              username: presenceData?.username,
+            };
+            callback({ ...friendsStatus });
+          });
+          friendsUnsubs.set(friendUid, unsubPresence);
+        }
+      }
     });
 
-    unsubscribers.push(unsubFriendship);
-
-    // Return cleanup function
     return () => {
-      unsubscribers.forEach((unsub) => unsub());
+      if (friendshipUnsub) friendshipUnsub();
+      for (const unsub of friendsUnsubs.values()) {
+        unsub();
+      }
+      friendsUnsubs.clear();
     };
   },
 

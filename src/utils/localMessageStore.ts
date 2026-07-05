@@ -410,13 +410,23 @@ export async function clearAllMessages(): Promise<void> {
  * Since chunk files are append-only, we rewrite the entire file with the updated message.
  * For large files this is expensive — call sparingly (only on read receipt).
  */
+const STATUS_PRIORITY: Record<string, number> = { sent: 0, delivered: 1, read: 2 };
+
 export async function updateMessageStatus(
   userUid: string,
   chatId: string,
   messageId: string,
   status: 'sent' | 'delivered' | 'read'
-): Promise<void> {
+): Promise<boolean> {
   const messages = await loadMessages(userUid, chatId);
+  const target = messages.find(m => m.id === messageId);
+  if (!target) return false;
+
+  // Skip if current status is already equal or higher priority
+  if ((STATUS_PRIORITY[status] ?? 0) <= (STATUS_PRIORITY[target.status] ?? 0)) {
+    return false;
+  }
+
   const updated = messages.map(m => m.id === messageId ? { ...m, status } : m);
 
   // Rewrite file
@@ -432,6 +442,7 @@ export async function updateMessageStatus(
   }
 
   await writeFileBytes(filename, combined);
+  return true;
 }
 
 /**

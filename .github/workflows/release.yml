@@ -118,7 +118,7 @@ jobs:
         with:
           files: artifacts/*
           tag_name: v${{ needs.prepare.outputs.version }}
-          name: Quidec v${{ needs.prepare.outputs.version }}
+          name: Veill v${{ needs.prepare.outputs.version }}
           draft: false
           prerelease: ${{ needs.prepare.outputs.is_prerelease }}
           generate_release_notes: true

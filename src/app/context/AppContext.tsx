@@ -7,9 +7,10 @@ import { getCustomUsernameByFirebaseUid } from '../../utils/services/shared';
 import { getDoc, doc, query, collection, where, getDocs, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../utils/firebase';
 import { initializePushNotifications } from '../../utils/fcm';
-import { loadMessages as loadLocalMessages, clearKeyCache, updateMessageReactions, updateMessageStar, updateMessageContent, getStarredMessages, searchAllMessages as searchLocalMessages } from '../../utils/localMessageStore';
-import type { SearchResult as LocalSearchResult } from '../../utils/localMessageStore';
-import { getEncryptionKey, getKeyVersion } from '../../utils/encryption';
+import { loadMessages as loadLocalMessages, loadAllChats, listLocalChatIds, clearKeyCache, updateMessageReactions, updateMessageStar, updateMessageContent, getStarredMessages, searchAllMessages as searchLocalMessages } from '../../utils/sqliteMessageStore';
+import type { SearchResult as LocalSearchResult } from '../../utils/sqliteMessageStore';
+import { getEncryptionKey, getKeyVersion, checkAndRotateKey } from '../../utils/encryption';
+import { sendMessageWhenAvailable, startAutoFlushOnReconnect, queueReadReceipt } from '../../utils/offlineMessageSender';
 import { uploadMediaWithProgress, loadMediaWithCache } from '../../utils/mediaUploadHandler';
 import { permissionManager } from '../../utils/permissionManager';
 import { initializeProductionCollections } from '../../scripts/initCollections';
@@ -162,6 +163,9 @@ interface AppContextType {
 
   // WebSocket & Real Data
   isConnected: boolean;
+  isOffline: boolean;
+  isReconnecting: boolean;
+  syncProgress: { sent: number; total: number } | null;
   contacts: Contact[];
   discoverableContacts: Contact[];
   updateContact: (id: string, updates: Partial<Contact>) => void;
@@ -331,6 +335,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [showSplash, setShowSplash] = useState(true);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [isConnected, setIsConnected] = useState(true); // Always true for Firebase as it manages its own connection
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ sent: number; total: number } | null>(null);
 
   // Internal: Firebase Auth UID (e.g. "3tMFJtJK...") — used ONLY for Firestore paths
   // that require auth UID (friendships, subcollection rules), NEVER for display.
@@ -385,6 +392,61 @@ export function AppProvider({ children }: { children: ReactNode }) {
       document.documentElement.classList.remove('dark');
     }
   }, [settings.theme]);
+
+  // ─── Network Status Listener ──────────────────────────────────────────────
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOffline(false);
+      setIsReconnecting(true);
+      console.log('🌐 Network: online');
+    };
+    const handleOffline = () => {
+      setIsOffline(true);
+      setIsReconnecting(false);
+      console.log('📴 Network: offline');
+    };
+
+    const handleFlushResult = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setIsReconnecting(false);
+      setSyncProgress(null);
+      if (detail?.failed > 0) {
+        import('sonner').then(({ toast }) => {
+          toast.warning(`${detail.failed} message${detail.failed !== 1 ? 's' : ''} failed to send — will retry`);
+        });
+      } else if (detail?.sent > 0) {
+        import('sonner').then(({ toast }) => {
+          toast.success(`${detail.sent} message${detail.sent !== 1 ? 's' : ''} sent`);
+        });
+      }
+    };
+
+    const handleFlushProgress = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail) {
+        setSyncProgress({ sent: detail.sent, total: detail.total });
+      }
+    };
+
+    setIsOffline(!navigator.onLine);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('offlineFlushResult', handleFlushResult);
+    window.addEventListener('offlineFlushProgress', handleFlushProgress);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('offlineFlushResult', handleFlushResult);
+      window.removeEventListener('offlineFlushProgress', handleFlushProgress);
+    };
+  }, []);
+
+  // ─── Auto-flush message queue on reconnect ────────────────────────────────
+  useEffect(() => {
+    const cleanup = startAutoFlushOnReconnect(() => currentUser?.userId || null);
+    return cleanup;
+  }, [currentUser]);
 
   // ─── Presence & Typing Refs ──────────────────────────────────────────────
   const presenceUnsubscribeRef = useRef<(() => void) | null>(null);
@@ -660,6 +722,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
             // Background initializations
             initializeProductionCollections().catch(() => {});
+            checkAndRotateKey().catch(() => {});
             getEncryptionKey(user.userId).then(key => initializePushNotifications(user.userId, key)).catch(() => {});
           } else {
             console.log('🚀 Finalizing state: NEEDS_VERIFICATION');
@@ -898,6 +961,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     requestNativePermissions();
   }, [isOnboarded, currentUser]);
+
+  // ─── Offline-First: Load messages from local .bin store on startup ─────────
+  // Pre-populates the messages state from encrypted local storage so the user
+  // sees their message history immediately, even before Firestore connects.
+  useEffect(() => {
+    if (!currentUser || !isOnboarded) return;
+
+    let cancelled = false;
+
+    const loadLocalMessages = async () => {
+      try {
+        const chatIds = await listLocalChatIds();
+        if (cancelled || chatIds.length === 0) return;
+
+        const localData = await loadAllChats(currentUser.userId, chatIds);
+        if (cancelled) return;
+
+        setMessages(prev => {
+          const next = { ...prev };
+          for (const [chatId, storedMsgs] of Object.entries(localData)) {
+            if (storedMsgs.length === 0) continue;
+            // Only merge if we don't already have messages from Firestore
+            if (!next[chatId] || next[chatId].length === 0) {
+              next[chatId] = storedMsgs.map(m => ({
+                id: m.id,
+                chatId: m.chatId,
+                content: m.content,
+                type: m.type,
+                senderId: m.senderId,
+                timestamp: m.timestamp,
+                status: m.status,
+                imageUrl: m.mediaPath || undefined,
+                replyToId: m.replyToId,
+                replyToContent: m.replyToContent,
+                replyToSender: m.replyToSender,
+                expiresAt: m.expiresAt,
+                isEdited: m.isEdited,
+                keyVersion: m.keyVersion,
+                hmac: m.hmac,
+                isStarred: m.isStarred,
+                reactions: m.reactions,
+              }));
+            }
+          }
+          return next;
+        });
+
+        console.log(`📦 Loaded local messages for ${chatIds.length} chats`);
+      } catch (err) {
+        console.warn('⚠️ Failed to load local messages:', err);
+      }
+    };
+
+    loadLocalMessages();
+    return () => { cancelled = true; };
+  }, [currentUser, isOnboarded]);
 
   useEffect(() => {
     if (!currentUser || chats.length === 0) {
@@ -1279,12 +1398,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.warn('⚠️ Failed to mark onboarding complete:', err);
       }
+
+      // 0.8 Run data retention cleanup (non-blocking, fire-and-forget)
+      try {
+        const { dataRetention } = await import('../../utils/services/dataRetention');
+        dataRetention.runAllCleanup(uid).catch(err => {
+          console.warn('⚠️ Data retention cleanup failed (non-fatal):', err);
+        });
+      } catch (err) {
+        console.warn('⚠️ Data retention module load failed (non-fatal):', err);
+      }
     };
 
     // Run initialization in background (don't block listener setup)
     initializeAll().catch(err => {
       console.error('❌ Unexpected error during initialization:', err);
     });
+
+    // Service Worker message listener — navigate to conversation when notification is clicked
+    const swMessageHandler = (event: MessageEvent) => {
+      if (event.data?.type === 'OPEN_CONVERSATION' && event.data?.conversationId) {
+        console.log('📬 SW: Navigate to conversation', event.data.conversationId);
+        setActiveChatId(event.data.conversationId);
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', swMessageHandler);
 
     // 1. Listen to Friends List — friendships doc is keyed by custom handle
     friendsUnsubscribeRef.current = presenceService.listenToFriends(uid, (rawFriends) => {
@@ -1370,12 +1508,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
 
     // 6. Listen to Receipts (delivered double tick, read double blue tick)
+    const STATUS_PRIORITY: Record<string, number> = { sent: 0, delivered: 1, read: 2 };
     const unsubscribeReceipts = messageService.listenToReceipts(uid, async (receipt) => {
       console.log(`📨 Received receipt: ${receipt.type} for ${receipt.messageId}`);
 
       const newStatus = receipt.type === 'delivered' ? 'delivered' : 'read';
 
-      // Update in-memory state
+      // Update in-memory state (only upgrade, never downgrade)
       setMessages((prev) => {
         const chatMessages = prev[receipt.conversationId];
         if (!chatMessages) return prev;
@@ -1384,7 +1523,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ...prev,
           [receipt.conversationId]: chatMessages.map((msg) =>
             msg.id === receipt.messageId
-              ? { ...msg, status: newStatus }
+              ? { ...msg, status: (STATUS_PRIORITY[newStatus] ?? 0) > (STATUS_PRIORITY[msg.status] ?? 0) ? newStatus : msg.status }
               : msg
           ),
         };
@@ -1393,10 +1532,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Also persist to local .bin file (so status survives app restart)
       try {
         const { updateMessageStatus } = await import('../../utils/localMessageStore');
-        await updateMessageStatus(uid, receipt.conversationId, receipt.messageId, newStatus);
-        console.log(`💾 Receipt status saved to local .bin: ${receipt.messageId} → ${newStatus}`);
+        const changed = await updateMessageStatus(uid, receipt.conversationId, receipt.messageId, newStatus);
+        if (changed) {
+          console.log(`💾 Receipt status saved to local .bin: ${receipt.messageId} → ${newStatus}`);
+        }
       } catch (err) {
         console.warn('⚠️ Failed to persist receipt to local .bin:', err);
+      }
+    });
+
+    // 7. Listen to Deletions (cross-device message deletion sync)
+    const unsubscribeDeletions = messageService.listenToDeletions(uid, async (payload) => {
+      console.log(`🗑️ Received deletion for message: ${payload.messageId}`);
+
+      setMessages(prev => {
+        const chatMessages = prev[payload.conversationId];
+        if (!chatMessages) return prev;
+        return {
+          ...prev,
+          [payload.conversationId]: chatMessages.map(m =>
+            m.id === payload.messageId
+              ? { ...m, content: '[Deleted]', type: 'system' as const }
+              : m
+          ),
+        };
+      });
+
+      try {
+        const { deleteMessageById } = await import('../../utils/localMessageStore');
+        await deleteMessageById(uid, payload.conversationId, payload.messageId);
+      } catch (err) {
+        console.warn('⚠️ Failed to sync deletion to local store:', err);
       }
     });
 
@@ -1507,6 +1673,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // Cleanup all listeners on unmount or user change
     return () => {
+      navigator.serviceWorker?.removeEventListener('message', swMessageHandler);
       presenceUnsubscribeRef.current?.();
       typingUnsubscribeRef.current?.();
       friendsUnsubscribeRef.current?.();
@@ -1518,6 +1685,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       callHistoryUnsubscribeRef.current?.();
       incomingCallUnsubscribeRef.current?.();
       unsubscribeReceipts?.();
+      unsubscribeDeletions?.();
       unsubscribeSignaling();
       unsubscribeGroups();
       deviceSessionUnsubscribeRef.current?.();
@@ -1616,14 +1784,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }));
 
       // Send to Firestore (encrypted + updates group preview)
-      await groupService.sendGroupMessage(groupId, currentUser.userId, content, {
-        messageType: type,
-        mediaUrl: extra?.imageUrl || null,
-        replyToId: extra?.replyToId,
-        replyToContent: extra?.replyToContent,
-        replyToSender: extra?.replyToSender,
-        expiresAt: msg.expiresAt,
-      });
+      if (!navigator.onLine) {
+        const result = await sendMessageWhenAvailable(currentUser.userId, groupId, content, {
+          messageType: type as 'text' | 'image' | 'video' | 'audio' | 'document' | 'link',
+          mediaUrl: extra?.imageUrl || null,
+          replyToId: extra?.replyToId,
+          replyToContent: extra?.replyToContent,
+          replyToSender: extra?.replyToSender,
+          expiresAt: msg.expiresAt,
+          keyVersion: await getKeyVersion(),
+          groupId,
+        });
+        if (result.status === 'queued') {
+          import('sonner').then(({ toast }) => {
+            toast.info('Group message will be sent when you\'re back online');
+          });
+        }
+      } else {
+        await groupService.sendGroupMessage(groupId, currentUser.userId, content, {
+          messageType: type,
+          mediaUrl: extra?.imageUrl || null,
+          replyToId: extra?.replyToId,
+          replyToContent: extra?.replyToContent,
+          replyToSender: extra?.replyToSender,
+          expiresAt: msg.expiresAt,
+        });
+      }
 
       // Push notifications to other group members via Render FCM relay
       const notifyUrl = import.meta.env.VITE_NOTIFY_URL;
@@ -1638,7 +1824,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           fetch(`${notifyUrl}/notify`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ to: memberId, fromName: senderName, type: notifyType }),
+            body: JSON.stringify({ to: memberId, fromName: senderName, type: notifyType, conversationId: groupId }),
           }).catch(() => {});
         }
       }
@@ -1661,7 +1847,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // ─── 1-on-1 messaging via RTDB transient pipe ───
+      // ─── 1-on-1 messaging via offline-aware sender ───
       const msgId = `msg-${Date.now()}`;
       let finalImageUrl = extra?.imageUrl;
 
@@ -1681,7 +1867,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // 2. Optimistic local message
+      // 2. Optimistic local message (always shown immediately)
       const ttl = disappearingTimers[chatId] || 0;
       const msg: Message = {
         id: msgId,
@@ -1702,22 +1888,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
         [chatId]: [...(prev[chatId] || []), msg],
       }));
 
-      // 3. Persist locally
-      messageService.recordMessage(currentUser.userId, chatId, content, {
-        messageId: msgId,
-        messageType: type,
+      // 3. Send via offline-aware sender (queues if offline, sends if online)
+      const result = await sendMessageWhenAvailable(currentUser.userId, chatId, content, {
+        messageType: type as 'text' | 'image' | 'video' | 'audio' | 'document' | 'link',
         mediaUrl: finalImageUrl,
-        timestamp: new Date(),
-        status: 'sent',
+        messageId: msgId,
         replyToId: extra?.replyToId,
         replyToContent: extra?.replyToContent,
         replyToSender: extra?.replyToSender,
         expiresAt: msg.expiresAt,
-      }).catch(err => console.warn('⚠️ Local record failed:', err));
+        keyVersion: await getKeyVersion(),
+      });
 
-      // 4. Push notification to recipient via Render FCM relay
+      if (result.status === 'queued') {
+        console.log(`📴 Message queued for offline delivery (${result.messageId})`);
+        toast.info('Message will be sent when you\'re back online');
+      } else {
+        console.log('📤 Message delivered via RTDB transient pipe');
+      }
+
+      // 4. Push notification to recipient via Render FCM relay (fire-and-forget)
       const notifyUrl = import.meta.env.VITE_NOTIFY_URL;
-      if (notifyUrl) {
+      if (notifyUrl && result.status === 'sent') {
         const senderName = currentUser.name || 'Someone';
         const notifyType = (type === 'image' || type === 'video' || type === 'audio' || type === 'document')
           ? type
@@ -1725,11 +1917,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         fetch(`${notifyUrl}/notify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to: chatId, fromName: senderName, type: notifyType }),
+          body: JSON.stringify({ to: chatId, fromName: senderName, type: notifyType, conversationId: chatId }),
         }).catch(() => {});
       }
-
-      console.log('📤 Message delivered via RTDB transient pipe + FCM notification');
     },
     [currentUser, groups, sendGroupMessage]
   );
@@ -1876,7 +2066,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await markGroupRead(chatId);
     } else {
       const contactId = chats.find(c => c.id === chatId)?.contactId || chatId;
-      await messageService.markAllMessagesAsRead(chatId, currentUser.userId, contactId);
+      if (!navigator.onLine) {
+        queueReadReceipt(chatId, '', contactId, currentUser.userId, 'read');
+      } else {
+        await messageService.markAllMessagesAsRead(chatId, currentUser.userId, contactId);
+      }
       setChats((prev) => prev.map(c => c.id === chatId ? { ...c, unreadCount: 0 } : c));
     }
   }, [currentUser, chats, groups, markGroupRead]);
@@ -1921,7 +2115,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // 2. Persist to local store
     const { deleteMessageById } = await import('../../utils/localMessageStore');
     await deleteMessageById(currentUser.userId, chatId, messageId);
-  }, [currentUser]);
+
+    // 3. Notify the other user + tombstone in Firestore
+    const chat = chats.find(c => c.id === chatId);
+    if (chat) {
+      const conversationId = messageService.getConversationId(currentUser.userId, chat.contactId);
+      await messageService.deleteMessage(conversationId, messageId, currentUser.userId, chat.contactId);
+    }
+  }, [currentUser, chats]);
 
   // ─── Friend Request Methods ────────────────────────────────────────────────
 
@@ -2009,9 +2210,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      if (!navigator.onLine) {
+        const queuedStatus = { userId: currentUser.userId, content, type, backgroundColor, mediaUrl, createdAt: Date.now() };
+        const existing = JSON.parse(localStorage.getItem('queued_statuses') || '[]');
+        existing.push(queuedStatus);
+        localStorage.setItem('queued_statuses', JSON.stringify(existing));
+        import('sonner').then(({ toast }) => toast.info('Status will be posted when you\'re back online'));
+        const newStatus: Status = {
+          id: `status_${Date.now()}`, contactId: currentUser.userId, content, type, backgroundColor,
+          timestamp: new Date().toISOString(), viewed: true,
+        };
+        setMyStatuses(prev => [newStatus, ...prev]);
+        return;
+      }
+
       await statusService.createStatus(currentUser.userId, content, type, backgroundColor, mediaUrl);
 
-      // Optimistically add to local state
       const newStatus: Status = {
         id: `status_${Date.now()}`,
         contactId: currentUser.userId,
@@ -2127,6 +2341,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       try {
         await updateMessageContent(currentUser.userId, chatId, messageId, newContent, true);
+        messageService.syncEditToFirestore(chatId, messageId, newContent);
       } catch (err) {
         console.error('Failed to persist edited message:', err);
       }
@@ -2167,20 +2382,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let retryCount = 0;
     const maxRetries = 3;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
 
     const resolveAvatar = async () => {
+      if (cancelled) return;
       if (currentUser?.avatar && currentUser.avatar.startsWith('image_')) {
         try {
           console.log(`🔍 Resolving avatar hash: ${currentUser.avatar} (Attempt ${retryCount + 1})`);
           const url = await loadMediaWithCache(currentUser.avatar, 'image', currentUser.userId, currentUser.userId);
-          setCurrentUserAvatarUrl(url);
-          console.log('✅ Avatar resolved successfully');
+          if (!cancelled) {
+            setCurrentUserAvatarUrl(url);
+            console.log('✅ Avatar resolved successfully');
+          }
         } catch (err) {
+          if (cancelled) return;
           console.warn(`⚠️ Failed to resolve avatar hash (Attempt ${retryCount + 1}):`, err);
           
           if (retryCount < maxRetries) {
             retryCount++;
-            setTimeout(resolveAvatar, 500 * retryCount); // Exponential backoff
+            retryTimer = setTimeout(resolveAvatar, 500 * retryCount);
           } else {
             console.error('❌ Max retries reached for avatar resolution');
             setCurrentUserAvatarUrl(null);
@@ -2191,6 +2412,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     };
     resolveAvatar();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, [currentUser?.avatar, currentUser?.userId]);
 
   // ─── Real-time Typing (Per Active Chat, 1:1 or group) ────────────────────
@@ -2208,16 +2434,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const isGroupChat = !!activeContact?.isGroup;
 
     let unsubGroupTyping: (() => void) | undefined;
+    let cancelled = false;
 
     if (isGroupChat) {
-      // ── Group typing: listen to typing/{groupId} dynamically ──
       console.log(`⌨️ Listening for group typing in ${activeChatId}`);
       import('firebase/database').then(({ ref, onValue, off }) => {
         import('../../utils/firebase').then(({ realtimeDb }) => {
+          if (cancelled) return;
           const typingRef = ref(realtimeDb, `typing/${sanitizePathComponent(activeChatId)}`);
           unsubGroupTyping = onValue(typingRef, (snapshot: any) => {
             const data = snapshot.val() || {};
-            // Exclude current user
             const othersTyping = Object.entries(data).filter(([uid]: [string, any]) => uid !== currentUser.userId);
             const isAnyoneTyping = othersTyping.length > 0;
             setTypingContacts(prev => ({
@@ -2227,7 +2453,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
         });
       });
-      return () => { try { unsubGroupTyping?.(); } catch { /* */ } };
+      return () => {
+        cancelled = true;
+        try { unsubGroupTyping?.(); } catch { /* */ }
+      };
     }
 
     // ── 1:1 typing ──
@@ -2270,6 +2499,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     register,
     logout,
     isConnected,
+    isOffline,
+    isReconnecting,
+    syncProgress,
     contacts,
     discoverableContacts,
     updateContact,

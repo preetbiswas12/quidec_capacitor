@@ -33,9 +33,9 @@
 	<string>manual</string>
 
 	<!-- Team ID from the Apple Developer portal -->
-	<!-- TODO: Replace XXXXXXXXXX with your actual 10-character team ID -->
+	<!-- TODO: Replace with your actual 10-character Apple Developer Team ID from https://developer.apple.com/account -->
 	<key>teamID</key>
-	<string>XXXXXXXXXX</string>
+	<string>TODO_ADD_APPLE_TEAM_ID</string>
 
 	<!-- Strip Swift runtime symbols to reduce IPA size -->
 	<key>stripSwiftSymbols</key>

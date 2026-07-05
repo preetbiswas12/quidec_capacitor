@@ -18,6 +18,7 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   server: {
     androidScheme: 'https',
+    hostname: 'quidec.chat',
     iosDeriveAddress: true,
     // For local development: uncomment and set your IP
     // url: 'http://192.168.1.100:5173',

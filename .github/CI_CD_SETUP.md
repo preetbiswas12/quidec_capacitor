@@ -9,7 +9,7 @@ Complete CI/CD pipeline with 5 automated workflows for building and releasing th
 | **build-android-apk.yml** | Push to develop/staging/main, manual dispatch | Debug APK |
 | **build-android-aab.yml** | Push to main, manual dispatch, tags | App Bundle (Play Store) |
 | **build-ios.yml** | Push to main/develop, manual dispatch | IPA + TestFlight |
-| **test.yml** | Push to any branch, PRs | Type check, lint, build test |
+| **ci.yml** | Push to main/develop, PRs | Type check, lint, build test |
 | **release.yml** | Manual dispatch or git tags | GitHub Release + all builds |
 
 ## Required Secrets
@@ -66,7 +66,7 @@ SLACK_WEBHOOK_URL                 # Slack webhook for build notifications
 
 ## Workflow Details
 
-### 1. Test & Lint (`test.yml`)
+### 1. CI (`ci.yml`)
 
 Runs on every push and PR. Tests:
 - TypeScript type checking
@@ -75,8 +75,8 @@ Runs on every push and PR. Tests:
 - Build output validation
 - Security audit
 
-**Trigger:** Push to any branch or PR
-**Time:** ~15 minutes
+**Trigger:** Push to main/develop or PR to main/develop
+**Time:** ~10 minutes
 
 ### 2. Build Android APK (`build-android-apk.yml`)
 
@@ -282,8 +282,9 @@ Enable in `release.yml`:
 ## Performance Tuning
 
 **Current timeouts:**
-- Ubuntu builds: 45 minutes
-- macOS builds: 60 minutes
+- CI jobs: 15 minutes
+- Android builds: 30 minutes
+- iOS builds: 30 minutes
 
 **Caching:**
 - npm dependencies

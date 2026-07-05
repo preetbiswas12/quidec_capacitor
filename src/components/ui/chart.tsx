@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-nocheck Auto-generated UI component with chart tooltip types
 "use client";
 
 import * as React from "react";

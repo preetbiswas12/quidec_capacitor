@@ -16,6 +16,7 @@ export async function setTyping(
   toUid: string,
   isTyping: boolean
 ): Promise<void> {
+  if (!navigator.onLine) return;
   try {
     const conversationId = [fromUid, toUid].sort().join('_');
     const typingRef = ref(realtimeDb, `typing/${conversationId}/${sanitizePathComponent(fromUid)}`);
@@ -45,6 +46,7 @@ export async function setGroupTyping(
   fromUid: string,
   isTyping: boolean
 ): Promise<void> {
+  if (!navigator.onLine) return;
   try {
     const typingRef = ref(realtimeDb, `groupTyping/${groupId}/${sanitizePathComponent(fromUid)}`);
 

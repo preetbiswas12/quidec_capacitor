@@ -9,4 +9,9 @@ keys
 **/*.keystore
 google-services.json
 GoogleService-Info.plist
+test-results.xml
+firebase-debug.log
+/playwright-report/
+/test-results/
+/playwright/.cache/
 

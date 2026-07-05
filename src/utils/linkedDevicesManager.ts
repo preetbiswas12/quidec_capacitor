@@ -298,10 +298,12 @@ export function listenToSyncRequests(
   uid: string,
   callback: (requests: DeviceSyncRequest[]) => void
 ): (() => void) {
-  let unsubscribe: (() => void) = () => {};
+  let unsubscribeInner: (() => void) | null = null;
+  let cancelled = false;
 
   try {
     getCurrentDevice().then(({ id: currentDeviceId }) => {
+      if (cancelled) return;
       const requestsRef = collection(db, 'users', uid, 'syncRequests');
       const q = query(
         requestsRef,
@@ -309,18 +311,25 @@ export function listenToSyncRequests(
         where('status', '==', 'pending')
       );
 
-      unsubscribe = onSnapshot(q, snapshot => {
+      unsubscribeInner = onSnapshot(q, snapshot => {
         const requests = snapshot.docs.map(doc => doc.data() as DeviceSyncRequest);
         callback(requests);
       });
     }).catch(err => {
-      console.error('❌ Failed to setup sync request listener:', err);
+      if (!cancelled) {
+        console.error('❌ Failed to setup sync request listener:', err);
+      }
     });
   } catch (error) {
     console.error('❌ Failed to listen to sync requests:', error);
   }
 
-  return unsubscribe;
+  return () => {
+    cancelled = true;
+    if (unsubscribeInner) {
+      unsubscribeInner();
+    }
+  };
 }
 
 /**

@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-nocheck Auto-generated UI component with complex date picker types
 "use client";
 
 import * as React from "react";

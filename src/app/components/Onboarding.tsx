@@ -251,7 +251,7 @@ export default function Onboarding() {
         </div>
 
         {error && (
-          <div className="w-full bg-red-500/10 text-red-400 px-4 py-3 rounded-xl text-xs text-center border border-red-500/20">
+          <div className="w-full bg-red-500/10 text-red-400 px-4 py-3 rounded-xl text-xs text-center border border-red-500/20" role="alert" aria-live="assertive">
             {error}
           </div>
         )}
@@ -265,6 +265,7 @@ export default function Onboarding() {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="Email address"
+                aria-label="Email address"
                 className="flex-1 outline-none text-wa-primary bg-transparent placeholder-wa-text-muted/50"
                 style={{ fontSize: '1rem' }}
                 required
@@ -279,6 +280,7 @@ export default function Onboarding() {
                   value={username}
                   onChange={e => setUsername(e.target.value)}
                   placeholder="Username"
+                  aria-label="Username"
                   className="flex-1 outline-none text-wa-primary bg-transparent placeholder-wa-text-muted/50"
                   style={{ fontSize: '1rem' }}
                   required={!isLogin}
@@ -293,6 +295,7 @@ export default function Onboarding() {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="Password"
+                aria-label="Password"
                 className="flex-1 outline-none text-wa-primary bg-transparent placeholder-wa-text-muted/50"
                 style={{ fontSize: '1rem' }}
                 required
@@ -339,7 +342,10 @@ export default function Onboarding() {
           {isLogin ? "New to Veill?" : "Have an account?"}{' '}
           <span
             className="text-[#4D91FB] font-semibold cursor-pointer"
+            role="button"
+            tabIndex={0}
             onClick={() => setIsLogin(!isLogin)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsLogin(!isLogin); } }}
           >
             {isLogin ? 'Create one' : 'Login here'}
           </span>
@@ -460,7 +466,7 @@ export default function Onboarding() {
               <div className="w-24 h-24 rounded-full bg-[#DFE5E7] flex items-center justify-center overflow-hidden">
                 <Camera size={32} className="text-[#8696A0]" />
               </div>
-              <button className="absolute bottom-0 right-0 w-8 h-8 bg-[#4D91FB] rounded-full flex items-center justify-center shadow-md">
+               <button className="absolute bottom-0 right-0 w-8 h-8 bg-[#4D91FB] rounded-full flex items-center justify-center shadow-md" aria-label="Upload profile photo">
                 <Camera size={14} className="text-white" />
               </button>
             </div>
@@ -471,6 +477,7 @@ export default function Onboarding() {
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder="Display Name"
+              aria-label="Display name"
               className="flex-1 outline-none py-3 text-wa-primary bg-transparent placeholder-wa-text-muted/50"
               style={{ fontSize: '1.1rem' }}
               maxLength={25}
@@ -522,7 +529,7 @@ export default function Onboarding() {
   return (
     <div className="h-full w-full bg-wa-main flex flex-col overflow-hidden max-w-md mx-auto shadow-2xl">
       {/* Progress bar */}
-      <div className="h-1.5 bg-wa-secondary flex-shrink-0">
+      <div className="h-1.5 bg-wa-secondary flex-shrink-0" role="progressbar" aria-valuenow={step} aria-valuemin={0} aria-valuemax={3} aria-label="Onboarding progress">
         <motion.div
           className="h-full bg-[#4D91FB]"
           animate={{ width: `${(step / 3) * 100}%` }}

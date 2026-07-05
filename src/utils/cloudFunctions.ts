@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-nocheck Legacy cloud functions with untyped Firebase SDK calls
 /**
  * Firebase Cloud Functions
  * Deploy these to Firebase Cloud Functions using Firebase CLI

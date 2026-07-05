@@ -44,13 +44,10 @@ export default defineConfig({
             if (id.includes('react') || id.includes('react-dom') || id.includes('scheduler')) {
               return 'vendor-react';
             }
-            if (id.includes('@mui') || id.includes('@emotion')) {
-              return 'vendor-mui';
-            }
             if (id.includes('peerjs') || id.includes('peer')) {
               return 'vendor-p2p';
             }
-            if (id.includes('@radix-ui') || id.includes('recharts') || id.includes('react-day-picker') || id.includes('cmdk') || id.includes('date-fns')) {
+            if (id.includes('@radix-ui') || id.includes('react-day-picker') || id.includes('cmdk') || id.includes('date-fns')) {
               return 'vendor-ui';
             }
             if (id.includes('firebase')) {
@@ -62,6 +59,21 @@ export default defineConfig({
             }
             if (id.includes('@capacitor')) {
               return 'vendor-capacitor';
+            }
+            if (id.includes('motion') || id.includes('framer-motion')) {
+              return 'vendor-motion';
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons';
+            }
+            if (id.includes('sql.js') || id.includes('sql-wasm')) {
+              return 'vendor-sql';
+            }
+            if (id.includes('@sentry')) {
+              return 'vendor-sentry';
+            }
+            if (id.includes('recharts')) {
+              return 'vendor-recharts';
             }
           }
         },

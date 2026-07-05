@@ -1,14 +1,17 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import {
-  PhoneOff, Mic, MicOff, Volume2, VolumeX, Video, MessageSquare, Users, MoreVertical
+  PhoneOff, Mic, MicOff, Volume2, VolumeX, Video, MessageSquare, Users, MoreVertical, RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import Avatar from './Avatar';
 import services from '../../utils/firebaseServices';
 import { getRTCConfig } from '../../utils/iceServers';
+
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_BASE_DELAY = 1000;
 
 export default function VoiceCallScreen() {
   const { id: contactId } = useParams<{ id: string }>();
@@ -34,87 +37,155 @@ export default function VoiceCallScreen() {
 
   if (!contact) return null;
 
-  const [callState, setCallState] = useState<'calling' | 'connected' | 'ended'>('calling');
+  const [callState, setCallState] = useState<'calling' | 'connected' | 'reconnecting' | 'ended'>('calling');
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const [duration, setDuration] = useState(0);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval>>();
+  const navigateTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectAttemptRef = useRef(0);
+  const isReconnectingRef = useRef(false);
+  const isReceiverRef = useRef(false);
+  const callEndedRef = useRef(false);
 
-  // Initialize call with WebRTC
-  useEffect(() => {
+  const performIceRestart = useCallback(async () => {
+    const pc = peerConnectionRef.current;
+    if (!pc || !currentUser || callEndedRef.current) return;
+
+    try {
+      const offer = await pc.createOffer({ iceRestart: true });
+      await pc.setLocalDescription(offer);
+      await services.presenceService.sendSignaling(currentUser.userId, contact.id, {
+        type: 'webrtc-offer',
+        offer,
+        callType: 'voice',
+        isRestart: true,
+      });
+    } catch (err) {
+      console.error('ICE restart failed:', err);
+    }
+  }, [currentUser, contact]);
+
+  const handleIceDisconnect = useCallback(() => {
+    if (callEndedRef.current || isReconnectingRef.current) return;
+
+    isReconnectingRef.current = true;
+    setCallState('reconnecting');
+
+    const attempt = reconnectAttemptRef.current + 1;
+    reconnectAttemptRef.current = attempt;
+    setReconnectAttempt(attempt);
+
+    if (attempt > MAX_RECONNECT_ATTEMPTS) {
+      console.warn('Max reconnection attempts reached');
+      callEndedRef.current = true;
+      setCallState('ended');
+      clearInterval(timerRef.current);
+      if (currentUser && contactId) {
+        saveCallRecord(contactId, 'voice', isReceiverRef.current ? 'incoming' : 'outgoing', duration).catch(() => {});
+      }
+      navigateTimerRef.current = setTimeout(() => navigate(-1), 2000);
+      return;
+    }
+
+    const delay = RECONNECT_BASE_DELAY * Math.pow(2, attempt - 1);
+    console.log(`Reconnecting in ${delay}ms (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`);
+
+    reconnectTimeoutRef.current = setTimeout(() => {
+      isReconnectingRef.current = false;
+      performIceRestart();
+    }, delay);
+  }, [currentUser, contactId, contact, duration, navigate, performIceRestart, saveCallRecord]);
+
+  const initializeCall = useCallback(async () => {
     if (!contact || !currentUser) return;
 
     const params = new URLSearchParams(window.location.search || window.location.hash.split('?')[1]);
     const isReceiver = params.get('received') === 'true';
+    isReceiverRef.current = isReceiver;
 
-    const initializeCall = async () => {
-      try {
-        // Get user media (audio only for voice call)
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: false,
-        });
-        
-        localStreamRef.current = stream;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      });
+      
+      localStreamRef.current = stream;
 
-        // Create peer connection with STUN/TURN servers
-        const peerConnection = new RTCPeerConnection(getRTCConfig());
+      const peerConnection = new RTCPeerConnection(getRTCConfig());
+      peerConnectionRef.current = peerConnection;
 
-        peerConnectionRef.current = peerConnection;
+      stream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, stream);
+      });
 
-        // Add local stream tracks
-        stream.getTracks().forEach(track => {
-          peerConnection.addTrack(track, stream);
-        });
-
-        // Handle ICE candidates
-        peerConnection.onicecandidate = (event) => {
-          if (event.candidate) {
-            services.presenceService.sendSignaling(currentUser.userId, contact.id, {
-              type: 'webrtc-candidate',
-              candidate: event.candidate,
-            });
-          }
-        };
-
-        // Handle connection state changes
-        peerConnection.onconnectionstatechange = () => {
-          if (peerConnection.connectionState === 'connected' || peerConnection.iceConnectionState === 'connected') {
-            setCallState('connected');
-          }
-        };
-
-        // ONLY CREATE OFFER IF WE ARE THE CALLER
-        if (!isReceiver) {
-          console.log('📱 Creating WebRTC offer as caller...');
-          const offer = await peerConnection.createOffer();
-          await peerConnection.setLocalDescription(offer);
-
-          await services.presenceService.sendSignaling(currentUser.userId, contact.id, {
-            type: 'webrtc-offer',
-            offer: offer,
-            callType: 'voice'
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate && !callEndedRef.current) {
+          services.presenceService.sendSignaling(currentUser.userId, contact.id, {
+            type: 'webrtc-candidate',
+            candidate: event.candidate,
           });
-        } else {
-          console.log('📞 Waiting for incoming WebRTC offer as receiver...');
         }
-      } catch (err) {
-        console.error('❌ Failed to initialize call:', err);
-        setCallState('ended');
+      };
+
+      peerConnection.onconnectionstatechange = () => {
+        const state = peerConnection.connectionState;
+        if (state === 'connected') {
+          setCallState('connected');
+          reconnectAttemptRef.current = 0;
+          isReconnectingRef.current = false;
+        }
+      };
+
+      peerConnection.oniceconnectionstatechange = () => {
+        const iceState = peerConnection.iceConnectionState;
+        if (iceState === 'connected' || iceState === 'completed') {
+          setCallState('connected');
+          reconnectAttemptRef.current = 0;
+          isReconnectingRef.current = false;
+        } else if (iceState === 'disconnected') {
+          console.warn('ICE connection disconnected');
+          handleIceDisconnect();
+        } else if (iceState === 'failed') {
+          console.error('ICE connection failed');
+          handleIceDisconnect();
+        }
+      };
+
+      if (!isReceiver) {
+        console.log('Creating WebRTC offer as caller...');
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+
+        await services.presenceService.sendSignaling(currentUser.userId, contact.id, {
+          type: 'webrtc-offer',
+          offer: offer,
+          callType: 'voice'
+        });
+      } else {
+        console.log('Waiting for incoming WebRTC offer as receiver...');
       }
-    };
+    } catch (err) {
+      console.error('Failed to initialize call:', err);
+      setCallState('ended');
+    }
+  }, [contact, currentUser, handleIceDisconnect]);
+
+  useEffect(() => {
+    if (!contact || !currentUser) return;
 
     initializeCall();
 
-    // Listen to incoming signaling signals
     const unsubscribeSignaling = services.presenceService.listenToSignaling(currentUser.userId, async (data) => {
-      if (data.fromUid !== contact.id) return;
+      if (data.fromUid !== contact.id || callEndedRef.current) return;
 
       try {
         if (data.type === 'webrtc-answer' && peerConnectionRef.current) {
@@ -131,7 +202,7 @@ export default function VoiceCallScreen() {
           try {
             await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
           } catch (err) {
-            console.warn('⚠️ Failed to add ICE candidate:', err);
+            console.warn('Failed to add ICE candidate:', err);
           }
         }
       } catch (err) {
@@ -141,6 +212,8 @@ export default function VoiceCallScreen() {
 
     return () => {
       unsubscribeSignaling();
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (navigateTimerRef.current) clearTimeout(navigateTimerRef.current);
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -148,7 +221,7 @@ export default function VoiceCallScreen() {
         peerConnectionRef.current.close();
       }
     };
-  }, [contact, currentUser]);
+  }, [contact, currentUser, initializeCall]);
 
   useEffect(() => {
     if (callState === 'connected') {
@@ -166,7 +239,7 @@ export default function VoiceCallScreen() {
   const toggleMute = () => {
     if (localStreamRef.current) {
       localStreamRef.current.getAudioTracks().forEach(track => {
-        track.enabled = isMuted; // Toggle enabled state
+        track.enabled = isMuted;
       });
     }
     setIsMuted(!isMuted);
@@ -177,16 +250,17 @@ export default function VoiceCallScreen() {
   };
 
   const handleEndCall = () => {
+    callEndedRef.current = true;
     setCallState('ended');
     clearInterval(timerRef.current);
+    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
 
-    // Save call record (even if duration is 0 — it's still a call attempt)
     if (currentUser && contactId) {
       const isReceiver = new URLSearchParams(window.location.search || window.location.hash.split('?')[1]).get('received') === 'true';
       saveCallRecord(contactId, 'voice', isReceiver ? 'incoming' : 'outgoing', duration).catch(() => {});
     }
 
-    setTimeout(() => navigate(-1), 1500);
+    navigateTimerRef.current = setTimeout(() => navigate(-1), 1500);
   };
 
   if (!contact) return null;
@@ -234,7 +308,7 @@ export default function VoiceCallScreen() {
         <div className="flex flex-col items-center gap-4 mt-8">
           {/* Animated rings */}
           <div className="relative flex items-center justify-center">
-            {callState === 'calling' && (
+            {(callState === 'calling' || callState === 'reconnecting') && (
               <>
                 {[1, 2, 3].map(i => (
                   <motion.div
@@ -291,6 +365,25 @@ export default function VoiceCallScreen() {
                   ))}
                 </motion.div>
               )}
+              {callState === 'reconnecting' && (
+                <motion.div
+                  key="reconnecting"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex items-center justify-center gap-2 mt-2"
+                >
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                  >
+                    <RefreshCw size={14} className="text-yellow-400" />
+                  </motion.div>
+                  <span className="text-yellow-400" style={{ fontSize: '0.95rem' }}>
+                    Reconnecting... ({reconnectAttempt}/{MAX_RECONNECT_ATTEMPTS})
+                  </span>
+                </motion.div>
+              )}
               {callState === 'connected' && (
                 <motion.p
                   key="connected"
@@ -326,6 +419,23 @@ export default function VoiceCallScreen() {
           >
             <div className="w-2 h-2 rounded-full bg-[#4D91FB] animate-pulse" />
             <span className="text-white/80 text-xs">End-to-end encrypted</span>
+          </motion.div>
+        )}
+
+        {/* Reconnecting banner */}
+        {callState === 'reconnecting' && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center gap-2 mt-4 bg-yellow-500/20 rounded-full px-4 py-1.5"
+          >
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+            >
+              <RefreshCw size={12} className="text-yellow-400" />
+            </motion.div>
+            <span className="text-yellow-400 text-xs">Connection lost — reconnecting</span>
           </motion.div>
         )}
 

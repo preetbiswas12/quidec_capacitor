@@ -90,7 +90,14 @@ export class PeerServiceImpl {
 
         // Handle disconnection
         this.peer.on('disconnected', () => {
-          this.log('⚠️ PeerJS disconnected');
+          this.log('⚠️ PeerJS disconnected — attempting reconnect');
+          if (this.peer && !this.peer.destroyed) {
+            try {
+              this.peer.reconnect();
+            } catch (err) {
+              this.error('PeerJS reconnect failed', err);
+            }
+          }
         });
 
         // Handle peer reconnection

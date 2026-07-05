@@ -9,6 +9,9 @@ import { Preferences } from '@capacitor/preferences';
 // ─── Key Rotation ─────────────────────────────────────────────────────────────
 
 const KEY_VERSION_KEY = 'encryption_key_version_v1';
+const LAST_ROTATION_KEY = 'encryption_last_rotation_v1';
+const ROTATION_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_HISTORICAL_VERSIONS = 7; // try up to 7 old versions
 
 export async function getKeyVersion() {
   const { value } = await Preferences.get({ key: KEY_VERSION_KEY });
@@ -19,21 +22,83 @@ export async function rotateKeyVersion() {
   const current = await getKeyVersion();
   const next = current + 1;
   await Preferences.set({ key: KEY_VERSION_KEY, value: String(next) });
+  await Preferences.set({ key: LAST_ROTATION_KEY, value: String(Date.now()) });
   conversationKeyCache.clear();
   return next;
 }
 
+export async function getLastRotationTime() {
+  const { value } = await Preferences.get({ key: LAST_ROTATION_KEY });
+  return value ? parseInt(value, 10) : 0;
+}
+
+/**
+ * Check if key rotation is due (>24h since last rotation) and rotate automatically.
+ * Call this once on app startup.
+ */
+export async function checkAndRotateKey() {
+  const lastRotation = await getLastRotationTime();
+  const now = Date.now();
+  if (lastRotation === 0 || now - lastRotation >= ROTATION_INTERVAL_MS) {
+    const newVersion = await rotateKeyVersion();
+    console.log(`🔑 Key rotated to version ${newVersion}`);
+    return newVersion;
+  }
+  return await getKeyVersion();
+}
+
 // ─── HMAC Authentication ──────────────────────────────────────────────────────
+
+/**
+ * Derive an HMAC signing key from a seed string.
+ * Uses PBKDF2 with a different salt than the encryption key to ensure
+ * the signing key is cryptographically independent.
+ */
+export async function deriveSigningKey(seed) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(seed);
+
+  const importedKey = await window.crypto.subtle.importKey(
+    'raw', data, 'PBKDF2', false, ['deriveBits']
+  );
+
+  // Use a fixed different salt for signing keys (independent from encryption)
+  const signingSalt = new Uint8Array(32);
+  signingSalt.fill(0x48); // 'H' for HMAC
+
+  const derivedBits = await window.crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: signingSalt,
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    importedKey,
+    256
+  );
+
+  return window.crypto.subtle.importKey(
+    'raw', derivedBits,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false, ['sign', 'verify']
+  );
+}
 
 export async function signMessage(message, signingKey) {
   const encoder = new TextEncoder();
   const data = encoder.encode(JSON.stringify(message));
 
-  const key = await window.crypto.subtle.importKey(
-    'raw', signingKey,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false, ['sign']
-  );
+  // signingKey may be a CryptoKey (from deriveSigningKey) or raw bytes
+  let key;
+  if (signingKey instanceof CryptoKey) {
+    key = signingKey;
+  } else {
+    key = await window.crypto.subtle.importKey(
+      'raw', signingKey,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false, ['sign']
+    );
+  }
 
   const signature = await window.crypto.subtle.sign('HMAC', key, data);
   return Array.from(new Uint8Array(signature))
@@ -249,4 +314,29 @@ export async function encryptMetadata(metadata, key) {
 
 export async function decryptMetadata(encryptedMetadata, key) {
   return decryptMessage(encryptedMetadata, key)
+}
+
+/**
+ * Decrypt a message trying historical key versions as fallback.
+ * When a message was encrypted with an older key version and the recipient
+ * has already rotated, the current key won't work. This tries older versions.
+ */
+export async function decryptMessageWithHistoricalKeys(encryptedData, user1, user2) {
+  const currentVersion = await getKeyVersion();
+
+  // Try current version first
+  for (let v = currentVersion; v >= Math.max(1, currentVersion - MAX_HISTORICAL_VERSIONS); v--) {
+    try {
+      const key = await getConversationKey(user1, user2, v);
+      const result = await decryptMessage(encryptedData, key);
+      // If version differed, re-encrypt with current version for future efficiency
+      if (v !== currentVersion) {
+        console.log(`🔑 Decrypted with historical key v${v} (current is v${currentVersion})`);
+      }
+      return result;
+    } catch {
+      // Wrong key version — try next
+    }
+  }
+  throw new Error('Failed to decrypt with any historical key');
 }

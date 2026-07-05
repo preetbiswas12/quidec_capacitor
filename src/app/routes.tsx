@@ -1,13 +1,20 @@
+import { lazy, Suspense } from 'react';
 import { createBrowserRouter, Outlet, Navigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppProvider, useApp } from './context/AppContext';
 import MobileFrame from './components/MobileFrame';
 import SplashScreen from './components/SplashScreen';
 import Onboarding from './components/Onboarding';
-import MainLayout from './components/MainLayout';
-import ChatWindow from './components/ChatWindow';
-import GroupInfo from './components/GroupInfo';
 import EmailVerification from './components/EmailVerification';
+import ErrorBoundary from './components/ErrorBoundary';
+
+const MainLayout = lazy(() => import('./components/MainLayout'));
+const ChatWindow = lazy(() => import('./components/ChatWindow'));
+const GroupInfo = lazy(() => import('./components/GroupInfo'));
+const VideoCallScreen = lazy(() => import('./components/VideoCallScreen'));
+const VoiceCallScreen = lazy(() => import('./components/VoiceCallScreen'));
+const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy'));
+const TermsOfService = lazy(() => import('./components/TermsOfService'));
 
 // ─── Protected Route ─────────────────────────────────────────────────────────
 
@@ -122,6 +129,24 @@ function Root() {
   );
 }
 
+// ─── Lazy Route Wrapper ──────────────────────────────────────────────────────
+
+function LazyRoute({ children }: { children: React.ReactNode }) {
+  return (
+    <ErrorBoundary>
+      <Suspense
+        fallback={
+          <div className="h-full w-full bg-[#111B21] flex items-center justify-center">
+            <SplashScreen />
+          </div>
+        }
+      >
+        {children}
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 export const router = createBrowserRouter([
@@ -140,16 +165,32 @@ export const router = createBrowserRouter([
         element: <EmailVerification />,
       },
       {
+        path: '/privacy',
+        element: <LazyRoute><PrivacyPolicy /></LazyRoute>,
+      },
+      {
+        path: '/terms',
+        element: <LazyRoute><TermsOfService /></LazyRoute>,
+      },
+      {
         element: <ProtectedRoute />,
         children: [
           {
             path: '/app',
-            element: <MainLayout />,
+            element: <LazyRoute><MainLayout /></LazyRoute>,
             children: [
               { index: true, element: <div className="h-full w-full bg-[#111B21]" /> },
-              { path: 'chat/:id', element: <ChatWindow /> },
-              { path: 'group/:id', element: <GroupInfo /> },
+              { path: 'chat/:id', element: <LazyRoute><ChatWindow /></LazyRoute> },
+              { path: 'group/:id', element: <LazyRoute><GroupInfo /></LazyRoute> },
             ],
+          },
+          {
+            path: '/call/video/:id',
+            element: <LazyRoute><VideoCallScreen /></LazyRoute>,
+          },
+          {
+            path: '/call/voice/:id',
+            element: <LazyRoute><VoiceCallScreen /></LazyRoute>,
           },
         ],
       },

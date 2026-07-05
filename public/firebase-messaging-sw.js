@@ -48,17 +48,20 @@ self.addEventListener('notificationclick', (event) => {
   console.log('[SW] Notification clicked:', event);
   event.notification.close();
 
+  const data = event.notification.data || {};
+  const conversationId = data.conversationId || data.groupId || '';
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // If app is already open, focus it
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.postMessage({ type: 'OPEN_CONVERSATION', conversationId });
           return client.focus();
         }
       }
-      // Otherwise open the app
       if (clients.openWindow) {
-        return clients.openWindow('/');
+        const url = conversationId ? `${self.location.origin}/?chat=${conversationId}` : self.location.origin;
+        return clients.openWindow(url);
       }
     })
   );
