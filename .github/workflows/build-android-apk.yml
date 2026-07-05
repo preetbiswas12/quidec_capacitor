@@ -61,6 +61,9 @@ jobs:
         run: |
           echo "$GOOGLE_SERVICES_JSON" | base64 -d > android/app/google-services.json
 
+      - name: Sync Capacitor
+        run: pnpm cap sync android
+
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
