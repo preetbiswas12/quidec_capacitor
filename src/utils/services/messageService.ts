@@ -35,7 +35,7 @@ import {
   setDoc,
   runTransaction,
 } from 'firebase/firestore';
-import { ref, set, onChildAdded, remove, get } from 'firebase/database';
+import { ref, set, onChildAdded, remove, get, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
 import { encryptMessage, decryptMessage, decryptMessageWithHistoricalKeys, getConversationKey, deriveSigningKey, signMessage, verifySignature } from '../encryption';
 import { uploadMediaWithProgress } from '../mediaUploadHandler';
 import { presenceService } from './presenceService';
@@ -88,20 +88,24 @@ export const messageService = {
           logger.warn('recordMessage', `HMAC signing failed: ${signErr}`);
         }
 
-        encryptedContent = await encryptMessage(content, convKey);
+        encryptedContent = await encryptMessage({ content, messageType: options.messageType || 'text' }, convKey);
       } catch (encErr) {
         throw new Error(`Encryption failed — cannot send unencrypted message: ${encErr}`);
       }
+
+      // Use ISO string for timestamp — Firestore serverTimestamp() is a FieldValue sentinel
+      // that RTDB cannot serialize. We need a plain string for RTDB delivery pipe.
+      const ts = options.timestamp || new Date().toISOString();
 
       const messageData = {
         messageId,
         fromUid,
         toUid,
-        content: encryptedContent, // Store encrypted
-        hmac: hmacSignature, // HMAC signature for integrity verification
+        content: encryptedContent,
+        hmac: hmacSignature,
         mediaUrl: options.mediaUrl || null,
         messageType: options.messageType || 'text',
-        timestamp: options.timestamp || serverTimestamp(),
+        timestamp: ts,
         status: options.status || MESSAGE_STATUS.SENT,
         deliveredAt: null,
         readAt: null,
@@ -122,11 +126,11 @@ export const messageService = {
           ...messageData,
           fromUid,
           conversationId,
-          _createdAt: serverTimestamp(),
+          _createdAt: rtdbServerTimestamp(),
         });
+        logger.info('recordMessage', `RTDB pipe write OK → delivery/${sanitizePathComponent(toUid)}/${messageId}`);
       } catch (rtdbErr) {
-        logger.error('recordMessage', `RTDB delivery failed: ${rtdbErr}`);
-        // Log but don't fail - we have local persistence fallback
+        logger.error('recordMessage', `RTDB delivery FAILED: ${rtdbErr}`);
       }
 
       // Save to local persistence - This is our ONLY permanent store
@@ -137,12 +141,13 @@ export const messageService = {
           senderId: fromUid,
           content: content,
           type: (options.messageType as any) || 'text',
-          timestamp: new Date().toISOString(),
+          timestamp: ts,
           status: (options.status as any) || 'sent',
           replyToId: options.replyToId || undefined,
           replyToContent: options.replyToContent || undefined,
           replyToSender: options.replyToSender || undefined,
           expiresAt: options.expiresAt || undefined,
+          mediaPath: options.mediaUrl || undefined,
         });
       } catch (localErr) {
         logger.warn('recordMessage', `Local persistence failed: ${localErr}`);
@@ -157,11 +162,12 @@ export const messageService = {
           senderId: fromUid,
           content: content,
           type: (options.messageType as any) || 'text',
-          timestamp: new Date().toISOString(),
+          timestamp: ts,
           status: (options.status as any) || 'sent',
           replyToId: options.replyToId || null,
           replyToContent: options.replyToContent || null,
           replyToSender: options.replyToSender || null,
+          mediaUrl: options.mediaUrl || null,
         }]);
       } catch {
         // Non-critical — pagination falls back to primary store
@@ -348,6 +354,7 @@ export const messageService = {
           type: (messageType || 'text') as any,
           timestamp: timestamp || new Date().toISOString(),
           status: MESSAGE_STATUS.DELIVERED,
+          mediaPath: mediaUrl || undefined,
         });
       } catch (localErr) {
         console.warn('⚠️ Failed to save incoming message to local store:', localErr);
@@ -366,6 +373,7 @@ export const messageService = {
           replyToId: null,
           replyToContent: null,
           replyToSender: null,
+          mediaUrl: mediaUrl || null,
         }]);
       } catch {
         // Non-critical — pagination falls back to primary store
@@ -527,7 +535,7 @@ export const messageService = {
         messageId,
         conversationId,
         deliveredAt: Date.now(),
-        timestamp: serverTimestamp(),
+        timestamp: rtdbServerTimestamp(),
       });
 
       console.log(`📨 Delivery receipt sent (📨 Double tick): ${messageId}`);
@@ -552,7 +560,7 @@ export const messageService = {
         messageId,
         conversationId,
         readAt: Date.now(),
-        timestamp: serverTimestamp(),
+        timestamp: rtdbServerTimestamp(),
       });
 
       console.log(`💙 Read receipt sent (💙 Double blue tick): ${messageId}`);
@@ -568,26 +576,24 @@ export const messageService = {
   listenToReceipts(uid: string, callback: (receipt: { type: 'delivered' | 'read', messageId: string, conversationId: string }) => void) {
     // Listen to delivery receipts (sanitize UID for RTDB path)
     const deliveredRef = ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered`);
-    const unsubDelivered = onChildAdded(deliveredRef, async (snapshot) => {
+    const unsubDelivered = onChildAdded(deliveredRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
 
       callback({ type: 'delivered', messageId: snapshot.key!, conversationId: data.conversationId });
 
-      // Immediately delete receipt after processing
-      await remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered/${snapshot.key}`));
+      remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered/${snapshot.key}`)).catch(() => {});
     });
 
     // Listen to read receipts (sanitize UID for RTDB path)
     const readRef = ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read`);
-    const unsubRead = onChildAdded(readRef, async (snapshot) => {
+    const unsubRead = onChildAdded(readRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
 
       callback({ type: 'read', messageId: snapshot.key!, conversationId: data.conversationId });
 
-      // Immediately delete receipt after processing
-      await remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read/${snapshot.key}`));
+      remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read/${snapshot.key}`)).catch(() => {});
     });
 
     return () => {
@@ -648,7 +654,7 @@ export const messageService = {
           messageId: msg.id,
           conversationId,
           readAt: Date.now(),
-          timestamp: serverTimestamp(),
+          timestamp: rtdbServerTimestamp(),
         });
       }
 
@@ -666,19 +672,20 @@ export const messageService = {
     const deliveryRef = ref(realtimeDb, `delivery/${sanitizePathComponent(uid)}`);
 
     // Use onChildAdded so we get each message one by one
-    const unsubscribe = onChildAdded(deliveryRef, async (snapshot) => {
+    const unsubscribe = onChildAdded(deliveryRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
 
-      // 1. Trigger the callback for the UI/Store
-      callback({
+      // 1. Trigger the callback for the UI/Store (may be async)
+      Promise.resolve(callback({
         id: snapshot.key,
         ...data
-      });
+      })).catch(() => {});
 
       // 2. IMMEDIATELY DELETE from server
-      await remove(ref(realtimeDb, `delivery/${sanitizePathComponent(uid)}/${snapshot.key}`));
-      console.log(`🗑️ Message ${snapshot.key} wiped from server after delivery`);
+      remove(ref(realtimeDb, `delivery/${sanitizePathComponent(uid)}/${snapshot.key}`))
+        .then(() => console.log(`🗑️ Message ${snapshot.key} wiped from server after delivery`))
+        .catch(() => {});
     });
 
     return unsubscribe;
@@ -882,7 +889,7 @@ export const messageService = {
   ) {
     const deletionsRef = ref(realtimeDb, `deletions/${sanitizePathComponent(uid)}`);
 
-    const unsubscribe = onChildAdded(deletionsRef, async (snapshot) => {
+    const unsubscribe = onChildAdded(deletionsRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
 
@@ -891,8 +898,7 @@ export const messageService = {
         conversationId: data.conversationId,
       });
 
-      // Clean up the notification after processing
-      await remove(ref(realtimeDb, `deletions/${sanitizePathComponent(uid)}/${snapshot.key}`));
+      remove(ref(realtimeDb, `deletions/${sanitizePathComponent(uid)}/${snapshot.key}`)).catch(() => {});
     });
 
     return unsubscribe;
@@ -936,7 +942,7 @@ export const messageService = {
    * List all chat IDs that have local data on this device
    */
   async getChatsForUser(userId: string): Promise<string[]> {
-    return listLocalChatIds();
+    return listLocalChatIds(userId);
   },
 
   /**

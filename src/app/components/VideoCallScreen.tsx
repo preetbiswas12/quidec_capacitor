@@ -567,7 +567,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
    */
   if (callState === 'error') {
     return (
-      <div className="w-full h-screen bg-[#1F2C34] flex items-center justify-center flex-col gap-4">
+      <div className="w-full h-screen bg-wa-secondary flex items-center justify-center flex-col gap-4">
         <div className="text-center px-6">
           <div className="text-6xl mb-4">⚠️</div>
           <h2 className="text-white text-xl font-bold mb-2">Call Error</h2>
@@ -591,7 +591,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="w-full h-screen bg-[#1F2C34] flex items-center justify-center flex-col gap-4"
+        className="w-full h-screen bg-wa-secondary flex items-center justify-center flex-col gap-4"
       >
         <div className="text-center">
           <motion.div
@@ -616,14 +616,14 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="w-full h-screen bg-gradient-to-b from-[#202C33] to-[#111B21] flex items-center justify-center flex-col gap-6 px-6"
+        className="w-full h-screen bg-gradient-to-b from-[#202C33] to-wa-main flex items-center justify-center flex-col gap-6 px-6"
       >
         {/* Caller avatar */}
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ type: 'spring', delay: 0.2 }}
-          className="w-24 h-24 rounded-full bg-[#4D91FB]/20 flex items-center justify-center border-4 border-[#4D91FB]/40"
+          className="w-24 h-24 rounded-full bg-wa-accent/20 flex items-center justify-center border-4 border-wa-accent/40"
         >
           {remoteContact?.avatar ? (
             <img
@@ -632,7 +632,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
               className="w-full h-full rounded-full object-cover"
             />
           ) : (
-            <div className="text-4xl font-bold text-[#4D91FB]">
+            <div className="text-4xl font-bold text-wa-accent">
               {remoteContact?.name?.[0]?.toUpperCase() || '?'}
             </div>
           )}
@@ -658,7 +658,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
           {[0, 1, 2].map((i) => (
             <motion.div
               key={i}
-              className="w-3 h-3 bg-[#4D91FB] rounded-full"
+              className="w-3 h-3 bg-wa-accent rounded-full"
               animate={{ opacity: [0.5, 1, 0.5] }}
               transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.2 }}
             />
@@ -675,7 +675,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={handleAcceptCall}
-            className="w-16 h-16 bg-[#4D91FB] rounded-full flex items-center justify-center shadow-2xl hover:bg-[#06cf9c] transition-colors"
+            className="w-16 h-16 bg-wa-accent rounded-full flex items-center justify-center shadow-2xl hover:bg-[#06cf9c] transition-colors"
           >
             <Video size={28} className="text-white" />
           </motion.button>
@@ -699,14 +699,14 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="w-full h-screen bg-gradient-to-b from-[#202C33] to-[#111B21] flex items-center justify-center flex-col gap-6 px-6"
+        className="w-full h-screen bg-gradient-to-b from-[#202C33] to-wa-main flex items-center justify-center flex-col gap-6 px-6"
       >
         {/* Remote user avatar */}
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ type: 'spring', delay: 0.2 }}
-          className="w-24 h-24 rounded-full bg-[#4D91FB]/20 flex items-center justify-center border-4 border-[#4D91FB]/40"
+          className="w-24 h-24 rounded-full bg-wa-accent/20 flex items-center justify-center border-4 border-wa-accent/40"
         >
           {remoteContact?.avatar ? (
             <img
@@ -715,7 +715,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
               className="w-full h-full rounded-full object-cover"
             />
           ) : (
-            <div className="text-4xl font-bold text-[#4D91FB]">
+            <div className="text-4xl font-bold text-wa-accent">
               {remoteContact?.name?.[0]?.toUpperCase() || '?'}
             </div>
           )}
@@ -764,7 +764,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       onClick={handleTap}
-      className="relative w-full h-screen bg-[#000000] overflow-hidden"
+      className="relative w-full h-screen bg-black overflow-hidden"
     >
       {/* Remote video (fullscreen) */}
       <video
@@ -779,7 +779,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 0.5 }}
-        className="absolute top-6 right-6 w-24 h-32 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 bg-[#1F2C34] z-20"
+        className="absolute top-6 right-6 w-24 h-32 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 bg-wa-secondary z-20"
         drag
         dragConstraints={{ top: 0, right: 0, bottom: -400, left: -200 }}
       >
@@ -811,7 +811,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
               </button>
               <div className="text-center flex-1">
                 <p className="text-white font-semibold">{remoteContact?.name || 'Unknown'}</p>
-                <p className="text-[#4D91FB] text-sm">{formatDuration(duration)}</p>
+                <p className="text-wa-accent text-sm">{formatDuration(duration)}</p>
               </div>
               <button className="text-white/80 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors">
                 <Users size={20} />

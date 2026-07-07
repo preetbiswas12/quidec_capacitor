@@ -3,7 +3,7 @@
     "typing": {
       "$conversationId": {
         ".read": "auth != null",
-        ".write": "auth != null && ($conversationId.split('_').indexOf(auth.uid) >= 0 || newData.hasChildren(['uid']))"
+        ".write": "auth != null"
       }
     },
     "groupTyping": {
@@ -15,13 +15,13 @@
     "presence": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && $uid === auth.uid"
+        ".write": "auth != null"
       }
     },
     "delivery": {
       "$uid": {
-        ".read": "auth != null && $uid === auth.uid",
-        ".write": "auth != null && $uid === auth.uid"
+        ".read": "auth != null",
+        ".write": "auth != null"
       }
     },
     "receipts": {
@@ -32,14 +32,14 @@
     },
     "signaling": {
       "$userId": {
-        ".read": "auth != null && $userId === auth.uid",
+        ".read": "auth != null",
         ".write": "auth != null"
       }
     },
     "notifications": {
       "$uid": {
-        ".read": "auth != null && $uid === auth.uid",
-        ".write": "auth != null && $uid === auth.uid"
+        ".read": "auth != null",
+        ".write": "auth != null"
       }
     }
   }

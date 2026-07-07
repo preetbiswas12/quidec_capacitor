@@ -197,27 +197,32 @@ describe('updateUserProfile', () => {
 });
 
 describe('searchUsers', () => {
-  it('returns matching users excluding current user', async () => {
+  it('returns exact match excluding current user', async () => {
     const docs = [
-      { id: 'u1', data: () => ({ username: 'alice', displayName: 'Alice' }) },
-      { id: 'u2', data: () => ({ username: 'alex', displayName: 'Alex' }) },
-      { id: 'u3', data: () => ({ username: 'alic', displayName: 'Alic' }) },
+      { id: 'preet_4736', data: () => ({ username: 'preet_4736', displayName: 'Preet' }) },
     ];
     mockGetDocs.mockResolvedValue({ docs });
 
-    const result = await userService.searchUsers('al', 'u2');
+    const result = await userService.searchUsers('preet_4736', 'other_user');
 
     expect(result).toEqual([
-      { uid: 'u1', username: 'alice', displayName: 'Alice' },
-      { uid: 'u3', username: 'alic', displayName: 'Alic' },
+      { handle: 'preet_4736', username: 'preet_4736', displayName: 'Preet' },
     ]);
-    expect(result.find((u) => u.uid === 'u2')).toBeUndefined();
+  });
+
+  it('returns empty when partial match (no prefix matching)', async () => {
+    const docs: any[] = [];
+    mockGetDocs.mockResolvedValue({ docs });
+
+    const result = await userService.searchUsers('preet', 'other_user');
+
+    expect(result).toEqual([]);
   });
 
   it('returns empty array when no matches', async () => {
     mockGetDocs.mockResolvedValue({ docs: [] });
 
-    const result = await userService.searchUsers('zzz', 'u1');
+    const result = await userService.searchUsers('zzz_1234', 'u1');
 
     expect(result).toEqual([]);
   });
@@ -225,21 +230,28 @@ describe('searchUsers', () => {
   it('returns empty array on Firestore error', async () => {
     mockGetDocs.mockRejectedValue(new Error('query failed'));
 
-    const result = await userService.searchUsers('al', 'u1');
+    const result = await userService.searchUsers('alice_1234', 'u1');
 
     expect(result).toEqual([]);
   });
 
-  it('returns all users when none match currentUid filter', async () => {
+  it('returns empty array for empty search term', async () => {
+    const result = await userService.searchUsers('', 'u1');
+
+    expect(result).toEqual([]);
+  });
+
+  it('strips @ prefix from search term', async () => {
     const docs = [
-      { id: 'u1', data: () => ({ username: 'bob' }) },
-      { id: 'u2', data: () => ({ username: 'bobby' }) },
+      { id: 'preet_4736', data: () => ({ username: 'preet_4736', displayName: 'Preet' }) },
     ];
     mockGetDocs.mockResolvedValue({ docs });
 
-    const result = await userService.searchUsers('bob', 'u99');
+    const result = await userService.searchUsers('@preet_4736', 'other_user');
 
-    expect(result).toHaveLength(2);
+    expect(result).toEqual([
+      { handle: 'preet_4736', username: 'preet_4736', displayName: 'Preet' },
+    ]);
   });
 });
 
@@ -252,7 +264,7 @@ describe('getUserByUsername', () => {
 
     const result = await userService.getUserByUsername('alice');
 
-    expect(result).toEqual({ uid: 'u1', username: 'alice', displayName: 'Alice' });
+    expect(result).toEqual({ handle: 'u1', username: 'alice', displayName: 'Alice' });
   });
 
   it('returns null when no user found', async () => {

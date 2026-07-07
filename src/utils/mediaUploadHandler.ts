@@ -22,7 +22,7 @@ export interface MediaUploadProgress {
 
 export interface StoredMediaReference {
   fileId: string
-  mediaType: 'image' | 'video' | 'audio'
+  mediaType: 'image' | 'video' | 'audio' | 'document'
   totalChunks: number
   originalName?: string
   fileHash: string
@@ -36,7 +36,7 @@ export interface StoredMediaReference {
  */
 export async function uploadMediaWithProgress(
   file: File,
-  mediaType: 'image' | 'video' | 'audio',
+  mediaType: 'image' | 'video' | 'audio' | 'document',
   user1: string,
   user2: string,
   onProgress?: (progress: MediaUploadProgress) => void
@@ -119,7 +119,7 @@ export async function uploadMediaWithProgress(
  */
 export async function loadMediaForDisplay(
   fileId: string,
-  mediaType: 'image' | 'video' | 'audio',
+  mediaType: 'image' | 'video' | 'audio' | 'document',
   user1: string,
   user2: string
 ): Promise<{
@@ -156,7 +156,7 @@ export async function loadMediaForDisplay(
 export async function batchLoadMediaForDisplay(
   fileIds: Array<{
     fileId: string
-    mediaType: 'image' | 'video' | 'audio'
+  mediaType: 'image' | 'video' | 'audio' | 'document'
   }>,
   user1: string,
   user2: string
@@ -234,7 +234,7 @@ export const mediaCache = new MediaCache()
  */
 export async function loadMediaWithCache(
   fileId: string,
-  mediaType: 'image' | 'video' | 'audio',
+  mediaType: 'image' | 'video' | 'audio' | 'document',
   user1: string,
   user2: string
 ): Promise<string> {
@@ -281,7 +281,7 @@ export async function deleteMediaFile(fileId: string, totalChunks: number): Prom
  */
 export async function exportMediaAsFile(
   fileId: string,
-  mediaType: 'image' | 'video' | 'audio',
+  mediaType: 'image' | 'video' | 'audio' | 'document',
   user1: string,
   user2: string,
   fileName: string

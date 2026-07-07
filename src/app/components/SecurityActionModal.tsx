@@ -85,13 +85,13 @@ export default function SecurityActionModal({
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
             className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
           >
-            <div className="w-full max-w-sm mx-4 bg-[#111B21] border border-[#4D91FB]/30 rounded-2xl shadow-2xl pointer-events-auto overflow-hidden">
+            <div className="w-full max-w-sm mx-4 bg-wa-main border border-wa-accent/30 rounded-2xl shadow-2xl pointer-events-auto overflow-hidden">
               {/* Close button */}
               <button
                 onClick={onClose}
                 className="absolute top-4 right-4 p-2 hover:bg-[#202C33] rounded-full transition-colors z-10 group"
               >
-                <X size={24} className="text-[#4D91FB] group-hover:text-[#06cf9c]" />
+                <X size={24} className="text-wa-accent group-hover:text-[#06cf9c]" />
               </button>
 
               {/* Content */}
@@ -127,7 +127,7 @@ export default function SecurityActionModal({
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3 }}
-                  className="text-[#8696A0] text-sm leading-relaxed mb-4"
+                  className="text-wa-text-muted text-sm leading-relaxed mb-4"
                 >
                   {message}
                 </motion.p>
@@ -138,10 +138,10 @@ export default function SecurityActionModal({
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.4 }}
-                    className="w-full bg-[#202C33] rounded-xl px-4 py-3 mb-6 border border-[#4D91FB]/20 flex items-center gap-3 justify-center"
+                    className="w-full bg-[#202C33] rounded-xl px-4 py-3 mb-6 border border-wa-accent/20 flex items-center gap-3 justify-center"
                   >
-                    <Mail size={16} className="text-[#4D91FB]" />
-                    <p className="text-[#E9EDEF] font-semibold text-sm break-all">{email}</p>
+                    <Mail size={16} className="text-wa-accent" />
+                    <p className="text-wa-text-primary font-semibold text-sm break-all">{email}</p>
                   </motion.div>
                 )}
 
@@ -150,10 +150,10 @@ export default function SecurityActionModal({
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.5 }}
-                  className="w-full bg-[#4D91FB]/10 rounded-xl px-4 py-3 mb-6 text-left border border-[#4D91FB]/20"
+                  className="w-full bg-wa-accent/10 rounded-xl px-4 py-3 mb-6 text-left border border-wa-accent/20"
                 >
-                  <p className="text-[#4D91FB] font-semibold text-xs mb-2">NEXT STEPS:</p>
-                  <ol className="text-[#8696A0] text-xs space-y-1">
+                  <p className="text-wa-accent font-semibold text-xs mb-2">NEXT STEPS:</p>
+                  <ol className="text-wa-text-muted text-xs space-y-1">
                     <li>1. Check your inbox and spam folder</li>
                     <li>2. Click the link in the email</li>
                     <li>3. Complete the action on the secure page</li>
@@ -165,7 +165,7 @@ export default function SecurityActionModal({
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.6 }}
-                  className="text-[#8696A0] text-xs mb-4"
+                  className="text-wa-text-muted text-xs mb-4"
                 >
                   Auto-closing in {Math.max(0, Math.round((8000 - (autoClose ? 8000 : 0)) / 1000))}s
                 </motion.div>

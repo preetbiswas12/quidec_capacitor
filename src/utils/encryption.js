@@ -27,6 +27,11 @@ export async function rotateKeyVersion() {
   return next;
 }
 
+export function clearConversationKeyCache() {
+  conversationKeyCache.clear();
+  cachedKey = null;
+}
+
 export async function getLastRotationTime() {
   const { value } = await Preferences.get({ key: LAST_ROTATION_KEY });
   return value ? parseInt(value, 10) : 0;
@@ -207,9 +212,42 @@ export async function getEncryptionKey(userId) {
 }
 
 /**
+ * Derive conversation key using a deterministic salt (no device-specific salt).
+ * Both sender and receiver must derive the same key independently, so the salt
+ * must be reproducible from the shared user identifiers alone.
+ */
+async function deriveSharedKey(seed, saltBytes) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(seed);
+
+  const importedKey = await window.crypto.subtle.importKey('raw', data, 'PBKDF2', false, [
+    'deriveBits',
+  ]);
+
+  const derivedBits = await window.crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: saltBytes,
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    importedKey,
+    256
+  );
+
+  return await window.crypto.subtle.importKey('raw', derivedBits, { name: 'AES-GCM' }, false, [
+    'encrypt',
+    'decrypt',
+  ]);
+}
+
+/**
  * Get conversation-specific E2E encryption key (like WhatsApp)
  * Both users derive the same key using their usernames in sorted order
  * Ensures messages from Alice to Bob are encrypted and only Bob can decrypt
+ *
+ * Uses a deterministic salt derived from the sorted user IDs so that both
+ * parties compute the same key independently, even on different devices.
  */
 let conversationKeyCache = new Map()
 
@@ -224,7 +262,16 @@ export async function getConversationKey(user1, user2, version) {
 
   try {
     const sharedSeed = `${userA}|${userB}|e2e-chat|v${ver}`
-    const key = await deriveKey(sharedSeed)
+
+    // Deterministic salt from sorted user IDs — both parties can compute this
+    const encoder = new TextEncoder();
+    const saltSeed = encoder.encode(`${userA}|${userB}|e2e-salt`);
+    const saltHash = await window.crypto.subtle.digest('SHA-256', saltSeed);
+    const saltBytes = new Uint8Array(saltHash);
+
+    console.log(`🔑 getConversationKey: ${userA} ↔ ${userB} v${ver} salt=${Array.from(saltBytes.slice(0,4)).map(b=>b.toString(16).padStart(2,'0')).join('')}`);
+
+    const key = await deriveSharedKey(sharedSeed, saltBytes)
     conversationKeyCache.set(cacheKey, key)
     return key
   } catch (err) {
@@ -251,8 +298,12 @@ export async function encryptMessage(message, encryptionKey) {
     combined.set(iv)
     combined.set(new Uint8Array(encrypted), iv.length)
 
-    // Return as base64 for storage
-    return btoa(String.fromCharCode.apply(null, combined))
+    // Return as base64 for storage (chunked to avoid stack overflow on large data)
+    let binary = ''
+    for (let i = 0; i < combined.length; i += 8192) {
+      binary += String.fromCharCode.apply(null, combined.subarray(i, i + 8192))
+    }
+    return btoa(binary)
   } catch (err) {
     console.error('❌ Encryption failed:', err)
     throw err
@@ -261,6 +312,8 @@ export async function encryptMessage(message, encryptionKey) {
 
 /**
  * Decrypt a message
+ * Returns { content: string, ... } — normalizes the result so callers
+ * can always access .content whether the plaintext was a raw string or a JSON object.
  */
 export async function decryptMessage(encryptedData, encryptionKey) {
   try {
@@ -283,8 +336,14 @@ export async function decryptMessage(encryptedData, encryptionKey) {
 
     const decoder = new TextDecoder()
     const data = decoder.decode(decrypted)
+    const parsed = JSON.parse(data)
 
-    return JSON.parse(data)
+    // Normalize: if the plaintext was a bare string (e.g. from recordMessage),
+    // wrap it so callers can always access .content
+    if (typeof parsed === 'string') {
+      return { content: parsed }
+    }
+    return parsed
   } catch (err) {
     console.error('❌ Decryption failed:', err)
     throw err

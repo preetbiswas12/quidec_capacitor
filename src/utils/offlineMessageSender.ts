@@ -49,7 +49,7 @@ export function queueReadReceipt(
 
   import('./services/messageService').then(({ messageService: svc }) => {
     if (receiptType === 'read') {
-      svc.markMessageRead(readerUid, senderUid, messageId).catch(() => {});
+      svc.markMessageRead(conversationId, messageId, senderUid).catch(() => {});
     } else if (receiptType === 'delivered') {
       svc.markMessageDelivered(conversationId, messageId, senderUid).catch(() => {});
     }
@@ -74,7 +74,7 @@ export async function flushReadReceipts(): Promise<{ sent: number; failed: numbe
       }
       const { messageService: svc } = await import('./services/messageService');
       if (receipt.receiptType === 'read') {
-        await svc.markMessageRead(receipt.readerUid, receipt.senderUid, receipt.messageId);
+        await svc.markMessageRead(receipt.conversationId, receipt.messageId, receipt.senderUid);
       } else if (receipt.receiptType === 'delivered') {
         await svc.markMessageDelivered(receipt.conversationId, receipt.messageId, receipt.senderUid);
       }
@@ -131,6 +131,7 @@ export async function sendMessageWhenAvailable(
     expiresAt?: number;
     keyVersion?: number;
     groupId?: string;
+    timestamp?: string;
   } = {}
 ): Promise<SendMessageResult> {
   const conversationId = options.groupId
@@ -173,6 +174,7 @@ export async function sendMessageWhenAvailable(
       replyToContent: options.replyToContent,
       replyToSender: options.replyToSender,
       expiresAt: options.expiresAt,
+      timestamp: options.timestamp,
     });
 
     return {

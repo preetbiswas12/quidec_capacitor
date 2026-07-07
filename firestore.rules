@@ -6,20 +6,21 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Check if user document exists and the uid field matches the auth UID
     function isUser(handle) {
       return isAuthenticated()
         && exists(/databases/$(database)/documents/users/$(handle))
         && request.auth.uid == get(/databases/$(database)/documents/users/$(handle)).data.uid;
     }
 
-    // Same as isUser — owner check via uid field in user document
+    function isExistingUser(handle) {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/users/$(handle));
+    }
+
     function isOwner(userId) {
       return isUser(userId);
     }
 
-    // Alternative ownership check: userId in the path matches auth UID directly
-    // (useful for subcollections where the parent doc ID is the auth UID)
     function isOwnerByPath(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
@@ -95,8 +96,10 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════════════════
 
     match /friendships/{userId} {
-      allow read, write: if isAuthenticated()
-        && (isUser(userId) || isOwnerByPath(userId));
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isExistingUser(userId) || isOwnerByPath(userId));
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && (isOwner(userId) || isOwnerByPath(userId));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -104,42 +107,32 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════════════════
 
     match /friendRequests/{requestId} {
-      allow read: if isAuthenticated() && (
-        isUser(resource.data.fromUid) || isUser(resource.data.toUid)
-        || request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid
-      );
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated()
         && (isUser(request.resource.data.fromUid) || request.auth.uid == request.resource.data.fromUid)
         && request.resource.data.toUid != request.auth.uid;
-      allow update: if isAuthenticated() && (
-        isUser(resource.data.fromUid) || isUser(resource.data.toUid)
-        || request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid
-      );
-      allow delete: if isAuthenticated() && (
-        isUser(resource.data.fromUid) || isUser(resource.data.toUid)
-        || request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid
-      );
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     // CONVERSATIONS COLLECTION
     // ═══════════════════════════════════════════════════════════════════════
+    // Conversation IDs are "{handle1}_{handle2}" where handles may contain
+    // underscores (e.g. "preet_4736_preetb_4711"). We use the participants
+    // array stored in the document instead of splitting the ID.
 
     match /conversations/{conversationId} {
-      allow read, write: if isAuthenticated() && (
-        isUser(conversationId.split('_')[0])
-        || isUser(conversationId.split('_')[1])
-        || request.auth.uid == conversationId.split('_')[0]
-        || request.auth.uid == conversationId.split('_')[1]
-      );
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
 
       match /messages/{messageId} {
-        allow read, write: if isAuthenticated() && (
-          isUser(conversationId.split('_')[0])
-          || isUser(conversationId.split('_')[1])
-          || request.auth.uid == conversationId.split('_')[0]
-          || request.auth.uid == conversationId.split('_')[1]
-        );
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update: if isAuthenticated();
+        allow delete: if isAuthenticated();
       }
     }
 

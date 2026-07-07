@@ -296,7 +296,7 @@ export default function VoiceCallScreen() {
         {/* Top bar */}
         <div className="flex items-center justify-between w-full pt-14 mb-auto">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-[#4D91FB] animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-wa-accent animate-pulse" />
             <span className="text-white/80 text-sm">Veill</span>
           </div>
           <button className="text-white/60 hover:text-white p-2">
@@ -313,7 +313,7 @@ export default function VoiceCallScreen() {
                 {[1, 2, 3].map(i => (
                   <motion.div
                     key={i}
-                    className="absolute rounded-full border border-[#4D91FB]/30"
+                    className="absolute rounded-full border border-wa-accent/30"
                     animate={{
                       width: [90, 90 + i * 40, 90 + i * 40],
                       height: [90, 90 + i * 40, 90 + i * 40],
@@ -389,7 +389,7 @@ export default function VoiceCallScreen() {
                   key="connected"
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="text-[#4D91FB] mt-1"
+                  className="text-wa-accent mt-1"
                   style={{ fontSize: '1.1rem', fontWeight: 500, letterSpacing: '2px' }}
                 >
                   {formatDuration(duration)}
@@ -417,7 +417,7 @@ export default function VoiceCallScreen() {
             animate={{ opacity: 1, y: 0 }}
             className="flex items-center gap-2 mt-4 bg-white/10 rounded-full px-4 py-1.5"
           >
-            <div className="w-2 h-2 rounded-full bg-[#4D91FB] animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-wa-accent animate-pulse" />
             <span className="text-white/80 text-xs">End-to-end encrypted</span>
           </motion.div>
         )}
@@ -493,7 +493,7 @@ function CallButton({ icon, label, active, onClick }: {
       onClick={onClick}
       className={`flex flex-col items-center gap-2 transition-all`}
     >
-      <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${active ? 'bg-white text-[#111B21]' : 'bg-white/15 text-white hover:bg-white/25'}`}>
+      <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${active ? 'bg-white text-wa-main' : 'bg-white/15 text-white hover:bg-white/25'}`}>
         {icon}
       </div>
       <span className="text-white/70" style={{ fontSize: '0.7rem' }}>{label}</span>

@@ -1,16 +1,1 @@
 @import "tailwindcss";
-
-@theme {
-  --color-primary: #1B3C53;
-  --color-secondary: #234C6A;
-  --color-bg-dark: #0b141a;
-  --color-whatsapp-green: #4d91fb;
-}
-
-@layer base {
-  body {
-    background-color: var(--color-bg-dark);
-    color: white;
-    font-family: sans-serif;
-  }
-}

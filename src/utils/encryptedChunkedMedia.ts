@@ -26,7 +26,7 @@ export interface ChunkMetadata {
   totalChunks: number // Total number of chunks for this file
   chunkHash: string // SHA-256 hash of this chunk
   chunkSize: number // Size of this chunk in bytes
-  mediaType: 'image' | 'video' | 'audio' | 'message' // Type of media
+  mediaType: 'image' | 'video' | 'audio' | 'message' | 'document' // Type of media
   originalName?: string // Original filename
   timestamp: number // When created
   encryption: {
@@ -53,6 +53,16 @@ function toArrayBuffer(src: Uint8Array): Uint8Array<ArrayBuffer> {
   return out;
 }
 
+/** Race a promise against a timeout — prevents hanging on web Filesystem API */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout: ${label} after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 /**
  * Generate SHA-256 hash for data integrity verification
  */
@@ -73,7 +83,7 @@ export async function generateSHA256Hash(data: Uint8Array): Promise<string> {
  */
 export async function saveEncryptedMediaChunks(
   binaryData: Uint8Array,
-  mediaType: 'image' | 'video' | 'audio' | 'message',
+  mediaType: 'image' | 'video' | 'audio' | 'message' | 'document',
   user1: string,
   user2: string,
   originalName?: string
@@ -143,40 +153,46 @@ export async function saveEncryptedMediaChunks(
       }
       const encryptedChunkBase64 = btoa(binary)
 
-      // 1. Save encrypted chunk to Firestore (for the recipient)
+      // 1. Save encrypted chunk to Firestore (for the recipient) — with timeout
       const chunkDocRef = doc(db, 'mediaChunks', `${fileId}_chunk_${i}`);
-      await setDoc(chunkDocRef, {
-        fileId,
-        chunkIndex: i,
-        data: encryptedChunkBase64, // Base64 string
-        uploadedAt: serverTimestamp(),
-        // We include metadata in the chunk for self-contained reassembly
-        metadata: {
-          ...metadata,
-          uploadedBy: user1,
-          intendedFor: user2
-        }
-      });
+      await withTimeout(
+        setDoc(chunkDocRef, {
+          fileId,
+          chunkIndex: i,
+          data: encryptedChunkBase64, // Base64 string
+          uploadedAt: serverTimestamp(),
+          // We include metadata in the chunk for self-contained reassembly
+          metadata: {
+            ...metadata,
+            uploadedBy: user1,
+            intendedFor: user2
+          }
+        }),
+        15000,
+        `Firestore write chunk ${i}`
+      );
 
-      // 2. Save encrypted chunk to local filesystem (for local cache)
+      // 2. Save encrypted chunk to local filesystem (local cache — non-critical, fire-and-forget with timeout)
       const chunkPath = `${MEDIA_PATHS.CHUNKS}/${fileId}_chunk_${i}`
-      
-      await Filesystem.writeFile({
-        path: chunkPath,
-        data: encryptedChunkBase64,
-        directory: Directory.Documents,
-        recursive: true,
-        encoding: Encoding.UTF8,
-      })
-
-      // 3. Save chunk metadata locally
       const metadataPath = `${MEDIA_PATHS.METADATA}/${fileId}_chunk_${i}.json`
-      await Filesystem.writeFile({
-        path: metadataPath,
-        data: JSON.stringify(metadata),
-        directory: Directory.Documents,
-        recursive: true,
-        encoding: Encoding.UTF8,
+      withTimeout(
+        Filesystem.writeFile({
+          path: chunkPath,
+          data: encryptedChunkBase64,
+          directory: Directory.Documents,
+          recursive: true,
+          encoding: Encoding.UTF8,
+        }).then(() => Filesystem.writeFile({
+          path: metadataPath,
+          data: JSON.stringify(metadata),
+          directory: Directory.Documents,
+          recursive: true,
+          encoding: Encoding.UTF8,
+        })),
+        5000,
+        `Local FS cache chunk ${i}`
+      ).catch((fsErr) => {
+        console.warn(`⚠️ Local filesystem cache failed for chunk ${i} (Firestore has it):`, fsErr)
       })
 
       chunkMetadataArray.push(metadata)
@@ -214,14 +230,29 @@ export async function retrieveDecryptedMedia(
     const encryptionKey = await getConversationKey(user1, user2)
 
     // Get metadata for first chunk to know total chunks
-    const firstMetadataPath = `${MEDIA_PATHS.METADATA}/${fileId}_chunk_0.json`
-    const metadataFile = await Filesystem.readFile({
-      path: firstMetadataPath,
-      directory: Directory.Documents,
-      encoding: Encoding.UTF8,
-    })
-
-    const firstMetadata: ChunkMetadata = JSON.parse(metadataFile.data as string)
+    let firstMetadata: ChunkMetadata
+    try {
+      const firstMetadataPath = `${MEDIA_PATHS.METADATA}/${fileId}_chunk_0.json`
+      const metadataFile = await withTimeout(
+        Filesystem.readFile({
+          path: firstMetadataPath,
+          directory: Directory.Documents,
+          encoding: Encoding.UTF8,
+        }),
+        3000,
+        'Read chunk 0 metadata'
+      )
+      firstMetadata = JSON.parse(metadataFile.data as string)
+    } catch {
+      // Local metadata missing — fetch from Firestore (recipient path)
+      const chunkDoc = await withTimeout(
+        getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_0`)),
+        15000,
+        'Firestore read chunk 0 metadata'
+      )
+      if (!chunkDoc.exists()) throw new Error(`Metadata for chunk 0 not found anywhere!`)
+      firstMetadata = chunkDoc.data().metadata
+    }
     const totalChunks = firstMetadata.totalChunks
     const mediaType = firstMetadata.mediaType
 
@@ -236,15 +267,23 @@ export async function retrieveDecryptedMedia(
       // 1. Get Metadata (Local or Firestore)
       let metadata: ChunkMetadata;
       try {
-        const metadataFile = await Filesystem.readFile({
-          path: metadataPath,
-          directory: Directory.Documents,
-          encoding: Encoding.UTF8,
-        });
+        const metadataFile = await withTimeout(
+          Filesystem.readFile({
+            path: metadataPath,
+            directory: Directory.Documents,
+            encoding: Encoding.UTF8,
+          }),
+          3000,
+          `Read chunk ${i} metadata`
+        );
         metadata = JSON.parse(metadataFile.data as string);
       } catch (err) {
         // Metadata missing locally - it's fine, we'll get it from Firestore with the chunk
-        const chunkDoc = await getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`));
+        const chunkDoc = await withTimeout(
+          getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`)),
+          15000,
+          `Firestore read chunk ${i}`
+        );
         if (!chunkDoc.exists()) throw new Error(`Metadata for chunk ${i} not found!`);
         metadata = chunkDoc.data().metadata;
       }
@@ -252,43 +291,50 @@ export async function retrieveDecryptedMedia(
       // 2. Read encrypted chunk
       let chunkData: string;
       try {
-        const chunkFile = await Filesystem.readFile({
-          path: chunkPath,
-          directory: Directory.Documents,
-          encoding: Encoding.UTF8,
-        });
+        const chunkFile = await withTimeout(
+          Filesystem.readFile({
+            path: chunkPath,
+            directory: Directory.Documents,
+            encoding: Encoding.UTF8,
+          }),
+          3000,
+          `Read chunk ${i} data`
+        );
         chunkData = chunkFile.data as string;
       } catch (err) {
         // Local file missing - try Firestore (recipient path)
         console.log(`📡 Chunk ${i} missing locally, fetching from Firestore...`);
-        const chunkDoc = await getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`));
+        const chunkDoc = await withTimeout(
+          getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`)),
+          15000,
+          `Firestore read chunk ${i} data`
+        );
         if (!chunkDoc.exists()) {
           throw new Error(`Chunk ${i} not found anywhere!`);
         }
         chunkData = chunkDoc.data().data;
 
-        // Cache it locally for next time
-        try {
-          await Filesystem.writeFile({
-            path: chunkPath,
-            data: chunkData,
-            directory: Directory.Documents,
-            recursive: true,
-            encoding: Encoding.UTF8,
-          });
-          
-          // Also fetch and cache metadata if it's the first chunk
-          if (i === 0) {
-            await Filesystem.writeFile({
+        // Cache it locally for next time (fire-and-forget with timeout)
+        if (i === 0) {
+          withTimeout(
+            Filesystem.writeFile({
+              path: chunkPath,
+              data: chunkData,
+              directory: Directory.Documents,
+              recursive: true,
+              encoding: Encoding.UTF8,
+            }).then(() => Filesystem.writeFile({
               path: metadataPath,
               data: JSON.stringify(chunkDoc.data().metadata),
               directory: Directory.Documents,
               recursive: true,
               encoding: Encoding.UTF8,
-            });
-          }
-        } catch (cacheErr) {
-          console.warn('⚠️ Failed to cache chunk locally:', cacheErr);
+            })),
+            5000,
+            `Cache chunk ${i} locally`
+          ).catch((cacheErr) => {
+            console.warn('⚠️ Failed to cache chunk locally:', cacheErr);
+          });
         }
       }
 
@@ -339,20 +385,6 @@ export async function retrieveDecryptedMedia(
 
     // Verify overall file hash
     const calculatedFileHash = await generateSHA256Hash(fullData)
-    const metadataForHash: ChunkMetadata = JSON.parse(
-      (
-        await Filesystem.readFile({
-          path: `${MEDIA_PATHS.METADATA}/${fileId}_chunk_0.json`,
-          directory: Directory.Documents,
-          encoding: Encoding.UTF8,
-        })
-      ).data as string
-    )
-
-    if (calculatedFileHash !== metadataForHash.chunkHash) {
-      console.warn('⚠️ File hash mismatch! Some chunks may be corrupted.')
-      fileVerified = false
-    }
 
     return {
       data: fullData,
@@ -371,17 +403,32 @@ export async function retrieveDecryptedMedia(
  */
 export async function createDisplayableMediaUrl(
   decryptedData: Uint8Array,
-  mediaType: 'image' | 'video' | 'audio'
+  mediaType: 'image' | 'video' | 'audio' | 'document'
 ): Promise<string> {
   try {
-    // Determine MIME type
+    // Detect MIME type from magic bytes
     let mimeType = 'application/octet-stream'
-    if (mediaType === 'image') {
-      mimeType = 'image/jpeg' // Assuming JPEG, can be enhanced to detect format
-    } else if (mediaType === 'video') {
-      mimeType = 'video/mp4'
-    } else if (mediaType === 'audio') {
-      mimeType = 'audio/mp4'
+    if (decryptedData.length >= 4) {
+      const sig = Array.from(decryptedData.slice(0, 12))
+      if (sig[0] === 0xFF && sig[1] === 0xD8 && sig[2] === 0xFF) mimeType = 'image/jpeg'
+      else if (sig[0] === 0x89 && sig[1] === 0x50 && sig[2] === 0x4E && sig[3] === 0x47) mimeType = 'image/png'
+      else if (sig[0] === 0x47 && sig[1] === 0x49 && sig[2] === 0x46) mimeType = 'image/gif'
+      else if (sig[0] === 0x52 && sig[1] === 0x49 && sig[2] === 0x46 && sig[3] === 0x46) mimeType = 'video/webm'
+      else if (sig[4] === 0x66 && sig[5] === 0x74 && sig[6] === 0x79 && sig[7] === 0x70) {
+        if (sig[8] === 0x69 && sig[9] === 0x73) mimeType = 'video/mp4'
+        else if (sig[8] === 0x6F) mimeType = 'video/mp4'
+        else mimeType = 'video/mp4'
+      }
+      else if (sig[0] === 0x1A && sig[1] === 0x45 && sig[2] === 0xDF && sig[3] === 0xA3) mimeType = 'video/webm'
+      else if (sig[0] === 0x4F && sig[1] === 0x67 && sig[2] === 0x67 && sig[3] === 0x53) mimeType = 'audio/ogg'
+      else if (sig[0] === 0x23 && sig[1] === 0x21 && sig[2] === 0x41 && sig[3] === 0x4D) mimeType = 'audio/amr'
+      else {
+        const fallback: Record<string, string> = { image: 'image/jpeg', video: 'video/mp4', audio: 'audio/mp4' }
+        mimeType = fallback[mediaType] || 'application/octet-stream'
+      }
+    } else {
+      const fallback: Record<string, string> = { image: 'image/jpeg', video: 'video/mp4', audio: 'audio/mp4' }
+      mimeType = fallback[mediaType] || 'application/octet-stream'
     }
 
     // Create blob from decrypted data

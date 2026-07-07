@@ -71,7 +71,7 @@ export default function StatusTab() {
     <div className="flex flex-col h-full overflow-y-auto relative">
       {/* My Status */}
       <div className="px-4 py-4 border-b border-wa-border/10">
-        <h3 className="text-[#8696A0] mb-3 px-1" style={{ fontSize: '0.8rem', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        <h3 className="text-wa-text-muted mb-3 px-1" style={{ fontSize: '0.8rem', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
           My Status
         </h3>
 
@@ -99,19 +99,19 @@ export default function StatusTab() {
                 <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full bg-[#DFE5E7] flex items-center justify-center">
-                  <span className="text-[#8696A0]" style={{ fontSize: '1.2rem', fontWeight: 600 }}>
+                  <span className="text-wa-text-muted" style={{ fontSize: '1.2rem', fontWeight: 600 }}>
                     {currentUser?.name ? currentUser.name[0].toUpperCase() : '?'}
                   </span>
                 </div>
               )}
             </div>
-            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-[#4D91FB] rounded-full flex items-center justify-center border-2 border-wa-main">
+            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-wa-accent rounded-full flex items-center justify-center border-2 border-wa-main">
               <Plus size={10} className="text-white" />
             </div>
           </div>
           <div>
             <p className="text-wa-primary" style={{ fontWeight: 500 }}>My status</p>
-            <p className="text-[#8696A0]" style={{ fontSize: '0.8rem' }}>
+            <p className="text-wa-text-muted" style={{ fontSize: '0.8rem' }}>
               {myStatuses.length > 0 ? `${myStatuses.length} update${myStatuses.length !== 1 ? 's' : ''} · Tap to add more` : 'Tap to add status update'}
             </p>
           </div>
@@ -121,7 +121,7 @@ export default function StatusTab() {
       {/* Contacts' Status Updates */}
       {sortedContacts.length > 0 && (
         <div className="px-4 py-3">
-          <h3 className="text-[#8696A0] mb-2 px-1" style={{ fontSize: '0.8rem', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          <h3 className="text-wa-text-muted mb-2 px-1" style={{ fontSize: '0.8rem', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             Recent Updates {unviewedCount > 0 ? `(${unviewedCount} new)` : ''}
           </h3>
           {sortedContacts.map(([contactId, contactStatuses]) => {
@@ -154,7 +154,7 @@ export default function StatusTab() {
           </p>
           <button
             onClick={() => setShowCreate(true)}
-            className="mt-2 px-6 py-2.5 rounded-full bg-[#4D91FB] text-white font-semibold text-sm hover:bg-[#06cf9c] transition-colors"
+            className="mt-2 px-6 py-2.5 rounded-full bg-wa-accent text-white font-semibold text-sm hover:bg-[#06cf9c] transition-colors"
           >
             Share your first status
           </button>
@@ -167,11 +167,11 @@ export default function StatusTab() {
           onClick={() => setShowCreate(true)}
           className="w-12 h-12 rounded-full bg-wa-secondary flex items-center justify-center shadow-lg hover:bg-wa-secondary/80 transition-colors"
         >
-          <Camera size={20} className="text-[#8696A0]" />
+          <Camera size={20} className="text-wa-text-muted" />
         </button>
         <button
           onClick={() => setShowCreate(true)}
-          className="w-14 h-14 rounded-full bg-[#4D91FB] flex items-center justify-center shadow-lg hover:bg-[#06cf9c] transition-colors"
+          className="w-14 h-14 rounded-full bg-wa-accent flex items-center justify-center shadow-lg hover:bg-[#06cf9c] transition-colors"
         >
           <Plus size={24} className="text-white" />
         </button>
@@ -269,7 +269,7 @@ function MyStatusThumb({ status, onDelete }: { status: any; onDelete: () => void
   return (
     <div className="relative flex-shrink-0">
       <div
-        className="w-16 h-20 rounded-lg overflow-hidden cursor-pointer border-2 border-wa-border/20 hover:border-[#4D91FB]/50 transition-colors"
+        className="w-16 h-20 rounded-lg overflow-hidden cursor-pointer border-2 border-wa-border/20 hover:border-wa-accent/50 transition-colors"
         style={{ backgroundColor: status.backgroundColor || '#4D91FB' }}
         onClick={() => setShowDelete(!showDelete)}
       >
@@ -287,7 +287,7 @@ function MyStatusThumb({ status, onDelete }: { status: any; onDelete: () => void
           <Trash2 size={10} className="text-white" />
         </button>
       )}
-      <p className="text-[#8696A0] text-center mt-1" style={{ fontSize: '0.6rem' }}>
+      <p className="text-wa-text-muted text-center mt-1" style={{ fontSize: '0.6rem' }}>
         {formatTime(status.timestamp)}
       </p>
     </div>
@@ -312,28 +312,28 @@ function StatusItem({
       <div className="relative">
         <div className={`w-14 h-14 rounded-full p-0.5 ${
           hasUnviewed
-            ? 'bg-gradient-to-br from-[#4D91FB] to-[#34b7f1]'
-            : 'bg-[#8696A0]'
+            ? 'bg-gradient-to-br from-wa-accent to-[#34b7f1]'
+            : 'bg-wa-text-muted'
         }`}>
           <div className="w-full h-full rounded-full p-0.5 bg-wa-main">
             <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={48} />
           </div>
         </div>
         {statusCount > 1 && (
-          <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-[#4D91FB] rounded-full flex items-center justify-center border-2 border-wa-main">
+          <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-wa-accent rounded-full flex items-center justify-center border-2 border-wa-main">
             <span className="text-white" style={{ fontSize: '0.6rem', fontWeight: 700 }}>{statusCount}</span>
           </div>
         )}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-wa-primary" style={{ fontWeight: 500 }}>{contact.name}</p>
-        <p className="text-[#8696A0] truncate" style={{ fontSize: '0.8rem' }}>
+        <p className="text-wa-text-muted truncate" style={{ fontSize: '0.8rem' }}>
           {hasUnviewed ? 'New update' : formatTime(timestamp)}
           {statusCount > 1 ? ` · ${statusCount} updates` : ''}
         </p>
       </div>
       {hasUnviewed && (
-        <div className="w-2.5 h-2.5 rounded-full bg-[#4D91FB] flex-shrink-0" />
+        <div className="w-2.5 h-2.5 rounded-full bg-wa-accent flex-shrink-0" />
       )}
     </div>
   );

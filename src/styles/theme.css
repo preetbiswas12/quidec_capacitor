@@ -13,6 +13,12 @@
   --wa-accent: #4d91fb;
   --wa-header-icon: #54656F;
   --wa-input-bg: #FFFFFF;
+  --wa-online-green: #25D366;
+  --wa-read-blue: #53bdeb;
+  --wa-star-yellow: #f9a825;
+  --wa-menu-bg: #FFFFFF;
+  --wa-menu-hover: #F5F6F6;
+  --wa-date-bg: #D1D7DB;
 
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -51,19 +57,25 @@
 
 .dark {
   /* WhatsApp Dark Theme */
-  --wa-bg-main: #000000;
-  --wa-bg-secondary: #000000;
-  --wa-bg-header: #000000;
-  --wa-bg-chat: #000000;
+  --wa-bg-main: #0B141A;
+  --wa-bg-secondary: #111B21;
+  --wa-bg-header: #1F2C34;
+  --wa-bg-chat: #0B141A;
   --wa-bg-bubble-self: #005C4B;
-  --wa-bg-bubble-other: #050505;
+  --wa-bg-bubble-other: #1F2C34;
   --wa-text-primary: #E9EDEF;
-  --wa-text-secondary: #AEBAC1;
+  --wa-text-secondary: #D1D7DB;
   --wa-text-muted: #8696A0;
-  --wa-border: #0F0F0F;
+  --wa-border: #222D34;
   --wa-accent: #4d91fb;
   --wa-header-icon: #AEBAC1;
-  --wa-input-bg: #050505;
+  --wa-input-bg: #1F2C34;
+  --wa-online-green: #25D366;
+  --wa-read-blue: #53bdeb;
+  --wa-star-yellow: #f9a825;
+  --wa-menu-bg: #233138;
+  --wa-menu-hover: #2A3942;
+  --wa-date-bg: #182229;
 
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
@@ -141,6 +153,7 @@
   --color-wa-chat: var(--wa-bg-chat);
   --color-wa-bubble-self: var(--wa-bg-bubble-self);
   --color-wa-bubble-other: var(--wa-bg-bubble-other);
+  --color-wa-primary: var(--wa-text-primary);
   --color-wa-text-primary: var(--wa-text-primary);
   --color-wa-text-secondary: var(--wa-text-secondary);
   --color-wa-text-muted: var(--wa-text-muted);
@@ -148,6 +161,12 @@
   --color-wa-accent: var(--wa-accent);
   --color-wa-header-icon: var(--wa-header-icon);
   --color-wa-input: var(--wa-input-bg);
+  --color-wa-online: var(--wa-online-green);
+  --color-wa-read: var(--wa-read-blue);
+  --color-wa-star: var(--wa-star-yellow);
+  --color-wa-menu-bg: var(--wa-menu-bg);
+  --color-wa-menu-hover: var(--wa-menu-hover);
+  --color-wa-date-bg: var(--wa-date-bg);
   --width-97.5: 24.375rem;
   --spacing-97.5: 24.375rem;
 }

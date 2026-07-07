@@ -218,7 +218,7 @@ export default function Onboarding() {
     >
       <div />
       <div className="flex flex-col items-center gap-8">
-        <div className="w-36 h-36 bg-[#4D91FB]/10 rounded-full flex items-center justify-center">
+        <div className="w-36 h-36 bg-wa-accent/10 rounded-full flex items-center justify-center">
           <svg viewBox="0 0 48 48" width="80" height="80" fill="none">
             <circle cx="24" cy="24" r="24" fill="#4D91FB" />
             <path d="M24 8C15.163 8 8 15.163 8 24c0 2.96.792 5.733 2.177 8.118L8 40l8.136-2.13A15.934 15.934 0 0024 40c8.837 0 16-7.163 16-16S32.837 8 24 8z" fill="white" />
@@ -234,7 +234,7 @@ export default function Onboarding() {
       </div>
       <button
         onClick={() => setStep(1)}
-        className="w-full bg-[#4D91FB] text-white rounded-full py-3.5 flex items-center justify-center gap-2 active:bg-[#008f72] transition-colors shadow-lg"
+        className="w-full bg-wa-accent text-white rounded-full py-3.5 flex items-center justify-center gap-2 active:bg-[#008f72] transition-colors shadow-lg"
         style={{ fontWeight: 600, fontSize: '0.95rem' }}
       >
         Get Started <ChevronRight size={18} />
@@ -249,13 +249,13 @@ export default function Onboarding() {
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -40 }}
     >
-      <button onClick={() => setStep(0)} className="self-start mb-6 text-[#4D91FB] flex items-center gap-1">
+      <button onClick={() => setStep(0)} className="self-start mb-6 text-wa-accent flex items-center gap-1">
         <ChevronLeft size={20} />
         <span style={{ fontSize: '0.95rem' }}>Back</span>
       </button>
       <div className="flex flex-col items-center gap-6 flex-1">
-        <div className="w-20 h-20 bg-[#4D91FB]/10 rounded-full flex items-center justify-center">
-          {isLogin ? <Lock size={32} className="text-[#4D91FB]" /> : <UserIcon size={32} className="text-[#4D91FB]" />}
+        <div className="w-20 h-20 bg-wa-accent/10 rounded-full flex items-center justify-center">
+          {isLogin ? <Lock size={32} className="text-wa-accent" /> : <UserIcon size={32} className="text-wa-accent" />}
         </div>
         <div className="text-center">
           <h2 className="text-wa-primary mb-2" style={{ fontSize: '1.4rem', fontWeight: 700 }}>
@@ -270,13 +270,13 @@ export default function Onboarding() {
         <div className="w-full bg-wa-secondary p-1 rounded-full flex">
           <button
             onClick={() => { setIsLogin(true); setError(''); }}
-            className={`flex-1 py-2 rounded-full text-sm font-semibold transition-all ${isLogin ? 'bg-wa-main text-[#4D91FB] shadow-sm' : 'text-wa-text-muted'}`}
+            className={`flex-1 py-2 rounded-full text-sm font-semibold transition-all ${isLogin ? 'bg-wa-main text-wa-accent shadow-sm' : 'text-wa-text-muted'}`}
           >
             Login
           </button>
           <button
             onClick={() => { setIsLogin(false); setError(''); }}
-            className={`flex-1 py-2 rounded-full text-sm font-semibold transition-all ${!isLogin ? 'bg-wa-main text-[#4D91FB] shadow-sm' : 'text-wa-text-muted'}`}
+            className={`flex-1 py-2 rounded-full text-sm font-semibold transition-all ${!isLogin ? 'bg-wa-main text-wa-accent shadow-sm' : 'text-wa-text-muted'}`}
           >
             Register
           </button>
@@ -290,7 +290,7 @@ export default function Onboarding() {
 
         <form onSubmit={handleAuthSubmit} className="w-full space-y-4">
           <div className="space-y-3">
-            <div className="border-b-2 border-wa-border/50 focus-within:border-[#4D91FB] flex items-center gap-3 py-2 transition-colors">
+            <div className="border-b-2 border-wa-border/50 focus-within:border-wa-accent flex items-center gap-3 py-2 transition-colors">
               <Mail size={18} className="text-wa-text-muted" />
               <input
                 type="email"
@@ -305,7 +305,7 @@ export default function Onboarding() {
             </div>
 
             {!isLogin && (
-              <div className="border-b-2 border-wa-border/50 focus-within:border-[#4D91FB] flex items-center gap-3 py-2 transition-colors">
+              <div className="border-b-2 border-wa-border/50 focus-within:border-wa-accent flex items-center gap-3 py-2 transition-colors">
                 <AtSign size={18} className="text-wa-text-muted" />
                 <input
                   type="text"
@@ -320,7 +320,7 @@ export default function Onboarding() {
               </div>
             )}
 
-            <div className="border-b-2 border-wa-border/50 focus-within:border-[#4D91FB] flex items-center gap-3 py-2 transition-colors">
+            <div className="border-b-2 border-wa-border/50 focus-within:border-wa-accent flex items-center gap-3 py-2 transition-colors">
               <Shield size={18} className="text-wa-text-muted" />
               <input
                 type="password"
@@ -352,7 +352,7 @@ export default function Onboarding() {
                     setError('Failed to send reset link');
                   }
                 }}
-                className="text-xs text-[#4D91FB] font-medium hover:underline"
+                className="text-xs text-wa-accent font-medium hover:underline"
               >
                 Forgot password?
               </button>
@@ -362,10 +362,10 @@ export default function Onboarding() {
           <button
             type="submit"
             disabled={loading || !isValidEmail(email) || password.length < 6 || (!isLogin && username.length < 3)}
-            className={`w-full rounded-full py-3.5 flex items-center justify-center gap-2 transition-all mt-2 ${loading ? 'bg-wa-secondary' : 'bg-[#4D91FB] text-white shadow-md'}`}
+            className={`w-full rounded-full py-3.5 flex items-center justify-center gap-2 transition-all mt-2 ${loading ? 'bg-wa-secondary' : 'bg-wa-accent text-white shadow-md'}`}
             style={{ fontWeight: 600 }}
           >
-            {loading ? <Loader2 size={20} className="animate-spin text-[#4D91FB]" /> : (isLogin ? 'Login' : 'Sign Up')}
+            {loading ? <Loader2 size={20} className="animate-spin text-wa-accent" /> : (isLogin ? 'Login' : 'Sign Up')}
             {!loading && <ChevronRight size={18} />}
           </button>
         </form>
@@ -373,7 +373,7 @@ export default function Onboarding() {
         <p className="text-wa-text-secondary text-sm pt-2">
           {isLogin ? "New to Veill?" : "Have an account?"}{' '}
           <span
-            className="text-[#4D91FB] font-semibold cursor-pointer"
+            className="text-wa-accent font-semibold cursor-pointer"
             role="button"
             tabIndex={0}
             onClick={() => setIsLogin(!isLogin)}
@@ -394,14 +394,14 @@ export default function Onboarding() {
       exit={{ opacity: 0, x: -40 }}
     >
       <div className="flex flex-col items-center gap-6 flex-1 text-center">
-        <div className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-700 ${verified ? 'bg-green-500 shadow-[0_0_30px_rgba(34,197,94,0.3)]' : 'bg-[#4D91FB]/10 animate-pulse'}`}>
+        <div className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-700 ${verified ? 'bg-green-500 shadow-[0_0_30px_rgba(34,197,94,0.3)]' : 'bg-wa-accent/10 animate-pulse'}`}>
           <AnimatePresence mode="wait">
             {verified
               ? <motion.div key="check" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 12 }}>
                   <Check size={48} className="text-white" />
                 </motion.div>
               : <motion.div key="mail" initial={{ scale: 0.8 }} animate={{ scale: 1 }}>
-                  <Mail size={40} className="text-[#4D91FB]" />
+                  <Mail size={40} className="text-wa-accent" />
                 </motion.div>
             }
           </AnimatePresence>
@@ -421,35 +421,35 @@ export default function Onboarding() {
 
         {!verified && (
           <div className="w-full space-y-4 pt-4">
-            <div className="bg-[#4D91FB]/10 border border-[#4D91FB]/20 rounded-2xl p-5 text-left space-y-3">
+            <div className="bg-wa-accent/10 border border-wa-accent/20 rounded-2xl p-5 text-left space-y-3">
               <p className="text-wa-primary text-sm font-bold flex items-center gap-2">
-                <Shield size={16} className="text-[#4D91FB]" />
+                <Shield size={16} className="text-wa-accent" />
                 How to verify:
               </p>
               <ul className="text-wa-text-secondary text-sm space-y-2.5">
                 <li className="flex gap-2">
-                  <span className="w-5 h-5 rounded-full bg-[#4D91FB] text-white text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+                  <span className="w-5 h-5 rounded-full bg-wa-accent text-white text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
                   <span>Open your email app and find the mail from <b>Veill</b>.</span>
                 </li>
                 <li className="flex gap-2">
-                  <span className="w-5 h-5 rounded-full bg-[#4D91FB] text-white text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+                  <span className="w-5 h-5 rounded-full bg-wa-accent text-white text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
                   <span>Click the <b>verification link</b> inside the email.</span>
                 </li>
                 <li className="flex gap-2">
-                  <span className="w-5 h-5 rounded-full bg-[#4D91FB] text-white text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+                  <span className="w-5 h-5 rounded-full bg-wa-accent text-white text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
                   <span>Return here to automatically continue.</span>
                 </li>
               </ul>
             </div>
 
             {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
-            {resendSent && <p className="text-[#4D91FB] text-sm font-medium animate-bounce">✅ New link sent to your inbox!</p>}
+            {resendSent && <p className="text-wa-accent text-sm font-medium animate-bounce">✅ New link sent to your inbox!</p>}
 
             <div className="space-y-3 pt-2">
               <button
                 onClick={handleManualVerify}
                 disabled={verifying}
-                className="w-full bg-[#4D91FB] text-white rounded-full py-4 flex items-center justify-center gap-2 font-bold shadow-lg active:scale-95 transition-transform disabled:opacity-70"
+                className="w-full bg-wa-accent text-white rounded-full py-4 flex items-center justify-center gap-2 font-bold shadow-lg active:scale-95 transition-transform disabled:opacity-70"
               >
                 {verifying ? <Loader2 size={20} className="animate-spin" /> : "I've Verified My Email"}
               </button>
@@ -457,7 +457,7 @@ export default function Onboarding() {
               <div className="flex flex-col gap-2">
                 <button
                   onClick={handleResend}
-                  className="text-[#4D91FB] py-2 text-sm font-bold hover:underline"
+                  className="text-wa-accent py-2 text-sm font-bold hover:underline"
                 >
                   Resend verification email
                 </button>
@@ -483,8 +483,8 @@ export default function Onboarding() {
       exit={{ opacity: 0, x: -40 }}
     >
       <div className="flex flex-col items-center gap-6 flex-1">
-        <div className="w-20 h-20 bg-[#4D91FB]/10 rounded-full flex items-center justify-center">
-          <Camera size={32} className="text-[#4D91FB]" />
+        <div className="w-20 h-20 bg-wa-accent/10 rounded-full flex items-center justify-center">
+          <Camera size={32} className="text-wa-accent" />
         </div>
         <div className="text-center">
           <h2 className="text-wa-primary mb-2" style={{ fontSize: '1.4rem', fontWeight: 700 }}>Almost there</h2>
@@ -499,16 +499,16 @@ export default function Onboarding() {
                 {avatarPreview ? (
                   <img src={avatarPreview} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
-                  <Camera size={32} className="text-[#8696A0]" />
+                  <Camera size={32} className="text-wa-text-muted" />
                 )}
               </div>
-              <div className="absolute bottom-0 right-0 w-8 h-8 bg-[#4D91FB] rounded-full flex items-center justify-center shadow-md">
+              <div className="absolute bottom-0 right-0 w-8 h-8 bg-wa-accent rounded-full flex items-center justify-center shadow-md">
                 <Camera size={14} className="text-white" />
               </div>
             </div>
           </div>
           <input ref={avatarInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleAvatarSelect} />
-          <div className="border-b-2 border-[#4D91FB] flex items-center gap-2">
+          <div className="border-b-2 border-wa-accent flex items-center gap-2">
             <input
               type="text"
               value={name}
@@ -526,12 +526,12 @@ export default function Onboarding() {
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-[#4D91FB]/10 border border-[#4D91FB]/30 rounded-xl px-4 py-3"
+              className="bg-wa-accent/10 border border-wa-accent/30 rounded-xl px-4 py-3"
             >
               <p className="text-wa-text-secondary mb-1" style={{ fontSize: '0.75rem' }}>Your Unique ID</p>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <AtSign size={16} className="text-[#4D91FB]" />
+                  <AtSign size={16} className="text-wa-accent" />
                   <span className="text-wa-primary" style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '0.5px' }}>
                     {generatedId}
                   </span>
@@ -542,7 +542,7 @@ export default function Onboarding() {
                     setIdCopied(true);
                     setTimeout(() => setIdCopied(false), 2000);
                   }}
-                  className="text-[#4D91FB] flex items-center gap-1"
+                  className="text-wa-accent flex items-center gap-1"
                   style={{ fontSize: '0.78rem' }}
                 >
                   {idCopied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
@@ -555,7 +555,7 @@ export default function Onboarding() {
       <button
         onClick={handleFinish}
         disabled={!name.trim()}
-        className={`w-full rounded-full py-3.5 flex items-center justify-center gap-2 transition-all ${name.trim() ? 'bg-[#4D91FB] text-white shadow-lg' : 'bg-wa-secondary text-wa-text-muted'}`}
+        className={`w-full rounded-full py-3.5 flex items-center justify-center gap-2 transition-all ${name.trim() ? 'bg-wa-accent text-white shadow-lg' : 'bg-wa-secondary text-wa-text-muted'}`}
         style={{ fontWeight: 600 }}
       >
         Done <Check size={18} />
@@ -568,7 +568,7 @@ export default function Onboarding() {
       {/* Progress bar */}
       <div className="h-1.5 bg-wa-secondary flex-shrink-0" role="progressbar" aria-valuenow={step} aria-valuemin={0} aria-valuemax={3} aria-label="Onboarding progress">
         <motion.div
-          className="h-full bg-[#4D91FB]"
+          className="h-full bg-wa-accent"
           animate={{ width: `${(step / 3) * 100}%` }}
           transition={{ duration: 0.3 }}
         />

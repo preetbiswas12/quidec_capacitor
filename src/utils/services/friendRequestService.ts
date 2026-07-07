@@ -205,6 +205,27 @@ export const friendRequestService = {
   },
 
   /**
+   * Listen to outgoing friend requests in real-time
+   */
+  listenToOutgoingRequests(uid: string, callback: (requests: any[]) => void) {
+    const q = query(
+      collection(db, 'friendRequests'),
+      where('fromUid', '==', uid),
+      where('status', '==', 'pending')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const requests = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      callback(requests);
+    });
+
+    return unsubscribe;
+  },
+
+  /**
    * Remove friend
    */
   async removeFriend(uid1: string, uid2: string) {

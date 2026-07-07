@@ -43,7 +43,7 @@ export default function GroupInfo() {
       <div className="h-full flex items-center justify-center bg-wa-main">
         <div className="text-center text-wa-text-muted">
           <p>Group not found</p>
-          <button onClick={() => navigate('/app')} className="mt-4 text-[#4d91fb]">Go back</button>
+          <button onClick={() => navigate('/app')} className="mt-4 text-wa-accent">Go back</button>
         </div>
       </div>
     );
@@ -158,7 +158,7 @@ export default function GroupInfo() {
             <>
               <button
                 onClick={() => groupIconInputRef.current?.click()}
-                className="absolute bottom-1 right-1 w-10 h-10 bg-[#4d91fb] rounded-full flex items-center justify-center border-[3px] border-wa-main hover:bg-[#3b8eea] transition-all shadow-xl active:scale-90"
+                className="absolute bottom-1 right-1 w-10 h-10 bg-wa-accent rounded-full flex items-center justify-center border-[3px] border-wa-main hover:bg-wa-accent/90 transition-all shadow-xl active:scale-90"
               >
                 <Camera size={18} className="text-white" />
               </button>
@@ -172,12 +172,12 @@ export default function GroupInfo() {
               <input
                 value={groupNameEdit}
                 onChange={e => setGroupNameEdit(e.target.value)}
-                className="bg-wa-secondary text-wa-primary rounded-lg px-3 py-1 outline-none border border-[#4d91fb] text-center font-bold"
+                className="bg-wa-secondary text-wa-primary rounded-lg px-3 py-1 outline-none border border-wa-accent text-center font-bold"
                 style={{ fontSize: '1.2rem' }}
                 maxLength={30}
                 autoFocus
               />
-              <button onClick={saveGroupName} className="w-8 h-8 bg-[#4d91fb] rounded-full flex items-center justify-center">
+              <button onClick={saveGroupName} className="w-8 h-8 bg-wa-accent rounded-full flex items-center justify-center">
                 <Check size={14} className="text-white" />
               </button>
             </div>
@@ -193,9 +193,9 @@ export default function GroupInfo() {
               )}
             </div>
           )}
-          <p className="text-[#4d91fb] mt-1 font-bold" style={{ fontSize: '0.85rem' }}>
+          <p className="text-wa-accent mt-1 font-bold" style={{ fontSize: '0.85rem' }}>
             {contact.members?.length} MEMBERS
-            {isCurrentUserAdmin && <span className="ml-2 inline-flex items-center gap-1 text-[#f9a825]"><Crown size={12} /> ADMIN</span>}
+            {isCurrentUserAdmin && <span className="ml-2 inline-flex items-center gap-1 text-wa-star"><Crown size={12} /> ADMIN</span>}
           </p>
         </div>
 
@@ -212,21 +212,21 @@ export default function GroupInfo() {
             <input
               value={descriptionEdit}
               onChange={e => setDescriptionEdit(e.target.value)}
-              className="w-full bg-wa-secondary text-wa-primary rounded-lg px-3 py-2 outline-none border border-[#4d91fb]"
+              className="w-full bg-wa-secondary text-wa-primary rounded-lg px-3 py-2 outline-none border border-wa-accent"
               style={{ fontSize: '0.95rem' }}
               maxLength={100}
               autoFocus
               placeholder="Group description"
             />
             <div className="flex gap-2 mt-2">
-              <button onClick={saveDescription} className="px-4 py-1.5 bg-[#4d91fb] text-white rounded-lg text-sm">Save</button>
+              <button onClick={saveDescription} className="px-4 py-1.5 bg-wa-accent text-white rounded-lg text-sm">Save</button>
               <button onClick={() => setEditingDescription(false)} className="px-4 py-1.5 bg-wa-secondary text-wa-text-muted rounded-lg text-sm">Cancel</button>
             </div>
           </div>
         ) : (
           <>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[#4d91fb]" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
+              <p className="text-wa-accent" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
                 DESCRIPTION
               </p>
               {isCurrentUserAdmin && (
@@ -244,7 +244,7 @@ export default function GroupInfo() {
       {group.inviteCode && (
         <div className="px-5 py-6 border-b border-wa-border/10">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-[#4d91fb]" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
+            <p className="text-wa-accent" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
               INVITE CODE
             </p>
             <button onClick={() => setShowInviteCode(v => !v)} className="text-wa-text-muted text-xs">
@@ -253,13 +253,13 @@ export default function GroupInfo() {
           </div>
           {showInviteCode && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="flex items-center gap-2">
-              <code className="flex-1 bg-wa-secondary rounded-lg px-4 py-3 text-[#4d91fb] font-mono font-bold text-lg tracking-widest select-all">
+              <code className="flex-1 bg-wa-secondary rounded-lg px-4 py-3 text-wa-accent font-mono font-bold text-lg tracking-widest select-all">
                 {group.inviteCode}
               </code>
-              <button onClick={copyInviteCode} className="p-3 bg-[#4d91fb]/10 text-[#4d91fb] rounded-lg hover:bg-[#4d91fb]/20 transition-colors" title="Copy code">
+              <button onClick={copyInviteCode} className="p-3 bg-wa-accent/10 text-wa-accent rounded-lg hover:bg-wa-accent/20 transition-colors" title="Copy code">
                 <Copy size={18} />
               </button>
-              <button onClick={shareInviteCode} className="p-3 bg-[#4d91fb]/10 text-[#4d91fb] rounded-lg hover:bg-[#4d91fb]/20 transition-colors" title="Share code">
+              <button onClick={shareInviteCode} className="p-3 bg-wa-accent/10 text-wa-accent rounded-lg hover:bg-wa-accent/20 transition-colors" title="Share code">
                 <Share2 size={18} />
               </button>
             </motion.div>
@@ -273,13 +273,13 @@ export default function GroupInfo() {
       {/* ── Group Members ── */}
       <div className="px-5 py-6 border-b border-wa-border/10">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[#4d91fb]" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
+          <p className="text-wa-accent" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
             {contact.members?.length || 0} MEMBERS
           </p>
           {isCurrentUserAdmin && (
             <button
               onClick={() => setShowAddMembers(true)}
-              className="flex items-center gap-1 text-[#4d91fb] text-sm font-medium"
+              className="flex items-center gap-1 text-wa-accent text-sm font-medium"
             >
               <UserPlus size={14} />
               Add
@@ -300,8 +300,8 @@ export default function GroupInfo() {
                     {isSelf && <span className="text-wa-text-muted font-normal"> (You)</span>}
                   </p>
                   <div className="flex items-center gap-2">
-                    {member?.isOnline && <p className="text-[#4d91fb] text-xs">online</p>}
-                    {memberIsAdmin && <span className="inline-flex items-center gap-0.5 text-[#f9a825] text-xs"><Crown size={10} /> admin</span>}
+                    {member?.isOnline && <p className="text-wa-accent text-xs">online</p>}
+                    {memberIsAdmin && <span className="inline-flex items-center gap-0.5 text-wa-star text-xs"><Crown size={10} /> admin</span>}
                   </div>
                 </div>
                 {/* Admin actions */}
@@ -340,7 +340,7 @@ export default function GroupInfo() {
                             }
                           }
                         }}
-                        className="text-wa-text-muted hover:text-[#f9a825] p-1"
+                        className="text-wa-text-muted hover:text-wa-star p-1"
                         title="Make admin"
                       >
                         <Crown size={16} />
@@ -358,7 +358,7 @@ export default function GroupInfo() {
                             }
                           }
                         }}
-                        className="text-wa-text-muted hover:text-[#4d91fb] p-1"
+                        className="text-wa-text-muted hover:text-wa-accent p-1"
                         title="Transfer ownership"
                       >
                         <ArrowLeft size={16} className="rotate-180" />
@@ -395,7 +395,7 @@ export default function GroupInfo() {
                 value={addMemberSearch}
                 onChange={e => setAddMemberSearch(e.target.value)}
                 placeholder="Search contacts"
-                className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]"
+                className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted"
                 style={{ fontSize: '0.9rem' }}
                 autoFocus
               />
@@ -422,7 +422,7 @@ export default function GroupInfo() {
                       <p className="text-wa-primary text-sm font-medium">{c.name}</p>
                       <p className="text-wa-text-muted text-xs">{c.userId}</p>
                     </div>
-                    <UserPlus size={16} className="text-[#4d91fb]" />
+                    <UserPlus size={16} className="text-wa-accent" />
                   </button>
                 ))}
               {contacts.filter(c => !c.isGroup && !contact.members?.includes(c.id)).length === 0 && (
@@ -474,7 +474,7 @@ export default function GroupInfo() {
             <Bell size={20} className="text-wa-text-muted" />
             <span className="text-wa-primary font-medium">Mute notifications</span>
           </div>
-          <div onClick={() => setIsMuted(!isMuted)} className={`relative w-11 h-5 rounded-full transition-colors cursor-pointer ${isMuted ? 'bg-[#4d91fb]' : 'bg-wa-secondary'}`}>
+          <div onClick={() => setIsMuted(!isMuted)} className={`relative w-11 h-5 rounded-full transition-colors cursor-pointer ${isMuted ? 'bg-wa-accent' : 'bg-wa-secondary'}`}>
             <motion.div animate={{ x: isMuted ? 24 : 2 }} className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm" />
           </div>
         </div>
@@ -529,7 +529,7 @@ export default function GroupInfo() {
 function ActionButton({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {
   return (
     <button onClick={onClick} className="flex flex-col items-center gap-2 group active:opacity-60 transition-opacity">
-      <div className="w-12 h-12 rounded-full flex items-center justify-center text-[#4d91fb] bg-[#4d91fb]/10 border border-[#4d91fb]/20 group-hover:bg-[#4d91fb]/20 transition-colors">
+      <div className="w-12 h-12 rounded-full flex items-center justify-center text-wa-accent bg-wa-accent/10 border border-wa-accent/20 group-hover:bg-wa-accent/20 transition-colors">
         {icon}
       </div>
       <span className="text-wa-text-muted font-bold" style={{ fontSize: '0.72rem', letterSpacing: '0.3px' }}>{label.toUpperCase()}</span>

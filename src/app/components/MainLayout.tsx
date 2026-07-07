@@ -14,7 +14,7 @@ export default function MainLayout() {
   const isChatOpen = location.pathname !== '/app' && location.pathname !== '/app/';
 
   return (
-    <main className="h-full w-full bg-[#111B21] overflow-hidden">
+    <main className="h-full w-full bg-wa-main overflow-hidden transition-colors duration-200">
       {/* Left Panel — visible when no chat is open */}
       <div className={`h-full flex flex-col w-full ${isChatOpen ? 'hidden' : 'flex'}`}>
         <LeftPanel />

@@ -29,7 +29,7 @@ export default function SplashScreen() {
             opacity: [0.1, 0.2, 0.1],
           }}
           transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute top-[-20%] left-[-10%] w-[120%] h-[60%] bg-gradient-radial from-[#4D91FB]/30 to-transparent blur-[100px]"
+          className="absolute top-[-20%] left-[-10%] w-[120%] h-[60%] bg-gradient-radial from-wa-accent/30 to-transparent blur-[100px]"
         />
         <motion.div 
           animate={{ 
@@ -37,7 +37,7 @@ export default function SplashScreen() {
             opacity: [0.05, 0.15, 0.05],
           }}
           transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 1 }}
-          className="absolute bottom-[-20%] right-[-10%] w-[120%] h-[60%] bg-gradient-radial from-[#4D91FB]/20 to-transparent blur-[100px]"
+          className="absolute bottom-[-20%] right-[-10%] w-[120%] h-[60%] bg-gradient-radial from-wa-accent/20 to-transparent blur-[100px]"
         />
       </div>
 
@@ -55,9 +55,9 @@ export default function SplashScreen() {
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-              className="absolute inset-0 border-2 border-dashed border-[#4D91FB]/30 rounded-[40px]"
+              className="absolute inset-0 border-2 border-dashed border-wa-accent/30 rounded-[40px]"
             />
-            <div className="w-24 h-24 bg-gradient-to-br from-[#4D91FB] to-[#01755b] rounded-[32px] flex items-center justify-center shadow-[0_0_80px_rgba(0,168,132,0.5)] relative z-20 overflow-hidden group">
+            <div className="w-24 h-24 bg-gradient-to-br from-wa-accent to-[#01755b] rounded-[32px] flex items-center justify-center shadow-[0_0_80px_rgba(0,168,132,0.5)] relative z-20 overflow-hidden group">
                <motion.div
                  animate={{ y: [-2, 2, -2] }}
                  transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
@@ -79,7 +79,7 @@ export default function SplashScreen() {
             <motion.div
               animate={{ rotate: -360 }}
               transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-              className="absolute inset-0 border border-[#4D91FB]/10 rounded-full scale-150"
+              className="absolute inset-0 border border-wa-accent/10 rounded-full scale-150"
             />
           </div>
         </motion.div>
@@ -98,7 +98,7 @@ export default function SplashScreen() {
               initial={{ width: 0 }}
               animate={{ width: '120%' }}
               transition={{ duration: 2, ease: "easeInOut" }}
-              className="h-[1px] bg-gradient-to-r from-transparent via-[#4D91FB] to-transparent mt-2"
+              className="h-[1px] bg-gradient-to-r from-transparent via-wa-accent to-transparent mt-2"
             />
           </div>
           
@@ -121,7 +121,7 @@ export default function SplashScreen() {
           <div className="w-64 flex flex-col gap-2">
             <div className="h-1 bg-wa-secondary/20 rounded-full overflow-hidden relative backdrop-blur-sm border border-wa-border/5">
               <motion.div
-                className="h-full w-1/3 bg-gradient-to-r from-transparent via-[#4D91FB] to-transparent rounded-full"
+                className="h-full w-1/3 bg-gradient-to-r from-transparent via-wa-accent to-transparent rounded-full"
                 animate={{ x: ['-100%', '400%'] }}
                 transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
               />
@@ -131,7 +131,7 @@ export default function SplashScreen() {
               <motion.span
                 animate={{ opacity: [1, 0.4, 1] }}
                 transition={{ duration: 0.5, repeat: Infinity }}
-                className="text-[#4D91FB] text-[8px] font-bold"
+                className="text-wa-accent text-[8px] font-bold"
               >
                 LIVE
               </motion.span>
@@ -149,12 +149,12 @@ export default function SplashScreen() {
       >
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
-            <Lock size={12} className="text-[#4D91FB]/70" />
+            <Lock size={12} className="text-wa-accent/70" />
             <span className="text-[9px] font-bold text-wa-text-muted/60 uppercase tracking-[0.2em]">Quantum-Safe</span>
           </div>
           <div className="w-[1px] h-3 bg-wa-border/10" />
           <div className="flex items-center gap-2">
-            <Globe size={12} className="text-[#4D91FB]/70" />
+            <Globe size={12} className="text-wa-accent/70" />
             <span className="text-[9px] font-bold text-wa-text-muted/60 uppercase tracking-[0.2em]">Global Mesh</span>
           </div>
         </div>
@@ -162,7 +162,7 @@ export default function SplashScreen() {
         <div className="flex flex-col items-center gap-1">
           <p className="text-wa-text-muted text-[9px] font-black tracking-[0.4em] uppercase opacity-50">Advanced Agentic Architecture</p>
           <div className="flex items-center gap-2 mt-1">
-            <div className="w-1 h-1 rounded-full bg-[#4D91FB]" />
+            <div className="w-1 h-1 rounded-full bg-wa-accent" />
             <span className="text-wa-text-muted/20 text-[8px] font-bold tracking-widest uppercase">Deepmind Labs System</span>
           </div>
         </div>

@@ -7,9 +7,9 @@ import { getCustomUsernameByFirebaseUid } from '../../utils/services/shared';
 import { getDoc, doc, query, collection, where, getDocs, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../utils/firebase';
 import { initializePushNotifications } from '../../utils/fcm';
-import { loadMessages as loadLocalMessages, loadAllChats, listLocalChatIds, clearKeyCache, updateMessageReactions, updateMessageStar, updateMessageContent, getStarredMessages, searchAllMessages as searchLocalMessages } from '../../utils/sqliteMessageStore';
+import { loadMessages as loadLocalMessages, loadAllChats, listLocalChatIds, clearKeyCache, updateMessageReactions, updateMessageStar, updateMessageContent, getStarredMessages, searchAllMessages as searchLocalMessages, migrateOldEncryptionData, appendMessage as appendLocalMessage } from '../../utils/sqliteMessageStore';
 import type { SearchResult as LocalSearchResult } from '../../utils/sqliteMessageStore';
-import { getEncryptionKey, getKeyVersion, checkAndRotateKey } from '../../utils/encryption';
+import { getEncryptionKey, getKeyVersion, checkAndRotateKey, decryptMessage, getConversationKey, decryptMessageWithHistoricalKeys } from '../../utils/encryption';
 import { sendMessageWhenAvailable, startAutoFlushOnReconnect, queueReadReceipt } from '../../utils/offlineMessageSender';
 import { uploadMediaWithProgress, loadMediaWithCache } from '../../utils/mediaUploadHandler';
 import { permissionManager } from '../../utils/permissionManager';
@@ -193,6 +193,7 @@ interface AppContextType {
   setActiveChatId: (id: string | null) => void;
   showRequests: boolean;
   setShowRequests: (v: boolean) => void;
+  chatsLoaded: boolean;
 
   // Messaging
   sendMessage: (chatId: string, content: string, type?: Message['type'], extra?: Partial<Message>, mediaFile?: File) => Promise<void>;
@@ -372,6 +373,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // UI State
   const [activeTab, setActiveTab] = useState<'chats' | 'calls' | 'status' | 'settings'>('chats');
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+
+  // Loading state — true once initial listeners have fired at least once
+  const [chatsLoaded, setChatsLoaded] = useState(false);
+  const chatsLoadedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showRequests, setShowRequests] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [chatFilter, setChatFilter] = useState<'all' | 'unread' | 'groups'>('all');
@@ -460,6 +465,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const typingUnsubscribeRef = useRef<(() => void) | null>(null);
   const friendsUnsubscribeRef = useRef<(() => void) | null>(null);
   const requestsUnsubscribeRef = useRef<(() => void) | null>(null);
+  const outgoingRequestsUnsubscribeRef = useRef<(() => void) | null>(null);
   const conversationsUnsubscribeRef = useRef<(() => void) | null>(null);
   const statusUnsubscribeRef = useRef<(() => void) | null>(null);
   const statusListenersRef = useRef<Record<string, () => void>>({});
@@ -620,6 +626,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       typingUnsubscribeRef.current?.();
       friendsUnsubscribeRef.current?.();
       requestsUnsubscribeRef.current?.();
+      outgoingRequestsUnsubscribeRef.current?.();
       conversationsUnsubscribeRef.current?.();
 
       clearKeyCache(); // Clear encryption keys on logout
@@ -729,7 +736,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
             // Background initializations
             initializeProductionCollections().catch(() => {});
-            checkAndRotateKey().catch(() => {});
+            // Run migration to clear old device-salt encrypted data.
+            // Key rotation is disabled for now — both users must agree on the same
+            // key version, which requires shared state (not per-device Preferences).
+            migrateOldEncryptionData().catch(() => {});
             getEncryptionKey(user.userId).then(key => initializePushNotifications(user.userId, key)).catch(() => {});
           } else {
             console.log('🚀 Finalizing state: NEEDS_VERIFICATION');
@@ -979,17 +989,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const loadLocalMessages = async () => {
       try {
-        const chatIds = await listLocalChatIds();
+        // One-time: clear old data encrypted with incompatible device-salt key
+        await migrateOldEncryptionData();
+
+        const chatIds = await listLocalChatIds(currentUser.userId);
         if (cancelled || chatIds.length === 0) return;
 
         const localData = await loadAllChats(currentUser.userId, chatIds);
         if (cancelled) return;
 
+        const myId = currentUser.userId;
+
         setMessages(prev => {
           const next = { ...prev };
           for (const [chatId, storedMsgs] of Object.entries(localData)) {
             if (storedMsgs.length === 0) continue;
-            // Only merge if we don't already have messages from Firestore
             if (!next[chatId] || next[chatId].length === 0) {
               next[chatId] = storedMsgs.map(m => ({
                 id: m.id,
@@ -1015,6 +1029,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return next;
         });
 
+        // Create Chat entries from local data so the chat list is populated
+        setChats(prev => {
+          const existingIds = new Set(prev.map(c => c.id));
+          const newChats: Chat[] = [];
+
+          for (const [chatId, storedMsgs] of Object.entries(localData)) {
+            if (storedMsgs.length === 0 || existingIds.has(chatId)) continue;
+
+            // Derive contactId from conversation ID (sorted UIDs joined by _)
+            let contactId = chatId;
+            if (chatId.startsWith(myId + '_')) {
+              contactId = chatId.slice(myId.length + 1);
+            } else if (chatId.endsWith('_' + myId)) {
+              contactId = chatId.slice(0, chatId.length - myId.length - 1);
+            }
+
+            const lastMsg = storedMsgs[storedMsgs.length - 1];
+            const unreadCount = storedMsgs.filter(
+              m => m.senderId !== myId && m.status !== 'read'
+            ).length;
+
+            newChats.push({
+              id: chatId,
+              contactId,
+              lastMessage: lastMsg.content,
+              lastMessageTime: lastMsg.timestamp,
+              lastMessageSender: lastMsg.senderId,
+              unreadCount,
+            });
+          }
+
+          return newChats.length > 0 ? [...newChats, ...prev] : prev;
+        });
+
         console.log(`📦 Loaded local messages for ${chatIds.length} chats`);
       } catch (err) {
         console.warn('⚠️ Failed to load local messages:', err);
@@ -1035,16 +1083,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return () => {};
       }
 
+      // Derive the correct other user from conversation ID (sorted format)
+      const myId = currentUser.userId;
+      let otherUserId = chat.contactId;
+      if (otherUserId === myId) {
+        if (chat.id.startsWith(myId + '_')) {
+          otherUserId = chat.id.slice(myId.length + 1);
+        } else if (chat.id.endsWith('_' + myId)) {
+          otherUserId = chat.id.slice(0, chat.id.length - myId.length - 1);
+        }
+        console.warn(`⚠️ chat.contactId was self — derived otherUserId=${otherUserId} for chat ${chat.id}`);
+      }
+
       return messageService.listenToMessages(
         currentUser.userId,
-        chat.contactId,
+        otherUserId,
         (rawMessages) => {
           const mappedMessages = rawMessages.map((raw) => mapFirestoreMessage(raw, chat.id));
 
-          setMessages((prev) => ({
-            ...prev,
-            [chat.id]: mappedMessages,
-          }));
+          setMessages((prev) => {
+            if (rawMessages.length === 0 && prev[chat.id] && prev[chat.id].length > 0) {
+              return prev;
+            }
+            const firestoreIds = new Set(mappedMessages.map(m => m.id));
+            const optimistic = (prev[chat.id] || []).filter(m => !firestoreIds.has(m.id));
+            return {
+              ...prev,
+              [chat.id]: [...optimistic, ...mappedMessages],
+            };
+          });
 
           if (mappedMessages.length > 0) {
             const lastMessage = mappedMessages[mappedMessages.length - 1];
@@ -1088,7 +1155,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           senderId: raw.senderId,
           content: raw.content || '',
           type: raw.messageType || 'text',
-          timestamp: raw.timestamp || new Date().toISOString(),
+          timestamp: normalizeFirestoreTimestamp(raw.timestamp),
           status: 'sent',
           imageUrl: raw.mediaUrl || undefined,
           replyToId: raw.replyToId || undefined,
@@ -1143,21 +1210,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       let avatarToSave = updates.avatar;
 
-      // If updating avatar and it's a dataURL (new selection)
+      // If updating avatar and it's a dataURL (new selection from camera/file picker)
       if (updates.avatar && updates.avatar.startsWith('data:')) {
-        console.log('📦 Chunking and encrypting new profile picture...');
-        // Convert dataURL to File
-        const res = await fetch(updates.avatar);
-        const blob = await res.blob();
-        const file = new File([blob], `profile_${currentUser.userId}.jpg`, { type: 'image/jpeg' });
-
-        // Store as encrypted chunks - use userId as Both user1 and user2 for self-media
-        const mediaRef = await uploadMediaWithProgress(file, 'image', currentUser.userId, currentUser.userId);
-        avatarToSave = mediaRef.fileId; // This is the hash reference
-        
+        console.log('📦 Saving profile picture directly...');
+        // Store the compressed dataURL directly in Firestore (within 1MB doc limit)
+        avatarToSave = updates.avatar;
         // Update resolved URL immediately for UI responsiveness
-        const displayUrl = URL.createObjectURL(blob);
-        setCurrentUserAvatarUrl(displayUrl);
+        setCurrentUserAvatarUrl(updates.avatar);
       }
 
       // Persist to Firebase
@@ -1273,7 +1332,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Persist deletions to local store
       for (const [chatId, expiredIds] of Object.entries(expiredByChat)) {
         try {
-          const { loadMessages, saveMessages } = await import('../../utils/localMessageStore');
+          const { loadMessages, saveMessages } = await import('../../utils/sqliteMessageStore');
           const stored = await loadMessages(currentUser.userId, chatId);
           const remaining = stored.filter(m => !expiredIds.includes(m.id));
           if (remaining.length !== stored.length) {
@@ -1436,6 +1495,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     friendsUnsubscribeRef.current = presenceService.listenToFriends(uid, (rawFriends) => {
       const normalized = rawFriends.map((f, i) => normalizeContact(f, i));
       setContacts(normalized);
+      if (!chatsLoaded) setChatsLoaded(true);
     });
 
     // 2. Listen to Friends Presence — friendships doc is keyed by custom handle
@@ -1446,16 +1506,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return {
             ...contact,
             isOnline: status.online,
-            lastSeen: status.online ? 'online' : `last seen ${new Date(status.lastSeen).toLocaleTimeString()}`,
+            lastSeen: status.online ? 'online' : `last seen ${(() => {
+              const ls = status.lastSeen;
+              if (!ls) return 'offline';
+              if (typeof ls?.toDate === 'function') return ls.toDate().toLocaleTimeString();
+              if (typeof ls?.seconds === 'number') return new Date(ls.seconds * 1000).toLocaleTimeString();
+              try { const d = new Date(ls); return isNaN(d.getTime()) ? 'offline' : d.toLocaleTimeString(); } catch { return 'offline'; }
+            })()}`,
           };
         }
         return contact;
       }));
     });
 
-    // 3. Listen to Friend Requests (Incoming)
-    requestsUnsubscribeRef.current = friendRequestService.listenToPendingRequests(uid, (rawRequests) => {
-      const requests = rawRequests.map((req, i) => ({
+    // 3. Listen to Friend Requests (Incoming + Outgoing)
+    const incomingRequestsRef = { current: [] as any[] };
+    const outgoingRequestsRef = { current: [] as any[] };
+
+    const mergeRequests = () => {
+      const incoming = incomingRequestsRef.current.map((req: any) => ({
         id: req.id,
         contactId: req.fromUid,
         direction: 'incoming' as const,
@@ -1463,19 +1532,75 @@ export function AppProvider({ children }: { children: ReactNode }) {
         timestamp: normalizeFirestoreTimestamp(req.createdAt),
         previewMessage: `Friend request from ${req.fromUsername || req.fromUid}`,
       }));
-      setChatRequests(requests);
+      const outgoing = outgoingRequestsRef.current.map((req: any) => ({
+        id: req.id,
+        contactId: req.toUid,
+        direction: 'outgoing' as const,
+        status: 'pending' as const,
+        timestamp: normalizeFirestoreTimestamp(req.createdAt),
+        previewMessage: `Friend request to ${req.toUsername || req.toUid}`,
+      }));
+      setChatRequests([...incoming, ...outgoing]);
+    };
+
+    requestsUnsubscribeRef.current = friendRequestService.listenToPendingRequests(uid, (rawRequests) => {
+      incomingRequestsRef.current = rawRequests;
+      mergeRequests();
+    });
+
+    outgoingRequestsUnsubscribeRef.current = friendRequestService.listenToOutgoingRequests(uid, (rawRequests) => {
+      outgoingRequestsRef.current = rawRequests;
+      mergeRequests();
     });
 
     // 4. Listen to Incoming Messages (RTDB transient pipe - messages deleted after receipt)
+    console.log(`👂 Setting up RTDB delivery listener for user: ${uid}`);
     conversationsUnsubscribeRef.current = messageService.listenToIncomingMessages(uid, async (msg) => {
-      console.log('📬 New incoming message via Pipe:', msg.id);
+      console.log('📬 New incoming message via Pipe:', msg.id, 'from:', msg.fromUid, 'conv:', msg.conversationId);
       const chatId = msg.conversationId || msg.fromUid;
-      const incomingMsg = mapFirestoreMessage(msg, chatId);
+
+      let decryptedContent = msg.content;
+      if (msg.isEncrypted && msg.content) {
+        try {
+          const convKey = await getConversationKey(msg.fromUid, uid);
+          const decrypted = await decryptMessage(msg.content, convKey);
+          decryptedContent = decrypted.content || '';
+        } catch {
+          try {
+            const decrypted = await decryptMessageWithHistoricalKeys(msg.content, msg.fromUid, uid);
+            decryptedContent = decrypted.content || '';
+          } catch {
+            console.warn('⚠️ Failed to decrypt incoming pipe message:', msg.id);
+            decryptedContent = '[Message could not be decrypted]';
+          }
+        }
+      }
+
+      const incomingMsg = mapFirestoreMessage({ ...msg, content: decryptedContent }, chatId);
 
       setMessages((prev) => ({
         ...prev,
         [chatId]: [...(prev[chatId] || []), incomingMsg],
       }));
+
+      // Persist incoming message to local SQLite so it survives refresh
+      try {
+        await appendLocalMessage(uid, {
+          id: msg.id || incomingMsg.id,
+          chatId,
+          senderId: msg.fromUid,
+          content: decryptedContent,
+          type: (msg.messageType || 'text') as any,
+          timestamp: incomingMsg.timestamp,
+          status: 'delivered' as any,
+          mediaPath: msg.mediaUrl || undefined,
+          replyToId: msg.replyToId || undefined,
+          replyToContent: msg.replyToContent || undefined,
+          replyToSender: msg.replyToSender || undefined,
+        });
+      } catch (persistErr) {
+        console.warn('⚠️ Failed to persist incoming pipe message to SQLite:', persistErr);
+      }
 
       // Send delivery receipt back to sender (📨 double tick)
       try {
@@ -1539,11 +1664,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // Also persist to local .bin file (so status survives app restart)
       try {
-        const { updateMessageStatus } = await import('../../utils/localMessageStore');
-        const changed = await updateMessageStatus(uid, receipt.conversationId, receipt.messageId, newStatus);
-        if (changed) {
-          console.log(`💾 Receipt status saved to local .bin: ${receipt.messageId} → ${newStatus}`);
-        }
+        const { updateMessageStatus } = await import('../../utils/sqliteMessageStore');
+        await updateMessageStatus(uid, receipt.conversationId, receipt.messageId, newStatus);
+        console.log(`💾 Receipt status saved to local .bin: ${receipt.messageId} → ${newStatus}`);
       } catch (err) {
         console.warn('⚠️ Failed to persist receipt to local .bin:', err);
       }
@@ -1567,7 +1690,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       try {
-        const { deleteMessageById } = await import('../../utils/localMessageStore');
+        const { deleteMessageById } = await import('../../utils/sqliteMessageStore');
         await deleteMessageById(uid, payload.conversationId, payload.messageId);
       } catch (err) {
         console.warn('⚠️ Failed to sync deletion to local store:', err);
@@ -1679,13 +1802,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // 11. Listen to each friend's statuses — setup moved to a separate
     //    useContext + useEffect block below so it reacts to contacts changes.
 
+    // Fallback: mark loaded after 3s even if no friends listener fires
+    chatsLoadedTimeout.current = setTimeout(() => {
+      if (!chatsLoaded) setChatsLoaded(true);
+    }, 3000);
+
     // Cleanup all listeners on unmount or user change
     return () => {
+      if (chatsLoadedTimeout.current) clearTimeout(chatsLoadedTimeout.current);
       navigator.serviceWorker?.removeEventListener('message', swMessageHandler);
       presenceUnsubscribeRef.current?.();
       typingUnsubscribeRef.current?.();
       friendsUnsubscribeRef.current?.();
       requestsUnsubscribeRef.current?.();
+      outgoingRequestsUnsubscribeRef.current?.();
       conversationsUnsubscribeRef.current?.();
       statusUnsubscribeRef.current?.();
       Object.values(statusListenersRef.current).forEach(unsub => unsub());
@@ -1745,17 +1875,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const normalizeContact = useCallback((rawContact: any, index: number): Contact => {
     const name = rawContact.name || rawContact.username || rawContact.displayName || `User ${index}`;
-    const userId = rawContact.uid || rawContact.userId || `@${rawContact.username || rawContact.name || `user${index}`}`.toLowerCase();
+    const contactHandle = rawContact.handle || rawContact.id || rawContact.username || `user${index}`;
+    const userId = contactHandle;
     
     return {
-      id: rawContact.uid || rawContact.userId || rawContact.username || rawContact.name || `user-${index}`,
+      id: contactHandle,
       userId,
       name,
       avatar: rawContact.avatar || rawContact.photoURL || null,
       avatarColor: getAvatarColor(userId),
       initials: getInitials(name),
       isOnline: rawContact.online ?? false,
-      lastSeen: rawContact.lastSeen || 'offline',
+      lastSeen: (() => {
+        const ls = rawContact.lastSeen;
+        if (!ls) return 'offline';
+        if (typeof ls === 'string') return ls;
+        if (typeof ls?.toDate === 'function') return `last seen ${ls.toDate().toLocaleTimeString()}`;
+        if (typeof ls?.seconds === 'number') return `last seen ${new Date(ls.seconds * 1000).toLocaleTimeString()}`;
+        try { return `last seen ${new Date(ls).toLocaleTimeString()}`; } catch { return 'offline'; }
+      })(),
       about: rawContact.about || '',
     };
   }, []);
@@ -1859,15 +1997,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const msgId = `msg-${Date.now()}`;
       let finalImageUrl = extra?.imageUrl;
 
+      // Derive toUid FIRST — needed for media encryption key derivation
+      const myId = currentUser.userId;
+      let toUid: string;
+      if (chatId.startsWith(myId + '_')) {
+        toUid = chatId.slice(myId.length + 1);
+      } else if (chatId.endsWith('_' + myId)) {
+        toUid = chatId.slice(0, chatId.length - myId.length - 1);
+      } else {
+        const otherContact = contacts.find(c => chatId.includes(c.id) && c.id !== myId);
+        toUid = otherContact?.id || chatId;
+      }
+
       // 1. Handle Native Media Chunking (Local-First)
       if (mediaFile) {
         console.log(`📦 Chunking and encrypting ${type} for local vault...`);
         try {
           const mediaRef = await uploadMediaWithProgress(
             mediaFile,
-            type === 'text' ? 'image' : (type as any),
+            (['image', 'video', 'audio', 'document'].includes(type) ? type : 'image') as 'image' | 'video' | 'audio' | 'document',
             currentUser.userId,
-            chatId
+            toUid
           );
           finalImageUrl = mediaRef.fileId;
         } catch (err) {
@@ -1876,6 +2026,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       // 2. Optimistic local message (always shown immediately)
+      // Use a single shared timestamp so sender & receiver display the same time
+      const sharedTimestamp = new Date().toISOString();
       const ttl = disappearingTimers[chatId] || 0;
       const msg: Message = {
         id: msgId,
@@ -1883,7 +2035,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         senderId: 'me',
         content,
         type,
-        timestamp: new Date().toISOString(),
+        timestamp: sharedTimestamp,
         status: 'sent',
         ...extra,
         imageUrl: finalImageUrl,
@@ -1896,8 +2048,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         [chatId]: [...(prev[chatId] || []), msg],
       }));
 
+      // Update chat preview with sent message
+      setChats((prev) => prev.map(c =>
+        c.id === chatId
+          ? { ...c, lastMessage: content, lastMessageTime: msg.timestamp, lastMessageSender: currentUser.userId }
+          : c
+      ));
+
       // 3. Send via offline-aware sender (queues if offline, sends if online)
-      const result = await sendMessageWhenAvailable(currentUser.userId, chatId, content, {
+      console.log(`📤 sendMessage: from=${myId} to=${toUid} chatId=${chatId}`);
+      const result = await sendMessageWhenAvailable(currentUser.userId, toUid, content, {
         messageType: type as 'text' | 'image' | 'video' | 'audio' | 'document' | 'link',
         mediaUrl: finalImageUrl,
         messageId: msgId,
@@ -1906,6 +2066,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         replyToSender: extra?.replyToSender,
         expiresAt: msg.expiresAt,
         keyVersion: await getKeyVersion(),
+        timestamp: sharedTimestamp,
       });
 
       if (result.status === 'queued') {
@@ -1925,7 +2086,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         fetch(`${notifyUrl}/notify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to: chatId, fromName: senderName, type: notifyType, conversationId: chatId }),
+          body: JSON.stringify({ to: toUid, fromName: senderName, type: notifyType, conversationId: chatId }),
         }).catch(() => {});
       }
     },
@@ -1937,6 +2098,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const startChat = useCallback(
     async (contactId: string): Promise<string> => {
       if (!currentUser) throw new Error('Not authenticated');
+
+      // If contactId is self, try to derive the other user from contacts list
+      if (contactId === currentUser.userId && contacts.length > 0) {
+        console.warn('⚠️ startChat called with self — contacts:', contacts.map(c => c.id));
+      }
 
       // Check if a chat already exists with this contact
       const existingChat = chats.find(c => c.contactId === contactId);
@@ -2087,7 +2253,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!window.confirm('Are you sure you want to delete all messages? This cannot be undone.')) return;
     
     // 1. Clear local files
-    const { clearAllMessages } = await import('../../utils/localMessageStore');
+    const { clearAllMessages } = await import('../../utils/sqliteMessageStore');
     await clearAllMessages();
     
     // 2. Clear state
@@ -2100,13 +2266,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const clearChat = useCallback(async (chatId: string) => {
     if (!window.confirm('Clear all messages in this chat?')) return;
     
-    const { deleteLocalChat } = await import('../../utils/localMessageStore');
-    await deleteLocalChat(chatId);
+    const { deleteLocalChat: deleteOldStore } = await import('../../utils/localMessageStore');
+    await deleteOldStore(chatId);
+
+    const { deleteLocalChat: deleteSqliteStore } = await import('../../utils/sqliteMessageStore');
+    await deleteSqliteStore(chatId);
     
     setMessages(prev => ({ ...prev, [chatId]: [] }));
     setChats(prev => prev.map(c => c.id === chatId ? { ...c, lastMessage: '', lastMessageTime: '', unreadCount: 0 } : c));
     
-    console.log(`🧹 Chat ${chatId} cleared.`);
+    console.log(`🧹 Chat ${chatId} cleared locally.`);
   }, []);
 
   const deleteMessage = useCallback(async (chatId: string, messageId: string) => {
@@ -2121,7 +2290,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }));
 
     // 2. Persist to local store
-    const { deleteMessageById } = await import('../../utils/localMessageStore');
+    const { deleteMessageById } = await import('../../utils/sqliteMessageStore');
     await deleteMessageById(currentUser.userId, chatId, messageId);
 
     // 3. Notify the other user + tombstone in Firestore
@@ -2136,16 +2305,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const sendChatRequest = useCallback(async (contactId: string) => {
     if (!currentUser) return;
-    await friendRequestService.sendFriendRequest(currentUser.userId, contactId);
+    const result = await friendRequestService.sendFriendRequest(currentUser.userId, contactId);
+    if (result?.requestId) {
+      setChatRequests(prev => [...prev, {
+        id: result.requestId,
+        contactId,
+        direction: 'outgoing' as const,
+        status: 'pending' as const,
+        timestamp: new Date().toLocaleString(),
+        previewMessage: '',
+      }]);
+    }
   }, [currentUser]);
 
   const acceptRequest = useCallback(async (requestId: string): Promise<string> => {
     const request = chatRequests.find((r) => r.id === requestId);
     if (request && currentUser) {
       await friendRequestService.acceptFriendRequest(requestId, request.contactId, currentUser.userId);
+      const chatId = await startChat(request.contactId);
+      return chatId;
     }
-    return requestId;
-  }, [chatRequests, currentUser]);
+    return '';
+  }, [chatRequests, currentUser, startChat]);
 
   const declineRequest = useCallback(async (requestId: string) => {
     if (!currentUser) return;
@@ -2535,7 +2716,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     sendChatRequest,
     acceptRequest,
     declineRequest,
-    pendingIncomingCount: chatRequests.length,
+    pendingIncomingCount: chatRequests.filter(r => r.direction === 'incoming' && r.status === 'pending').length,
     activeTab,
     setActiveTab,
     activeChatId,
@@ -2555,6 +2736,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSearchQuery,
     chatFilter,
     setChatFilter,
+    chatsLoaded,
     myStatuses,
     addStatus,
     deleteMyStatus,

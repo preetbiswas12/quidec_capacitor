@@ -102,7 +102,7 @@ export default function EmailVerification() {
 
       <div className="flex-1 px-8 pb-12 flex flex-col items-center justify-center text-center">
         <motion.div 
-          className={`w-28 h-28 rounded-full flex items-center justify-center mb-8 transition-all duration-700 ${verified ? 'bg-green-500 shadow-[0_0_40px_rgba(34,197,94,0.4)]' : 'bg-[#4D91FB]/10'}`}
+          className={`w-28 h-28 rounded-full flex items-center justify-center mb-8 transition-all duration-700 ${verified ? 'bg-green-500 shadow-[0_0_40px_rgba(34,197,94,0.4)]' : 'bg-wa-accent/10'}`}
           initial={{ scale: 0.5, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
         >
@@ -113,7 +113,7 @@ export default function EmailVerification() {
               </motion.div>
             ) : (
               <motion.div key="mail" animate={{ y: [0, -10, 0] }} transition={{ duration: 3, repeat: Infinity }}>
-                <Mail size={48} className="text-[#4D91FB]" />
+                <Mail size={48} className="text-wa-accent" />
               </motion.div>
             )}
           </AnimatePresence>
@@ -136,22 +136,22 @@ export default function EmailVerification() {
 
         {!verified && (
           <div className="w-full space-y-6">
-            <div className="bg-[#4D91FB]/10 border border-[#4D91FB]/20 rounded-2xl p-6 text-left space-y-4">
+            <div className="bg-wa-accent/10 border border-wa-accent/20 rounded-2xl p-6 text-left space-y-4">
               <h3 className="text-wa-primary font-bold flex items-center gap-2">
-                <Shield size={18} className="text-[#4D91FB]" />
+                <Shield size={18} className="text-wa-accent" />
                 Next Steps
               </h3>
               <ul className="text-sm text-wa-text-secondary space-y-3">
                 <li className="flex gap-3">
-                  <span className="w-6 h-6 rounded-full bg-[#4D91FB] text-white text-xs flex items-center justify-center flex-shrink-0">1</span>
+                  <span className="w-6 h-6 rounded-full bg-wa-accent text-white text-xs flex items-center justify-center flex-shrink-0">1</span>
                   <span>Check your <b>Inbox</b> or <b>Spam</b> folder.</span>
                 </li>
                 <li className="flex gap-3">
-                  <span className="w-6 h-6 rounded-full bg-[#4D91FB] text-white text-xs flex items-center justify-center flex-shrink-0">2</span>
+                  <span className="w-6 h-6 rounded-full bg-wa-accent text-white text-xs flex items-center justify-center flex-shrink-0">2</span>
                   <span>Click the verification button in the email.</span>
                 </li>
                 <li className="flex gap-3">
-                  <span className="w-6 h-6 rounded-full bg-[#4D91FB] text-white text-xs flex items-center justify-center flex-shrink-0">3</span>
+                  <span className="w-6 h-6 rounded-full bg-wa-accent text-white text-xs flex items-center justify-center flex-shrink-0">3</span>
                   <span>Come back here to start chatting!</span>
                 </li>
               </ul>
@@ -171,7 +171,7 @@ export default function EmailVerification() {
               <motion.p 
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="text-[#4D91FB] text-sm font-bold bg-[#4D91FB]/10 py-2 rounded-lg"
+                className="text-wa-accent text-sm font-bold bg-wa-accent/10 py-2 rounded-lg"
               >
                 ✅ A new verification link is on its way!
               </motion.p>
@@ -181,7 +181,7 @@ export default function EmailVerification() {
               <button
                 onClick={handleManualVerify}
                 disabled={verifying}
-                className="w-full bg-[#4D91FB] text-white rounded-full py-4 flex items-center justify-center gap-2 font-bold shadow-xl active:scale-95 transition-all disabled:opacity-50"
+                className="w-full bg-wa-accent text-white rounded-full py-4 flex items-center justify-center gap-2 font-bold shadow-xl active:scale-95 transition-all disabled:opacity-50"
               >
                 {verifying ? <Loader2 size={24} className="animate-spin" /> : "I've verified my email"}
               </button>
@@ -189,7 +189,7 @@ export default function EmailVerification() {
               <button
                 onClick={handleResend}
                 disabled={resendSent}
-                className="w-full py-3 text-[#4D91FB] font-bold flex items-center justify-center gap-2 hover:bg-[#4D91FB]/10 rounded-xl transition-colors disabled:text-wa-text-muted"
+                className="w-full py-3 text-wa-accent font-bold flex items-center justify-center gap-2 hover:bg-wa-accent/10 rounded-xl transition-colors disabled:text-wa-text-muted"
               >
                 <RefreshCw size={18} className={resendSent ? "animate-spin" : ""} />
                 Resend verification link

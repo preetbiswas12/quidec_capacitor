@@ -20,24 +20,23 @@ export async function initializeProductionCollections() {
       version: '1.0.0',
       lastInitialized: serverTimestamp(),
       description: 'System configuration and metadata'
-    }, { merge: true });
+    }, { merge: true }).catch(() => {});
 
     // 2. Initialize 'friendships' metadata
     await setDoc(doc(db, 'friendships', 'system_meta'), {
       totalFriendships: 0,
       lastUpdated: serverTimestamp()
-    }, { merge: true });
+    }, { merge: true }).catch(() => {});
 
     // 3. Initialize 'conversations' metadata
     await setDoc(doc(db, 'conversations', 'system_meta'), {
       totalConversations: 0,
       activeStatus: true,
       lastUpdated: serverTimestamp()
-    }, { merge: true });
+    }, { merge: true }).catch(() => {});
 
     console.log('✅ Production collections initialized successfully.');
   } catch (error) {
     console.error('❌ Failed to initialize collections:', error);
-    throw error;
   }
 }

@@ -135,8 +135,12 @@ export async function exportMediaToFile(
       throw new Error('Media integrity verification failed during export')
     }
 
-    // Convert to base64 for storage
-    const base64Data = btoa(String.fromCharCode.apply(null, Array.from(result.data)))
+    // Convert to base64 for storage (chunked to avoid stack overflow)
+    const raw = Array.from(result.data)
+    let base64Data = ''
+    for (let i = 0; i < raw.length; i += 8192) {
+      base64Data += btoa(String.fromCharCode.apply(null, raw.slice(i, i + 8192)))
+    }
 
     // Write to file
     await Filesystem.writeFile({

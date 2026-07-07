@@ -47,23 +47,23 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
         : 'An unexpected error occurred.';
 
       return (
-        <div className="h-full w-full bg-[#111B21] flex flex-col items-center justify-center gap-4 px-8 text-center">
+        <div className="h-full w-full bg-wa-main flex flex-col items-center justify-center gap-4 px-8 text-center">
           <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center">
             <AlertTriangle className="w-8 h-8 text-red-400" />
           </div>
-          <h2 className="text-[#E9EDEF] text-lg font-semibold">Something went wrong</h2>
-          <p className="text-[#8696A0] text-sm max-w-xs">{errorMessage}</p>
+          <h2 className="text-wa-text-primary text-lg font-semibold">Something went wrong</h2>
+          <p className="text-wa-text-muted text-sm max-w-xs">{errorMessage}</p>
           <div className="flex gap-3 mt-2">
             <button
               onClick={() => window.location.reload()}
-              className="px-6 py-2 bg-[#4d91fb] text-white rounded-full text-sm font-medium"
+              className="px-6 py-2 bg-wa-accent text-white rounded-full text-sm font-medium"
             >
               Reload App
             </button>
             {window.history.length > 1 && (
               <button
                 onClick={() => window.history.back()}
-                className="px-6 py-2 bg-[#233138] text-[#E9EDEF] rounded-full text-sm font-medium"
+                className="px-6 py-2 bg-wa-menu-bg text-wa-text-primary rounded-full text-sm font-medium"
               >
                 Go Back
               </button>

@@ -21,7 +21,7 @@ export default function Avatar({ src, name, color, size = 40, isOnline, classNam
         <img
           src={src}
           alt={name}
-          className="w-full h-full rounded-full object-cover"
+          className="w-full h-full rounded-full object-cover ring-1 ring-wa-border/10"
           onError={(e) => {
             (e.target as HTMLImageElement).style.display = 'none';
           }}
@@ -31,8 +31,9 @@ export default function Avatar({ src, name, color, size = 40, isOnline, classNam
           className="w-full h-full rounded-full flex items-center justify-center text-white select-none"
           style={{
             backgroundColor: color,
-            fontSize: size * 0.35,
+            fontSize: size * 0.34,
             fontWeight: 600,
+            letterSpacing: '0.5px',
           }}
         >
           {initials}
@@ -40,8 +41,8 @@ export default function Avatar({ src, name, color, size = 40, isOnline, classNam
       )}
       {isOnline && (
         <span
-          className="absolute bottom-0 right-0 rounded-full bg-[#4d91fb] border-2 border-[#111B21]"
-          style={{ width: size * 0.28, height: size * 0.28 }}
+          className="absolute bottom-0 right-0 rounded-full bg-wa-online border-2 border-wa-main animate-[pulse_3s_ease-in-out_infinite] transition-colors"
+          style={{ width: size * 0.26, height: size * 0.26 }}
         />
       )}
     </div>

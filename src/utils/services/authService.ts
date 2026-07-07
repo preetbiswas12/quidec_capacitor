@@ -290,7 +290,10 @@ export const authService = {
     const user = auth.currentUser;
     if (!user) throw new Error('No authenticated user');
 
-    const firestoreUpdates: any = { updatedAt: serverTimestamp() };
+    const firestoreUpdates: any = { 
+      updatedAt: serverTimestamp(),
+      uid: user.uid,  // Always include uid for create/update rule compliance
+    };
     if (updates.name) {
       firestoreUpdates.displayName = updates.name;
       await updateProfile(user, { displayName: updates.name });

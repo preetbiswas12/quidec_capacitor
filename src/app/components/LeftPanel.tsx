@@ -21,6 +21,7 @@ export default function LeftPanel() {
     setActiveChatId, startChat,
     chatRequests, sendChatRequest,
     showRequests, setShowRequests,
+    pendingIncomingCount,
     createGroup,
     searchUsers,
     searchAllMessages,
@@ -100,8 +101,9 @@ export default function LeftPanel() {
 
   if (!currentUser) return null;
 
+  const totalUnread = chats.reduce((sum, c) => sum + c.unreadCount, 0);
   const tabs = [
-    { id: 'chats', icon: MessageSquare, label: 'Chats' },
+    { id: 'chats', icon: MessageSquare, label: 'Chats', badge: totalUnread },
     { id: 'status', icon: Circle, label: 'Status' },
   ] as const;
 
@@ -133,19 +135,27 @@ export default function LeftPanel() {
     setNewChatSearch('');
   };
 
-  // Find by ID — search locally first, then query Firestore
+  // Find by ID — exact match only (name_XXXX format)
   const handleSearchId = async () => {
     const q = idQuery.trim().toLowerCase().replace(/^@/, '');
     if (!q) return;
+
+    // Validate format: must be name_XXXX (name + underscore + 4 digits)
+    if (!/^[a-z0-9._-]+_\d{4}$/.test(q)) {
+      setIdNotFound(true);
+      setIdResult(null);
+      return;
+    }
+
     // First check local contacts
-    const localMatch = allSearchable.find(c => c.userId.toLowerCase().replace(/^@/, '') === q || c.userId.toLowerCase() === `@${q}`);
+    const localMatch = allSearchable.find(c => c.userId.toLowerCase().replace(/^@/, '') === q);
     if (localMatch) { setIdResult(localMatch); setIdNotFound(false); return; }
     // Then search Firestore
     if (searchUsers) {
       try {
         await searchUsers(q);
         // After search, check if the query matches any discoverable contact
-        const firestoreMatch = discoverableContacts.find(c => c.userId.toLowerCase().replace(/^@/, '') === q || c.userId.toLowerCase() === `@${q}`);
+        const firestoreMatch = discoverableContacts.find(c => c.userId.toLowerCase().replace(/^@/, '') === q);
         if (firestoreMatch) { setIdResult(firestoreMatch); setIdNotFound(false); }
         else { setIdResult(null); setIdNotFound(true); }
       } catch (err) {
@@ -205,46 +215,46 @@ export default function LeftPanel() {
 
       {/* Header */}
       {!settingsSubPage && (
-        <div className="flex-shrink-0 bg-wa-header border-b border-wa-border/10 pt-10">
+        <div className="flex-shrink-0 bg-wa-header border-b border-wa-border/8 pt-10">
           {activeTab === 'settings' ? (
-            <div className="flex items-center px-4 py-3">
-              <button onClick={() => setActiveTab('chats')} className="text-wa-header-icon hover:text-wa-primary p-2 -ml-2 rounded-full hover:bg-white/5 transition-colors flex-shrink-0">
+            <div className="flex items-center px-4 py-2.5">
+              <button onClick={() => setActiveTab('chats')} className="text-wa-header-icon hover:text-wa-primary p-1.5 -ml-1.5 rounded-full hover:bg-white/5 transition-colors duration-150 flex-shrink-0">
                 <ArrowLeft size={20} />
               </button>
-              <h1 className="text-wa-primary ml-2" style={{ fontSize: '1.15rem', fontWeight: 700 }}>Settings</h1>
+              <h1 className="text-wa-primary ml-2" style={{ fontSize: '1.1rem', fontWeight: 600, letterSpacing: '-0.3px' }}>Settings</h1>
             </div>
           ) : activeTab === 'status' ? (
-            <div className="flex items-center justify-between px-4 py-3">
-              <button onClick={() => setActiveTab('settings')} className="hover:opacity-80 transition-opacity">
+            <div className="flex items-center justify-between px-4 py-2.5">
+              <button onClick={() => setActiveTab('settings')} className="hover:opacity-80 transition-opacity duration-150">
                 <div className="w-9 h-9 rounded-full bg-wa-secondary flex items-center justify-center overflow-hidden border border-wa-border/20">
                   {currentUser.avatar ? (
                     <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-wa-primary" style={{ fontSize: '0.9rem', fontWeight: 700 }}>
+                    <span className="text-wa-primary" style={{ fontSize: '0.85rem', fontWeight: 600 }}>
                       {currentUser.name ? currentUser.name[0].toUpperCase() : 'M'}
                     </span>
                   )}
                 </div>
               </button>
 
-              <h1 className="text-wa-primary" style={{ fontSize: '1.1rem', fontWeight: 700 }}>Status</h1>
+              <h1 className="text-wa-primary" style={{ fontSize: '1.05rem', fontWeight: 600, letterSpacing: '-0.3px' }}>Status</h1>
 
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-0.5">
                 <div className="relative" ref={menuRef}>
                   <button
                     onClick={() => setShowMenu(v => !v)}
-                    className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}
+                    className={`p-1.5 rounded-full hover:bg-white/5 transition-colors duration-150 ${showMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}
                   >
                     <MoreVertical size={18} />
                   </button>
                   {showMenu && (
-                    <div className="absolute right-0 top-full mt-1 w-52 bg-[#233138] rounded-xl shadow-2xl overflow-hidden z-50 border border-wa-border">
+                    <div className="absolute right-0 top-full mt-1 w-52 bg-wa-menu-bg rounded-xl shadow-2xl overflow-hidden z-50 border border-wa-border/60">
                       {statusMenuItems.map(item => (
                         <button
                           key={item.label}
                           onClick={item.action}
-                          className="w-full text-left px-5 py-3.5 text-wa-primary hover:bg-[#2A3942] transition-colors"
-                          style={{ fontSize: '0.9rem' }}
+                          className="w-full text-left px-5 py-3 text-wa-primary hover:bg-wa-menu-hover transition-colors duration-150"
+                          style={{ fontSize: '0.85rem' }}
                         >
                           {item.label}
                         </button>
@@ -255,10 +265,10 @@ export default function LeftPanel() {
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center justify-between px-4 py-2.5">
               {showGlobalSearch ? (
                 <>
-                  <button onClick={resetGlobalSearch} className="text-wa-header-icon hover:text-wa-primary p-1">
+                  <button onClick={resetGlobalSearch} className="text-wa-header-icon hover:text-wa-primary p-1.5 transition-colors duration-150">
                     <ArrowLeft size={20} />
                   </button>
                   <div className="flex-1 mx-3 flex items-center gap-2">
@@ -269,11 +279,11 @@ export default function LeftPanel() {
                       value={globalSearchQuery}
                       onChange={e => handleGlobalSearch(e.target.value)}
                       placeholder="Search all messages..."
-                      className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted"
-                      style={{ fontSize: '0.95rem' }}
+                      className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted/50"
+                      style={{ fontSize: '0.9rem' }}
                     />
                     {globalSearchQuery && (
-                      <button onClick={() => handleGlobalSearch('')}>
+                      <button onClick={() => handleGlobalSearch('')} className="p-1 rounded-full hover:bg-wa-secondary/50 transition-colors duration-150">
                         <X size={16} className="text-wa-text-muted" />
                       </button>
                     )}
@@ -281,27 +291,27 @@ export default function LeftPanel() {
                 </>
               ) : (
                 <>
-                  <button onClick={() => setActiveTab('settings')} className="hover:opacity-80 transition-opacity">
+                  <button onClick={() => setActiveTab('settings')} className="hover:opacity-80 transition-opacity duration-150">
                     <div className="w-9 h-9 rounded-full bg-wa-secondary flex items-center justify-center overflow-hidden border border-wa-border/20">
                       {currentUser.avatar ? (
                         <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
                       ) : (
-                        <span className="text-wa-primary" style={{ fontSize: '0.9rem', fontWeight: 700 }}>
+                        <span className="text-wa-primary" style={{ fontSize: '0.85rem', fontWeight: 600 }}>
                           {currentUser.name ? currentUser.name[0].toUpperCase() : 'M'}
                         </span>
                       )}
                     </div>
                   </button>
 
-                  <h1 className="text-wa-primary" style={{ fontSize: '1.1rem', fontWeight: 700 }}>
+                  <h1 className="text-wa-primary" style={{ fontSize: '1.05rem', fontWeight: 600, letterSpacing: '-0.3px' }}>
                     {activeTab === 'chats' ? 'Veill' : 'Status'}
                   </h1>
 
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-0.5">
                     {activeTab === 'chats' && (
                       <button
                         onClick={() => setShowGlobalSearch(true)}
-                        className="text-wa-header-icon hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"
+                        className="text-wa-header-icon hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5 transition-colors duration-150"
                         title="Search messages"
                       >
                         <Search size={18} />
@@ -309,8 +319,25 @@ export default function LeftPanel() {
                     )}
                     {activeTab === 'chats' && (
                       <button
+                        onClick={() => setShowRequests(true)}
+                        className="relative text-wa-header-icon hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5 transition-colors duration-150"
+                        title="Message Requests"
+                      >
+                        <Users size={18} />
+                        {pendingIncomingCount > 0 && (
+                          <span
+                            className="absolute -top-0.5 -right-0.5 bg-wa-accent text-white rounded-full flex items-center justify-center"
+                            style={{ minWidth: 16, height: 16, fontSize: '0.6rem', fontWeight: 700, padding: '0 3px' }}
+                          >
+                            {pendingIncomingCount > 9 ? '9+' : pendingIncomingCount}
+                          </span>
+                        )}
+                      </button>
+                    )}
+                    {activeTab === 'chats' && (
+                      <button
                         onClick={() => setShowNewChat(true)}
-                        className="text-wa-header-icon hover:text-wa-primary p-2 rounded-full hover:bg-white/5 transition-colors"
+                        className="text-wa-header-icon hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5 transition-colors duration-150"
                         title="New chat"
                       >
                         <PenSquare size={18} />
@@ -319,18 +346,18 @@ export default function LeftPanel() {
                     <div className="relative" ref={menuRef}>
                       <button
                         onClick={() => setShowMenu(v => !v)}
-                        className={`p-2 rounded-full hover:bg-white/5 transition-colors ${showMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}
+                        className={`p-1.5 rounded-full hover:bg-white/5 transition-colors duration-150 ${showMenu ? 'text-wa-primary bg-white/5' : 'text-wa-header-icon hover:text-wa-primary'}`}
                       >
                         <MoreVertical size={18} />
                       </button>
                       {showMenu && (
-                        <div className="absolute right-0 top-full mt-1 w-52 bg-[#233138] rounded-xl shadow-2xl overflow-hidden z-50 border border-wa-border">
+                        <div className="absolute right-0 top-full mt-1 w-52 bg-wa-menu-bg rounded-xl shadow-2xl overflow-hidden z-50 border border-wa-border/60">
                           {menuItems.map(item => (
                             <button
                               key={item.label}
                               onClick={item.action}
-                              className="w-full text-left px-5 py-3.5 text-wa-primary hover:bg-[#2A3942] transition-colors"
-                              style={{ fontSize: '0.9rem' }}
+                              className="w-full text-left px-5 py-3 text-wa-primary hover:bg-wa-menu-hover transition-colors duration-150"
+                              style={{ fontSize: '0.85rem' }}
                             >
                               {item.label}
                             </button>
@@ -381,7 +408,7 @@ export default function LeftPanel() {
                     const match = snippet.substring(matchIdx, matchIdx + globalSearchQuery.length);
                     const after = snippet.substring(matchIdx + globalSearchQuery.length);
                     highlightedSnippet = (
-                      <span>{before}<mark className="bg-[#4D91FB]/30 text-wa-primary rounded px-0.5">{match}</mark>{after}</span>
+                      <span>{before}<mark className="bg-wa-accent/30 text-wa-primary rounded px-0.5">{match}</mark>{after}</span>
                     );
                   } else {
                     highlightedSnippet = snippet;
@@ -427,22 +454,27 @@ export default function LeftPanel() {
 
       {/* Bottom Nav */}
       {!settingsSubPage && (
-        <div className="flex-shrink-0 bg-wa-header border-t border-wa-border pb-6">
+        <div className="flex-shrink-0 bg-wa-header/95 backdrop-blur-md border-b border-wa-border/8 pb-6">
           <div className="flex">
             {tabs.map(tab => {
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
-                  onClick={() => { setActiveTab(tab.id); setShowRequests(false); }}
-                  className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors relative ${
-                    isActive ? 'text-[#4d91fb]' : 'text-wa-text-muted hover:text-[#aebac1]'
+                  onClick={() => { setActiveTab(tab.id); setShowRequests(false); if (navigator.vibrate) navigator.vibrate(8); }}
+                  className={`flex-1 flex flex-col items-center gap-1 py-2.5 transition-all duration-200 relative ${
+                    isActive ? 'text-wa-accent' : 'text-wa-text-muted hover:text-[#aebac1]'
                   }`}
                 >
-                  <tab.icon size={22} />
-                  <span style={{ fontSize: '0.65rem', fontWeight: isActive ? 600 : 400 }}>{tab.label}</span>
+                  <div className="relative">
+                    <tab.icon size={20} strokeWidth={isActive ? 2.2 : 1.8} />
+                    {'badge' in tab && tab.badge > 0 && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-wa-accent" />
+                    )}
+                  </div>
+                  <span style={{ fontSize: '0.62rem', fontWeight: isActive ? 600 : 400 }}>{tab.label}</span>
                   {isActive && (
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-0.5 bg-[#4d91fb] rounded-full" />
+                    <motion.div layoutId="activeTab" className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-0.5 bg-wa-accent rounded-full" transition={{ type: 'spring', damping: 25, stiffness: 350 }} />
                   )}
                 </button>
               );
@@ -492,14 +524,14 @@ export default function LeftPanel() {
             <div className="flex border-b border-wa-border bg-wa-header flex-shrink-0">
               <button
                 onClick={() => setNewChatTab('contacts')}
-                className={`flex-1 py-3 text-center transition-colors ${newChatTab === 'contacts' ? 'text-[#4D91FB] border-b-2 border-[#4D91FB]' : 'text-wa-text-muted'}`}
+                className={`flex-1 py-3 text-center transition-colors ${newChatTab === 'contacts' ? 'text-wa-accent border-b-2 border-wa-accent' : 'text-wa-text-muted'}`}
                 style={{ fontSize: '0.88rem', fontWeight: newChatTab === 'contacts' ? 600 : 400 }}
               >
                 My Contacts
               </button>
               <button
                 onClick={() => setNewChatTab('find-id')}
-                className={`flex-1 py-3 text-center transition-colors flex items-center justify-center gap-1.5 ${newChatTab === 'find-id' ? 'text-[#4D91FB] border-b-2 border-[#4D91FB]' : 'text-wa-text-muted'}`}
+                className={`flex-1 py-3 text-center transition-colors flex items-center justify-center gap-1.5 ${newChatTab === 'find-id' ? 'text-wa-accent border-b-2 border-wa-accent' : 'text-wa-text-muted'}`}
                 style={{ fontSize: '0.88rem', fontWeight: newChatTab === 'find-id' ? 600 : 400 }}
               >
                 <AtSign size={14} />
@@ -518,7 +550,7 @@ export default function LeftPanel() {
                       placeholder="Search contacts"
                       value={newChatSearch}
                       onChange={e => setNewChatSearch(e.target.value)}
-                      className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]"
+                      className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted"
                       style={{ fontSize: '0.9rem' }}
                       autoFocus
                     />
@@ -539,7 +571,7 @@ export default function LeftPanel() {
                       <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={48} isOnline={contact.isOnline} />
                       <div className="flex-1 min-w-0">
                         <p className="text-wa-primary" style={{ fontWeight: 500 }}>{contact.name}</p>
-                        <p className="text-[#4D91FB]" style={{ fontSize: '0.75rem' }}>{contact.userId}</p>
+                        <p className="text-wa-accent" style={{ fontSize: '0.75rem' }}>{contact.userId}</p>
                       </div>
                     </button>
                   ))}
@@ -561,13 +593,13 @@ export default function LeftPanel() {
                   <div className="bg-wa-secondary/30 rounded-2xl px-4 py-3">
                     <p className="text-wa-text-muted mb-2" style={{ fontSize: '0.75rem', fontWeight: 600 }}>ENTER VEILL ID</p>
                     <div className="flex items-center gap-2">
-                      <AtSign size={16} className="text-[#4D91FB] flex-shrink-0" />
+                      <AtSign size={16} className="text-wa-accent flex-shrink-0" />
                       <input
                         type="text"
                         value={idQuery}
                         onChange={e => { setIdQuery(e.target.value); setIdResult(null); setIdNotFound(false); }}
                         onKeyDown={e => e.key === 'Enter' && handleSearchId()}
-                        placeholder="username.1234"
+                        placeholder="name_1234"
                         className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted/40 font-bold"
                         style={{ fontSize: '1.1rem' }}
                         autoFocus
@@ -582,7 +614,7 @@ export default function LeftPanel() {
                   <button
                     onClick={handleSearchId}
                     disabled={!idQuery.trim()}
-                    className={`w-full mt-3 py-3 rounded-full transition-all flex items-center justify-center gap-2 ${idQuery.trim() ? 'bg-[#4D91FB] text-white shadow-lg active:scale-95' : 'bg-wa-secondary text-wa-text-muted'}`}
+                    className={`w-full mt-3 py-3 rounded-full transition-all flex items-center justify-center gap-2 ${idQuery.trim() ? 'bg-wa-accent text-white shadow-lg active:scale-95' : 'bg-wa-secondary text-wa-text-muted'}`}
                     style={{ fontWeight: 700, fontSize: '0.95rem' }}
                   >
                     <Search size={18} />
@@ -590,11 +622,24 @@ export default function LeftPanel() {
                   </button>
                 </div>
 
-                {/* Hint — known IDs */}
+                {/* Hint — format instructions */}
                 {!idResult && !idNotFound && (
                   <div className="px-4 flex-1 overflow-y-auto">
-                    <p className="text-[#4D91FB] mb-3 mt-4" style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.5px' }}>
-                      SUGGESTED CONTACTS
+                    <p className="text-wa-accent mb-3 mt-4" style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.5px' }}>
+                      HOW TO FIND SOMEONE
+                    </p>
+                    <div className="bg-wa-secondary/20 rounded-2xl px-4 py-4 mb-4 border border-wa-border/10">
+                      <p className="text-wa-primary mb-2" style={{ fontSize: '0.9rem', fontWeight: 600 }}>Enter their full Veill ID</p>
+                      <p className="text-wa-text-muted" style={{ fontSize: '0.82rem' }}>
+                        Format: <span className="text-wa-accent font-bold">name_1234</span> — their name, an underscore, then a 4-digit number.
+                      </p>
+                      <p className="text-wa-text-muted mt-2" style={{ fontSize: '0.82rem' }}>
+                        You must know their exact ID to find them. Partial names won't work.
+                      </p>
+                    </div>
+
+                    <p className="text-wa-accent mb-3 mt-4" style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.5px' }}>
+                      YOUR CONTACTS
                     </p>
                     {[...contacts.filter(c => !c.isGroup), ...discoverableContacts].map(c => (
                       <button
@@ -605,7 +650,7 @@ export default function LeftPanel() {
                         <Avatar src={c.avatar} name={c.name} color={c.avatarColor} size={40} />
                         <div className="flex-1 min-w-0 text-left">
                           <p className="text-wa-primary" style={{ fontSize: '0.95rem', fontWeight: 600 }}>{c.name}</p>
-                          <p className="text-[#4D91FB]" style={{ fontSize: '0.8rem', fontWeight: 600 }}>{c.userId}</p>
+                          <p className="text-wa-accent" style={{ fontSize: '0.8rem', fontWeight: 600 }}>{c.userId}</p>
                         </div>
                       </button>
                     ))}
@@ -620,7 +665,10 @@ export default function LeftPanel() {
                     </div>
                     <p className="text-wa-primary" style={{ fontSize: '1.2rem', fontWeight: 700 }}>No user found</p>
                     <p className="text-wa-text-muted" style={{ fontSize: '0.9rem', lineHeight: '1.5' }}>
-                      We couldn't find a Veill user with the ID <span className="text-wa-primary font-bold">@{idQuery}</span>. Please verify the spelling and try again.
+                      We couldn't find a user with the ID <span className="text-wa-primary font-bold">@{idQuery}</span>.
+                    </p>
+                    <p className="text-wa-text-muted" style={{ fontSize: '0.82rem', lineHeight: '1.5' }}>
+                      Make sure you enter the full ID: <span className="text-wa-accent font-bold">name_1234</span>
                     </p>
                   </div>
                 )}
@@ -632,13 +680,13 @@ export default function LeftPanel() {
                     animate={{ opacity: 1 }}
                     className="flex-1 overflow-y-auto px-4"
                   >
-                    <p className="text-[#4D91FB] mb-3 mt-4" style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.5px' }}>SEARCH RESULT</p>
+                    <p className="text-wa-accent mb-3 mt-4" style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.5px' }}>SEARCH RESULT</p>
                     
                     <div className="flex flex-col items-center py-8 gap-4">
                       <Avatar src={idResult.avatar} name={idResult.name} color={idResult.avatarColor} size={100} isOnline={idResult.isOnline} />
                       <div className="text-center">
                         <h2 className="text-wa-primary" style={{ fontSize: '1.4rem', fontWeight: 800 }}>{idResult.name}</h2>
-                        <p className="text-[#4D91FB] font-bold mt-1">{idResult.userId}</p>
+                        <p className="text-wa-accent font-bold mt-1">{idResult.userId}</p>
                         <p className="text-wa-text-muted mt-3 italic" style={{ fontSize: '0.9rem' }}>{idResult.about}</p>
                       </div>
 
@@ -646,7 +694,7 @@ export default function LeftPanel() {
                         {hasExistingChat(idResult.id) || isExistingContact(idResult.id) ? (
                           <button
                             onClick={() => openChatWithContact(idResult.id)}
-                            className="w-full py-4 rounded-2xl bg-[#4D91FB] text-white flex items-center justify-center gap-2 hover:bg-[#06cf9c] transition-all shadow-lg active:scale-95"
+                            className="w-full py-4 rounded-2xl bg-wa-accent text-white flex items-center justify-center gap-2 hover:bg-wa-online transition-all shadow-lg active:scale-95"
                             style={{ fontWeight: 700 }}
                           >
                             <MessageSquare size={20} />
@@ -660,7 +708,7 @@ export default function LeftPanel() {
                         ) : (
                           <button
                             onClick={() => handleSendRequest(idResult.id)}
-                            className="w-full py-4 rounded-2xl bg-[#4D91FB] text-white flex items-center justify-center gap-2 hover:bg-[#06cf9c] shadow-lg active:scale-95 transition-all"
+                            className="w-full py-4 rounded-2xl bg-wa-accent text-white flex items-center justify-center gap-2 hover:bg-wa-online shadow-lg active:scale-95 transition-all"
                             style={{ fontWeight: 700 }}
                           >
                             <UserPlus size={20} />
@@ -698,8 +746,8 @@ export default function LeftPanel() {
             {/* Group name & description */}
             <div className="px-4 py-4 border-b border-wa-border/10">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-12 h-12 rounded-full bg-[#4d91fb]/20 flex items-center justify-center">
-                  <Users size={24} className="text-[#4d91fb]" />
+                <div className="w-12 h-12 rounded-full bg-wa-accent/20 flex items-center justify-center">
+                  <Users size={24} className="text-wa-accent" />
                 </div>
                 <input
                   type="text"
@@ -731,7 +779,7 @@ export default function LeftPanel() {
                     <button
                       key={memberId}
                       onClick={() => setSelectedMembers(prev => prev.filter(id => id !== memberId))}
-                      className="flex items-center gap-1.5 bg-[#4d91fb]/10 text-[#4d91fb] rounded-full px-3 py-1 text-xs font-medium"
+                      className="flex items-center gap-1.5 bg-wa-accent/10 text-wa-accent rounded-full px-3 py-1 text-xs font-medium"
                     >
                       {member?.name || memberId}
                       <X size={12} />
@@ -750,7 +798,7 @@ export default function LeftPanel() {
                   value={groupSearch}
                   onChange={e => setGroupSearch(e.target.value)}
                   placeholder="Search contacts to add"
-                  className="flex-1 bg-transparent outline-none text-wa-primary placeholder-[#8696A0]"
+                  className="flex-1 bg-transparent outline-none text-wa-primary placeholder-wa-text-muted"
                   style={{ fontSize: '0.9rem' }}
                 />
               </div>
@@ -767,12 +815,12 @@ export default function LeftPanel() {
                         isSelected ? prev.filter(id => id !== contact.id) : [...prev, contact.id]
                       );
                     }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 transition-colors border-b border-wa-border/10 text-left ${isSelected ? 'bg-[#4d91fb]/10' : 'hover:bg-wa-secondary/50'}`}
+                    className={`w-full flex items-center gap-3 px-4 py-3 transition-colors border-b border-wa-border/10 text-left ${isSelected ? 'bg-wa-accent/10' : 'hover:bg-wa-secondary/50'}`}
                   >
                     <div className="relative">
                       <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={44} isOnline={contact.isOnline} />
                       {isSelected && (
-                        <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-[#4d91fb] rounded-full flex items-center justify-center border-2 border-wa-main">
+                        <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-wa-accent rounded-full flex items-center justify-center border-2 border-wa-main">
                           <Check size={10} className="text-white" />
                         </div>
                       )}
@@ -817,7 +865,7 @@ export default function LeftPanel() {
                 disabled={!groupName.trim() || selectedMembers.length === 0 || creatingGroup}
                 className={`w-full py-3.5 rounded-full flex items-center justify-center gap-2 font-bold transition-all ${
                   groupName.trim() && selectedMembers.length > 0 && !creatingGroup
-                    ? 'bg-[#4D91FB] text-white shadow-lg active:scale-95'
+                    ? 'bg-wa-accent text-white shadow-lg active:scale-95'
                     : 'bg-wa-secondary text-wa-text-muted'
                 }`}
               >

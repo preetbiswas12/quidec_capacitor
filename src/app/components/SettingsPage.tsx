@@ -561,8 +561,8 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                   {currentUser.avatar ? (
                     <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full bg-[#4d91fb]/20 flex items-center justify-center">
-                      <span className="text-[#4d91fb]" style={{ fontSize: '2rem', fontWeight: 700 }}>
+                    <div className="w-full h-full bg-wa-accent/20 flex items-center justify-center">
+                      <span className="text-wa-accent" style={{ fontSize: '2rem', fontWeight: 700 }}>
                         {currentUser.name ? currentUser.name[0].toUpperCase() : '?'}
                       </span>
                     </div>
@@ -571,13 +571,13 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 <button
                   aria-label="Change profile photo"
                   onClick={() => avatarInputRef.current?.click()}
-                  className="absolute bottom-0 right-0 w-10 h-10 bg-[#4d91fb] rounded-full flex items-center justify-center border-[3px] border-[#111B21] hover:bg-[#3b8eea] transition-colors shadow-lg active:scale-95"
+                  className="absolute bottom-0 right-0 w-10 h-10 bg-wa-accent rounded-full flex items-center justify-center border-[3px] border-wa-main hover:bg-[#3b8eea] transition-colors shadow-lg active:scale-95"
                 >
                   <Camera size={18} className="text-white" />
                 </button>
               </div>
               <p className="text-wa-text-muted mt-3" style={{ fontSize: '0.78rem' }}>
-                Tap <span className="text-[#4d91fb]">📷</span> to change your profile photo
+                Tap <span className="text-wa-accent">📷</span> to change your profile photo
               </p>
             </div>
 
@@ -585,8 +585,8 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
             <Section label="YOUR VEILL ID">
               <div className="px-4 py-3.5 flex items-center justify-between gap-4 group">
                 <div className="flex items-center gap-4 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-[#4d91fb]/10 flex items-center justify-center flex-shrink-0 border border-[#4d91fb]/20">
-                    <AtSign size={18} className="text-[#4d91fb]" />
+                  <div className="w-10 h-10 rounded-full bg-wa-accent/10 flex items-center justify-center flex-shrink-0 border border-wa-accent/20">
+                    <AtSign size={18} className="text-wa-accent" />
                   </div>
                   <div className="min-w-0">
                     <p className="text-wa-primary font-bold" style={{ fontSize: '1rem', letterSpacing: '0.2px' }}>
@@ -603,7 +603,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                       setIdCopied(true);
                       setTimeout(() => setIdCopied(false), 2000);
                     }}
-                    className="p-2 rounded-full hover:bg-wa-secondary text-[#4d91fb] transition-colors"
+                    className="p-2 rounded-full hover:bg-wa-secondary text-wa-accent transition-colors"
                   >
                     {idCopied ? <Check size={18} /> : <Copy size={18} />}
                   </button>
@@ -612,7 +612,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
             </Section>
 
             <Section>
-              <p className="text-[#4d91fb] px-4 pb-2" style={{ fontSize: '0.8rem', fontWeight: 600 }}>EMAIL ADDRESS</p>
+              <p className="text-wa-accent px-4 pb-2" style={{ fontSize: '0.8rem', fontWeight: 600 }}>EMAIL ADDRESS</p>
               <Row
                 icon={<Mail size={18} className="text-wa-text-muted" />}
                 label={currentUser.email || 'Not set'}
@@ -621,19 +621,19 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               />
             </Section>
             <Section>
-              <p className="text-[#4d91fb] px-4 pb-2" style={{ fontSize: '0.8rem', fontWeight: 600 }}>NAME</p>
+              <p className="text-wa-accent px-4 pb-2" style={{ fontSize: '0.8rem', fontWeight: 600 }}>NAME</p>
               {editingName ? (
                 <div className="px-4 py-3 flex items-center gap-3">
                    <input
                     value={editName}
                     onChange={e => setEditName(e.target.value)}
                     aria-label="Edit display name"
-                    className="flex-1 bg-wa-secondary text-wa-primary rounded-lg px-3 py-2 outline-none border border-[#4d91fb]"
+                    className="flex-1 bg-wa-secondary text-wa-primary rounded-lg px-3 py-2 outline-none border border-wa-accent"
                     style={{ fontSize: '0.95rem' }}
                     maxLength={25}
                     autoFocus
                   />
-                  <button aria-label="Save name" onClick={saveName} className="w-9 h-9 bg-[#4d91fb] rounded-full flex items-center justify-center">
+                  <button aria-label="Save name" onClick={saveName} className="w-9 h-9 bg-wa-accent rounded-full flex items-center justify-center">
                     <Check size={16} className="text-white" />
                   </button>
                 </div>
@@ -647,19 +647,19 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               )}
             </Section>
             <Section>
-              <p className="text-[#4d91fb] px-4 pb-2" style={{ fontSize: '0.8rem', fontWeight: 600 }}>ABOUT</p>
+              <p className="text-wa-accent px-4 pb-2" style={{ fontSize: '0.8rem', fontWeight: 600 }}>ABOUT</p>
               {editingAbout ? (
                 <div className="px-4 py-3 flex items-center gap-3">
                    <input
                     value={editAbout}
                     onChange={e => setEditAbout(e.target.value)}
                     aria-label="Edit about"
-                    className="flex-1 bg-wa-secondary text-wa-primary rounded-lg px-3 py-2 outline-none border border-[#4d91fb]"
+                    className="flex-1 bg-wa-secondary text-wa-primary rounded-lg px-3 py-2 outline-none border border-wa-accent"
                     style={{ fontSize: '0.95rem' }}
                     maxLength={139}
                     autoFocus
                   />
-                  <button aria-label="Save about" onClick={saveAbout} className="w-9 h-9 bg-[#4d91fb] rounded-full flex items-center justify-center">
+                  <button aria-label="Save about" onClick={saveAbout} className="w-9 h-9 bg-wa-accent rounded-full flex items-center justify-center">
                     <Check size={16} className="text-white" />
                   </button>
                 </div>
@@ -691,7 +691,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                     setLoading(false);
                   }
                 }}
-                className="w-full flex items-center justify-center gap-2 text-[#4D91FB] hover:text-[#6BA3FF] transition-colors"
+                className="w-full flex items-center justify-center gap-2 text-wa-accent hover:text-[#6BA3FF] transition-colors"
                 style={{ fontWeight: 600, fontSize: '0.95rem' }}
               >
                 <Download size={18} />
@@ -838,7 +838,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                       <p className="text-wa-primary text-sm">{userId}</p>
                       <button
                         onClick={() => handleUnblockUser(userId)}
-                        className="text-[#4d91fb] text-xs font-medium hover:underline"
+                        className="text-wa-accent text-xs font-medium hover:underline"
                       >
                         Unblock
                       </button>
@@ -951,17 +951,17 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                       onClick={() => updateSettings({ theme: t })}
                       className={`flex-1 py-3 rounded-xl border-2 transition-all duration-200 shadow-sm hover:shadow-md active:scale-[0.98] ${
                         settings.theme === t 
-                          ? 'border-[#4d91fb] bg-[#4d91fb]/10 ring-1 ring-[#4d91fb]/20' 
+                          ? 'border-wa-accent bg-wa-accent/10 ring-1 ring-wa-accent/20' 
                           : 'border-wa-border bg-wa-secondary/40'
                       }`}
                     >
                       <div className="flex flex-col items-center">
                         {t === 'dark' ? (
-                          <Moon size={20} className={`mb-1.5 ${settings.theme === t ? 'text-[#4d91fb]' : 'text-wa-text-muted'}`} />
+                          <Moon size={20} className={`mb-1.5 ${settings.theme === t ? 'text-wa-accent' : 'text-wa-text-muted'}`} />
                         ) : (
-                          <Sun size={20} className={`mb-1.5 ${settings.theme === t ? 'text-[#4d91fb]' : 'text-wa-text-muted'}`} />
+                          <Sun size={20} className={`mb-1.5 ${settings.theme === t ? 'text-wa-accent' : 'text-wa-text-muted'}`} />
                         )}
-                        <p className={`font-medium ${settings.theme === t ? 'text-[#4d91fb]' : 'text-wa-primary'}`} style={{ fontSize: '0.8rem' }}>
+                        <p className={`font-medium ${settings.theme === t ? 'text-wa-accent' : 'text-wa-primary'}`} style={{ fontSize: '0.8rem' }}>
                           {t.charAt(0).toUpperCase() + t.slice(1)}
                         </p>
                       </div>
@@ -978,7 +978,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                     <button
                       key={size}
                       onClick={() => updateSettings({ fontSize: size })}
-                      className={`flex-1 py-2.5 rounded-xl border-2 transition-colors capitalize ${settings.fontSize === size ? 'border-[#4d91fb] bg-[#4d91fb]/10 text-[#4d91fb]' : 'border-wa-border text-wa-text-muted'}`}
+                      className={`flex-1 py-2.5 rounded-xl border-2 transition-colors capitalize ${settings.fontSize === size ? 'border-wa-accent bg-wa-accent/10 text-wa-accent' : 'border-wa-border text-wa-text-muted'}`}
                       style={{ fontSize: size === 'small' ? '0.75rem' : size === 'large' ? '1rem' : '0.875rem' }}
                     >
                       {size}
@@ -1017,7 +1017,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                     </span>
                   </div>
                   <div className="w-full h-2 bg-wa-secondary rounded-full overflow-hidden">
-                    <div className="h-full bg-[#4d91fb] rounded-full transition-all" style={{ width: `${Math.max(0.5, pct)}%` }} />
+                    <div className="h-full bg-wa-accent rounded-full transition-all" style={{ width: `${Math.max(0.5, pct)}%` }} />
                   </div>
                   <p className="text-wa-text-muted mt-2" style={{ fontSize: '0.72rem' }}>
                     {chatStorage.length} conversation{chatStorage.length !== 1 ? 's' : ''} stored locally
@@ -1074,8 +1074,8 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
             
             {deviceSessions.length === 0 ? (
               <div className="px-4 py-6 text-center">
-                <div className="w-16 h-16 bg-[#4d91fb]/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Smartphone size={28} className="text-[#4d91fb]" />
+                <div className="w-16 h-16 bg-wa-accent/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Smartphone size={28} className="text-wa-accent" />
                 </div>
                 <p className="text-wa-primary mb-1" style={{ fontWeight: 600 }}>No devices linked</p>
                 <p className="text-wa-text-muted" style={{ fontSize: '0.85rem' }}>
@@ -1087,11 +1087,11 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 <Section label={`ACTIVE DEVICES (${deviceSessions.length})`}>
                   {deviceSessions.map(device => (
                     <div key={device.id} className="px-4 py-4 flex items-center gap-3 border-b border-wa-border/10 last:border-0 hover:bg-wa-secondary/20 transition-colors">
-                      <div className={`w-10 h-10 ${device.isActive ? 'bg-[#4d91fb]/10' : 'bg-wa-secondary'} rounded-full flex items-center justify-center`}>
+                      <div className={`w-10 h-10 ${device.isActive ? 'bg-wa-accent/10' : 'bg-wa-secondary'} rounded-full flex items-center justify-center`}>
                         {device.deviceType === 'mobile' ? (
-                          <Smartphone size={18} className={device.isActive ? 'text-[#4d91fb]' : 'text-wa-text-muted'} />
+                          <Smartphone size={18} className={device.isActive ? 'text-wa-accent' : 'text-wa-text-muted'} />
                         ) : (
-                          <Globe size={18} className={device.isActive ? 'text-[#4d91fb]' : 'text-wa-text-muted'} />
+                          <Globe size={18} className={device.isActive ? 'text-wa-accent' : 'text-wa-text-muted'} />
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -1141,8 +1141,8 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
           <SubPageShell title="Starred Messages" onBack={back}>
             {starredMessages.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 px-8 text-center gap-4">
-                <div className="w-20 h-20 bg-[#f9a825]/10 rounded-full flex items-center justify-center">
-                  <Star size={36} className="text-[#f9a825]" />
+                <div className="w-20 h-20 bg-wa-star/10 rounded-full flex items-center justify-center">
+                  <Star size={36} className="text-wa-star" />
                 </div>
                 <p className="text-wa-primary" style={{ fontWeight: 600 }}>No starred messages</p>
                 <p className="text-wa-text-muted" style={{ fontSize: '0.85rem' }}>
@@ -1178,7 +1178,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
-                          <Star size={11} className="text-[#f9a825] fill-[#f9a825] flex-shrink-0" />
+                          <Star size={11} className="text-wa-star fill-wa-star flex-shrink-0" />
                           <p className="text-wa-text-muted truncate" style={{ fontSize: '0.82rem' }}>
                             <span className="text-wa-text-muted/70">{senderName}: </span>{preview}
                           </p>
@@ -1226,7 +1226,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
       {/* Profile section - Sleek & Flat */}
       <div className="flex flex-col items-center pt-10 pb-8 flex-shrink-0 border-b border-wa-border/10 bg-transparent">
         <div className="relative group cursor-pointer" onClick={() => go('account')}>
-          <div className="w-32 h-32 rounded-full p-1 border-2 border-[#4d91fb]">
+          <div className="w-32 h-32 rounded-full p-1 border-2 border-wa-accent">
             <div className="w-full h-full rounded-full overflow-hidden border-2 border-wa-main group-hover:scale-[1.02] transition-transform duration-500 relative bg-wa-secondary/20">
               {currentUser.avatar ? (
                 <img src={currentUser.avatar} alt="me" className="w-full h-full object-cover" />
@@ -1246,7 +1246,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
           <button
             aria-label="Change profile photo"
             onClick={e => { e.stopPropagation(); avatarInputRef.current?.click(); }}
-            className="absolute bottom-1 right-1 w-10 h-10 bg-[#4d91fb] rounded-full flex items-center justify-center border-4 border-wa-main hover:bg-[#3b8eea] transition-all shadow-xl active:scale-90 text-white"
+            className="absolute bottom-1 right-1 w-10 h-10 bg-wa-accent rounded-full flex items-center justify-center border-4 border-wa-main hover:bg-[#3b8eea] transition-all shadow-xl active:scale-90 text-white"
           >
             <Camera size={18} />
           </button>
@@ -1254,9 +1254,9 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
 
           <div className="mt-5 text-center px-6">
           <h2 className="text-wa-primary" style={{ fontSize: '1.4rem', fontWeight: 800, letterSpacing: '-0.5px' }}>{currentUser.name || 'Set Name'}</h2>
-          <div className="flex items-center justify-center gap-2 mt-1.5 bg-[#4d91fb]/10 px-3 py-1 rounded-full border border-[#4d91fb]/20">
-            <AtSign size={13} className="text-[#4d91fb]" />
-            <span className="text-[#4d91fb] truncate max-w-[180px]" style={{ fontSize: '0.8rem', fontWeight: 700 }}>
+          <div className="flex items-center justify-center gap-2 mt-1.5 bg-wa-accent/10 px-3 py-1 rounded-full border border-wa-accent/20">
+            <AtSign size={13} className="text-wa-accent" />
+            <span className="text-wa-accent truncate max-w-[180px]" style={{ fontSize: '0.8rem', fontWeight: 700 }}>
               {currentUser.userId || 'user.0000'}
             </span>
           </div>
@@ -1279,7 +1279,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               <p className="text-wa-primary" style={{ fontWeight: 500 }}>{item.label}</p>
               {item.desc && <p className="text-wa-text-muted" style={{ fontSize: '0.8rem' }}>{item.desc}</p>}
             </div>
-            <ChevronRight size={16} className="text-wa-text-muted group-hover:text-[#4d91fb] transition-colors flex-shrink-0" />
+            <ChevronRight size={16} className="text-wa-text-muted group-hover:text-wa-accent transition-colors flex-shrink-0" />
           </button>
         ))}
 
@@ -1323,7 +1323,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 value={newEmail}
                 onChange={e => setNewEmail(e.target.value)}
                 placeholder="Enter new email"
-                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#4d91fb]"
+                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-wa-accent"
               />
             </div>
             <div>
@@ -1333,7 +1333,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 value={currentPassword}
                 onChange={e => setCurrentPassword(e.target.value)}
                 placeholder="Confirm with your password"
-                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#4d91fb]"
+                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-wa-accent"
               />
             </div>
             <div className="flex gap-3 mt-6">
@@ -1346,7 +1346,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               <button
                 onClick={handleChangeEmail}
                 disabled={loading}
-                className="flex-1 py-2 bg-[#4d91fb] text-white rounded-lg hover:bg-[#3b8eea] transition-colors disabled:opacity-50"
+                className="flex-1 py-2 bg-wa-accent text-white rounded-lg hover:bg-[#3b8eea] transition-colors disabled:opacity-50"
               >
                 {loading ? 'Updating...' : 'Update Email'}
               </button>
@@ -1366,7 +1366,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 value={currentPassword}
                 onChange={e => setCurrentPassword(e.target.value)}
                 placeholder="Enter current password"
-                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#4d91fb]"
+                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-wa-accent"
               />
             </div>
             <div>
@@ -1376,7 +1376,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 value={newPassword}
                 onChange={e => setNewPassword(e.target.value)}
                 placeholder="At least 6 characters"
-                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#4d91fb]"
+                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-wa-accent"
               />
             </div>
             <div>
@@ -1386,7 +1386,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 value={confirmPassword}
                 onChange={e => setConfirmPassword(e.target.value)}
                 placeholder="Re-enter new password"
-                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#4d91fb]"
+                className="w-full mt-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-wa-accent"
               />
             </div>
             <div className="flex gap-3 mt-6">
@@ -1399,7 +1399,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               <button
                 onClick={handleChangePassword}
                 disabled={loading}
-                className="flex-1 py-2 bg-[#4d91fb] text-white rounded-lg hover:bg-[#3b8eea] transition-colors disabled:opacity-50"
+                className="flex-1 py-2 bg-wa-accent text-white rounded-lg hover:bg-[#3b8eea] transition-colors disabled:opacity-50"
               >
                 {loading ? 'Changing...' : 'Change Password'}
               </button>
@@ -1420,7 +1420,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                 onChange={e => setBlockUserId(e.target.value)}
                 placeholder="User ID or email to block"
                 aria-label="User ID or email to block"
-                className="flex-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-[#4d91fb]"
+                className="flex-1 px-3 py-2 bg-wa-secondary text-wa-primary rounded-lg border border-wa-border outline-none focus:border-wa-accent"
               />
               <button
                 onClick={handleBlockUser}
@@ -1439,7 +1439,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                     <button
                       onClick={() => handleUnblockUser(userId)}
                       disabled={loading}
-                      className="text-xs text-[#4d91fb] hover:underline disabled:opacity-50"
+                      className="text-xs text-wa-accent hover:underline disabled:opacity-50"
                     >
                       Unblock
                     </button>
@@ -1466,10 +1466,10 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                     }}
                     className="flex-1 flex items-center justify-between px-4 py-4 hover:bg-wa-secondary/50 rounded-xl transition-colors"
                   >
-                    <span className={isSelected ? 'text-[#4D91FB] font-bold' : 'text-wa-primary'}>
+                    <span className={isSelected ? 'text-wa-accent font-bold' : 'text-wa-primary'}>
                       {tone}
                     </span>
-                    {isSelected && <Check size={18} className="text-[#4D91FB]" />}
+                    {isSelected && <Check size={18} className="text-wa-accent" />}
                   </button>
                   <button
                     onClick={() => {
@@ -1490,7 +1490,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
                         osc.stop(ctx.currentTime + 0.3);
                       } catch { /* audio not supported */ }
                     }}
-                    className="p-3 text-wa-text-muted hover:text-[#4d91fb] hover:bg-wa-secondary/50 rounded-xl transition-colors"
+                    className="p-3 text-wa-text-muted hover:text-wa-accent hover:bg-wa-secondary/50 rounded-xl transition-colors"
                     title="Preview tone"
                   >
                     <Volume2 size={18} />
@@ -1590,7 +1590,7 @@ function OptionRow({ label, desc, value, onClick }: { label: string; desc?: stri
         <span className="text-wa-primary" style={{ fontSize: '0.95rem' }}>{label}</span>
         {desc && <p className="text-wa-text-muted" style={{ fontSize: '0.75rem', marginTop: '2px' }}>{desc}</p>}
       </div>
-      <span className="text-[#4D91FB] flex-shrink-0 ml-3" style={{ fontSize: '0.85rem', fontWeight: 500 }}>{value}</span>
+      <span className="text-wa-accent flex-shrink-0 ml-3" style={{ fontSize: '0.85rem', fontWeight: 500 }}>{value}</span>
     </button>
   );
 }
@@ -1616,7 +1616,7 @@ function ToggleRow({ icon, label, desc, value, onChange }: {
         {desc && <p className="text-wa-text-muted mt-1" style={{ fontSize: '0.8rem', lineHeight: '1.4' }}>{desc}</p>}
       </div>
       {/* Toggle pill */}
-      <div className={`relative w-11 h-5 rounded-full transition-colors flex-shrink-0 ${value ? 'bg-[#4D91FB]/80' : 'bg-wa-secondary'}`}>
+      <div className={`relative w-11 h-5 rounded-full transition-colors flex-shrink-0 ${value ? 'bg-wa-accent/80' : 'bg-wa-secondary'}`}>
         <motion.div
           animate={{ x: value ? 24 : 2 }}
           transition={{ type: 'spring', stiffness: 500, damping: 30 }}
@@ -1692,10 +1692,10 @@ function SuccessAlert({ message }: { message: string }) {
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
-      className="mx-4 mb-4 p-3 bg-[#4D91FB]/10 border border-[#4D91FB]/30 rounded-lg flex items-center gap-3"
+      className="mx-4 mb-4 p-3 bg-wa-accent/10 border border-wa-accent/30 rounded-lg flex items-center gap-3"
     >
-      <Check size={18} className="text-[#4D91FB] flex-shrink-0" />
-      <p className="text-[#4D91FB] text-sm flex-1">{message}</p>
+      <Check size={18} className="text-wa-accent flex-shrink-0" />
+      <p className="text-wa-accent text-sm flex-1">{message}</p>
     </motion.div>
   );
 }

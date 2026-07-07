@@ -100,21 +100,24 @@ export const userService = {
   },
 
   /**
-   * Search users by username (Production optimized)
+   * Search users by exact Veill ID (name_XXXX format)
+   * Only matches the full ID — no partial/prefix matching for privacy.
    */
   async searchUsers(searchTerm: string, currentUid: string) {
     try {
+      const clean = searchTerm.toLowerCase().trim().replace(/^@/, '');
+      if (!clean) return [];
+
       const q = query(
         collection(db, 'users'),
-        where('username', '>=', searchTerm.toLowerCase()),
-        where('username', '<=', searchTerm.toLowerCase() + ''),
-        limit(20)
+        where('username', '==', clean),
+        limit(1)
       );
       const snapshot = await getDocs(q);
 
       return snapshot.docs
-        .map(doc => ({ uid: doc.id, ...doc.data() }))
-        .filter(u => u.uid !== currentUid);
+        .map(doc => ({ handle: doc.id, ...doc.data() }))
+        .filter(u => u.handle !== currentUid);
     } catch (error: any) {
       console.error('❌ Error searching users:', error.message);
       return [];
@@ -138,7 +141,7 @@ export const userService = {
 
       const doc = snapshot.docs[0];
       return {
-        uid: doc.id,
+        handle: doc.id,
         ...doc.data(),
       };
     } catch (error: any) {

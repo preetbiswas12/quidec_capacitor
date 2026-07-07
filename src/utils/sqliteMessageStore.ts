@@ -152,9 +152,13 @@ function base64ToBytes(s: string): Uint8Array<ArrayBuffer> {
 let db: Database | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let currentUid: string | null = null;
+let initPromise: Promise<Database> | null = null;
 
 async function initDatabase(userUid: string): Promise<Database> {
   if (db && currentUid === userUid) return db;
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
 
   const SQL = await initSqlJs({
     locateFile: (file: string) => {
@@ -217,7 +221,10 @@ async function initDatabase(userUid: string): Promise<Database> {
   `);
 
   currentUid = userUid;
+  initPromise = null;
   return db;
+  })();
+  return initPromise;
 }
 
 function schedulePersist(): void {
@@ -225,14 +232,24 @@ function schedulePersist(): void {
   saveTimer = setTimeout(() => persistDatabase(), 500);
 }
 
+function toBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 async function persistDatabase(): Promise<void> {
   if (!db) return;
   try {
     const data = db.export();
     const uint8 = new Uint8Array(data);
+    const b64 = toBase64(uint8);
     await Filesystem.writeFile({
       path: DB_FILENAME,
-      data: uint8 as any,
+      data: b64,
       directory: DB_DIR,
     });
   } catch (err) {
@@ -240,12 +257,19 @@ async function persistDatabase(): Promise<void> {
   }
 }
 
-function rowToMessage(row: (string | number | null)[]): StoredMessage {
+async function rowToMessage(row: (string | number | null)[], userUid?: string): Promise<StoredMessage> {
+  let content = row[3] as string;
+  const encryptedContent = row[4] as string;
+  if (encryptedContent && userUid) {
+    try {
+      content = await decryptContent(userUid, encryptedContent);
+    } catch { /* fallback to plaintext content */ }
+  }
   return {
     id: row[0] as string,
     chatId: row[1] as string,
     senderId: row[2] as string,
-    content: row[3] as string,
+    content,
     type: row[5] as StoredMessage['type'],
     timestamp: row[6] as string,
     status: row[7] as StoredMessage['status'],
@@ -262,13 +286,13 @@ function rowToMessage(row: (string | number | null)[]): StoredMessage {
   };
 }
 
-function messageToRow(msg: StoredMessage, userUid: string): any[] {
+function messageToRow(msg: StoredMessage, encryptedContent: string): any[] {
   return [
     msg.id,
     msg.chatId,
     msg.senderId,
     msg.content,
-    '',
+    encryptedContent,
     msg.type,
     msg.timestamp,
     msg.status,
@@ -290,10 +314,11 @@ function messageToRow(msg: StoredMessage, userUid: string): any[] {
 
 export async function appendMessage(userUid: string, message: StoredMessage): Promise<void> {
   const d = await initDatabase(userUid);
+  const encryptedContent = await encryptContent(userUid, message.content);
   d.run(
     `INSERT OR REPLACE INTO messages (id, chatId, senderId, content, encryptedContent, type, timestamp, status, reactions, isStarred, replyToId, replyToContent, replyToSender, mediaPath, expiresAt, isEdited, keyVersion, hmac, createdAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    messageToRow(message, userUid)
+    messageToRow(message, encryptedContent)
   );
   schedulePersist();
 }
@@ -306,7 +331,7 @@ export async function loadMessages(userUid: string, chatId: string): Promise<Sto
     [chatId]
   );
   if (!results.length) return [];
-  return results[0].values.map(rowToMessage);
+  return Promise.all(results[0].values.map(row => rowToMessage(row, userUid)));
 }
 
 export async function loadAllChats(userUid: string, chatIds: string[]): Promise<Record<string, StoredMessage[]>> {
@@ -318,12 +343,13 @@ export async function loadAllChats(userUid: string, chatIds: string[]): Promise<
        FROM messages WHERE chatId = ? ORDER BY timestamp ASC`,
       [cid]
     );
-    out[cid] = results.length ? results[0].values.map(rowToMessage) : [];
+    out[cid] = results.length ? await Promise.all(results[0].values.map(row => rowToMessage(row, userUid))) : [];
   }
   return out;
 }
 
-export async function listLocalChatIds(): Promise<string[]> {
+export async function listLocalChatIds(userUid?: string): Promise<string[]> {
+  if (userUid) await initDatabase(userUid);
   if (!db) return [];
   const results = db.exec(`SELECT DISTINCT chatId FROM messages`);
   if (!results.length) return [];
@@ -402,7 +428,7 @@ export async function getStarredMessages(userUid: string): Promise<StoredMessage
      FROM messages WHERE isStarred = 1 ORDER BY timestamp DESC`
   );
   if (!results.length) return [];
-  return results[0].values.map(rowToMessage);
+  return Promise.all(results[0].values.map(row => rowToMessage(row, userUid)));
 }
 
 export async function searchAllMessages(userUid: string, query: string): Promise<SearchResult[]> {
@@ -426,6 +452,67 @@ export async function searchAllMessages(userUid: string, query: string): Promise
 export function clearKeyCache(): void {
   cachedKey = null;
   cachedSalt = null;
+}
+
+const ENCRYPTION_MIGRATION_KEY = 'quidec_encryption_migration_v3';
+
+/**
+ * One-time migration: clears old SQLite data and encryption preferences
+ * that were created with the old device-salt-based key derivation.
+ * Messages encrypted with the old key are incompatible with the new
+ * deterministic-salt-based getConversationKey.
+ */
+export async function migrateOldEncryptionData(): Promise<void> {
+  try {
+    const migrated = localStorage.getItem(ENCRYPTION_MIGRATION_KEY);
+    if (migrated === '3') return;
+
+    console.log('🔄 Running one-time encryption migration (v1→v2)...');
+
+    // 1. Delete the old SQLite database file
+    try {
+      await Filesystem.deleteFile({
+        path: DB_FILENAME,
+        directory: DB_DIR,
+      });
+    } catch {
+      // File may not exist — ignore
+    }
+
+    // 2. Reset in-memory DB so initDatabase creates a fresh one
+    db = null;
+    currentUid = null;
+    cachedKey = null;
+    cachedSalt = null;
+
+    // 3. Reset encryption Preferences to clean state
+    try {
+      await Preferences.remove({ key: 'encryption_device_salt_v1' });
+      // Set key version to 1 and last-rotation to now so checkAndRotateKey
+      // does NOT immediately bump the version on next startup
+      await Preferences.set({ key: 'encryption_key_version_v1', value: '1' });
+      await Preferences.set({ key: 'encryption_last_rotation_v1', value: String(Date.now()) });
+      await Preferences.remove({ key: SALT_KEY });
+    } catch {
+      // Preferences may not be available — ignore
+    }
+
+    // 4. Clear conversation key cache (from old device-salt derivation)
+    try {
+      const { clearConversationKeyCache } = await import('./encryption');
+      clearConversationKeyCache();
+    } catch {
+      // ignore
+    }
+
+    // 5. Mark migration complete
+    localStorage.setItem(ENCRYPTION_MIGRATION_KEY, '3');
+    console.log('✅ Encryption migration complete — old data cleared');
+  } catch (err) {
+    console.warn('⚠️ Encryption migration failed:', err);
+    // Mark as done anyway to avoid repeated failures
+    localStorage.setItem(ENCRYPTION_MIGRATION_KEY, '3');
+  }
 }
 
 export async function updateMessageReactions(

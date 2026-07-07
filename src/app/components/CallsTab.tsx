@@ -86,7 +86,7 @@ export default function CallsTab() {
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="bg-[#4D91FB] overflow-hidden"
+              className="bg-wa-accent overflow-hidden"
             >
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -128,7 +128,7 @@ export default function CallsTab() {
         {/* ── Call History ── */}
         <div className="pt-4 pb-20">
           <div className="flex items-center justify-between px-4 mb-2">
-            <h3 className="text-[#4d91fb]" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+            <h3 className="text-wa-accent" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>
               RECENT CALLS
             </h3>
             {calls.length > 0 && (
@@ -168,7 +168,7 @@ export default function CallsTab() {
                             {contact.name}
                           </p>
                           {callCount > 1 && (
-                            <span className="text-[#4d91fb] bg-[#4d91fb]/10 rounded-full px-1.5 py-0.5" style={{ fontSize: '0.65rem', fontWeight: 700 }}>
+                            <span className="text-wa-accent bg-wa-accent/10 rounded-full px-1.5 py-0.5" style={{ fontSize: '0.65rem', fontWeight: 700 }}>
                               {callCount}
                             </span>
                           )}
@@ -183,7 +183,7 @@ export default function CallsTab() {
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); startCall(contact.id, latestCall.type); }}
-                        className="text-[#4d91fb] p-2 rounded-full hover:bg-[#4d91fb]/10 transition-colors"
+                        className="text-wa-accent p-2 rounded-full hover:bg-wa-accent/10 transition-colors"
                         title={`Start ${latestCall.type} call`}
                       >
                         {latestCall.type === 'video' ? <Video size={20} /> : <Phone size={20} />}
@@ -222,7 +222,7 @@ export default function CallsTab() {
                             className="px-4 py-2 pl-16 border-t border-wa-border/5 hover:bg-wa-secondary/10 cursor-pointer"
                             onClick={() => openChatWithContact(contactId)}
                           >
-                            <span className="text-[#4d91fb]" style={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                            <span className="text-wa-accent" style={{ fontSize: '0.8rem', fontWeight: 600 }}>
                               Message {contact.name}
                             </span>
                           </div>
@@ -252,7 +252,7 @@ export default function CallsTab() {
       <div className="absolute bottom-24 right-6 z-10">
         <button
           onClick={() => setShowNewCallSheet(true)}
-          className="w-14 h-14 rounded-full bg-[#4d91fb] flex items-center justify-center shadow-2xl hover:bg-[#3b8eea] transition-all active:scale-90"
+          className="w-14 h-14 rounded-full bg-wa-accent flex items-center justify-center shadow-2xl hover:bg-wa-accent/90 transition-all active:scale-90"
         >
           <PhoneCall size={24} className="text-white" />
         </button>
@@ -312,14 +312,14 @@ export default function CallsTab() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => { setShowNewCallSheet(false); startCall(contact.id, 'voice'); }}
-                        className="w-10 h-10 rounded-full bg-[#4d91fb]/10 hover:bg-[#4d91fb]/20 flex items-center justify-center text-[#4d91fb] transition-colors"
+                        className="w-10 h-10 rounded-full bg-wa-accent/10 hover:bg-wa-accent/20 flex items-center justify-center text-wa-accent transition-colors"
                         title="Voice call"
                       >
                         <Phone size={18} />
                       </button>
                       <button
                         onClick={() => { setShowNewCallSheet(false); startCall(contact.id, 'video'); }}
-                        className="w-10 h-10 rounded-full bg-[#4D91FB]/10 hover:bg-[#4D91FB]/20 flex items-center justify-center text-[#4D91FB] transition-colors"
+                        className="w-10 h-10 rounded-full bg-wa-accent/10 hover:bg-wa-accent/20 flex items-center justify-center text-wa-accent transition-colors"
                         title="Video call"
                       >
                         <Video size={18} />

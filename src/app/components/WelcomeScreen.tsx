@@ -10,7 +10,7 @@ export default function WelcomeScreen() {
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.5 }}
-          className="w-52 h-52 rounded-full bg-[#4D91FB]/10 flex items-center justify-center"
+          className="w-52 h-52 rounded-full bg-wa-accent/10 flex items-center justify-center"
         >
           <svg viewBox="0 0 120 120" width="120" height="120" fill="none">
             <circle cx="60" cy="60" r="60" fill="#4D91FB" opacity="0.15" />
@@ -47,7 +47,7 @@ export default function WelcomeScreen() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="flex items-center gap-2 border border-[#4D91FB] text-[#4D91FB] px-6 py-2.5 rounded-full hover:bg-[#4D91FB]/10 transition-colors"
+          className="flex items-center gap-2 border border-wa-accent text-wa-accent px-6 py-2.5 rounded-full hover:bg-wa-accent/10 transition-colors"
           style={{ fontSize: '0.875rem', fontWeight: 500 }}
         >
           <Download size={16} />

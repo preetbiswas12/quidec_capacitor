@@ -80,7 +80,7 @@ export async function exportAllUserData(userId: string): Promise<GdprExportData>
 
   const localMessages: Record<string, any[]> = {};
   try {
-    const chatIds = await listLocalChatIds();
+    const chatIds = await listLocalChatIds(userId);
     if (chatIds.length > 0) {
       const allChats = await loadAllChats(userId, chatIds);
       Object.assign(localMessages, allChats);
