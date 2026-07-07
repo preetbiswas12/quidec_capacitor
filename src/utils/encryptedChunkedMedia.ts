@@ -5,7 +5,7 @@
  */
 
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
-import { getConversationKey } from './encryption.js'
+import { getConversationKey, getKeyVersion } from './encryption.js'
 import { 
   collection, 
   doc, 
@@ -29,6 +29,7 @@ export interface ChunkMetadata {
   mediaType: 'image' | 'video' | 'audio' | 'message' | 'document' // Type of media
   originalName?: string // Original filename
   timestamp: number // When created
+  keyVersion?: number // Key version used for encryption
   encryption: {
     algorithm: 'AES-256-GCM'
     iv: string // Base64 encoded
@@ -120,6 +121,7 @@ export async function saveEncryptedMediaChunks(
       // Generate random IV for this chunk
       const iv = window.crypto.getRandomValues(new Uint8Array(12))
       const salt = window.crypto.getRandomValues(new Uint8Array(16))
+      const usedKeyVersion = await getKeyVersion();
 
       // Encrypt chunk
       const encryptedChunk = await window.crypto.subtle.encrypt(
@@ -138,6 +140,7 @@ export async function saveEncryptedMediaChunks(
         mediaType,
         originalName,
         timestamp: Date.now(),
+        keyVersion: usedKeyVersion,
         encryption: {
           algorithm: 'AES-256-GCM',
           iv: btoa(String.fromCharCode.apply(null, Array.from(iv))),
@@ -215,6 +218,7 @@ export async function saveEncryptedMediaChunks(
 /**
  * Retrieve and decrypt all chunks for a media file
  * Verifies chunk integrity using SHA-256 hashes
+ * Falls back to historical key versions if current key fails
  */
 export async function retrieveDecryptedMedia(
   fileId: string,
@@ -226,8 +230,56 @@ export async function retrieveDecryptedMedia(
   fileHash: string
   verified: boolean
 }> {
+  const MAX_KEY_VERSIONS = 7;
+  const currentVersion = await getKeyVersion();
+
+  // Try to detect stored key version from first chunk metadata
+  let storedVersion: number | undefined;
   try {
-    const encryptionKey = await getConversationKey(user1, user2)
+    const firstMetadataPath = `${MEDIA_PATHS.METADATA}/${fileId}_chunk_0.json`
+    const metadataFile = await withTimeout(
+      Filesystem.readFile({ path: firstMetadataPath, directory: Directory.Documents, encoding: Encoding.UTF8 }),
+      3000, 'Read metadata for version check'
+    );
+    const parsed = JSON.parse(metadataFile.data as string);
+    storedVersion = parsed.keyVersion;
+  } catch { /* ignore */ }
+
+  // Build version queue: stored version first (if any), then current, then descending
+  const versions: number[] = [];
+  if (storedVersion && storedVersion !== currentVersion) versions.push(storedVersion);
+  for (let v = currentVersion; v >= Math.max(1, currentVersion - MAX_KEY_VERSIONS); v--) {
+    if (!versions.includes(v)) versions.push(v);
+  }
+
+  for (const v of versions) {
+    try {
+      return await retrieveDecryptedMediaWithKey(fileId, user1, user2, v);
+    } catch (err: any) {
+      const isCryptoError = err?.name === 'OperationError' || err?.message?.includes('OperationError');
+      if (isCryptoError) {
+        console.log(`🔑 Media decrypt failed with key v${v}, trying next...`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Failed to decrypt media with any available key version');
+}
+
+async function retrieveDecryptedMediaWithKey(
+  fileId: string,
+  user1: string,
+  user2: string,
+  keyVersion: number
+): Promise<{
+  data: Uint8Array
+  mediaType: string
+  fileHash: string
+  verified: boolean
+}> {
+  try {
+    const encryptionKey = await getConversationKey(user1, user2, keyVersion)
 
     // Get metadata for first chunk to know total chunks
     let firstMetadata: ChunkMetadata

@@ -1995,7 +1995,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // ─── 1-on-1 messaging via offline-aware sender ───
       const msgId = `msg-${Date.now()}`;
-      let finalImageUrl = extra?.imageUrl;
 
       // Derive toUid FIRST — needed for media encryption key derivation
       const myId = currentUser.userId;
@@ -2009,7 +2008,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
         toUid = otherContact?.id || chatId;
       }
 
-      // 1. Handle Native Media Chunking (Local-First)
+      // 1. Show optimistic message IMMEDIATELY with local blob URL preview (WhatsApp-style)
+      const sharedTimestamp = new Date().toISOString();
+      const ttl = disappearingTimers[chatId] || 0;
+      const localPreviewUrl = mediaFile ? URL.createObjectURL(mediaFile) : extra?.imageUrl;
+      const msg: Message = {
+        id: msgId,
+        chatId,
+        senderId: 'me',
+        content,
+        type,
+        timestamp: sharedTimestamp,
+        status: 'sent',
+        ...extra,
+        imageUrl: localPreviewUrl,
+        expiresAt: ttl > 0 ? Date.now() + ttl * 1000 : undefined,
+        keyVersion: await getKeyVersion(),
+      };
+
+      setMessages((prev) => ({
+        ...prev,
+        [chatId]: [...(prev[chatId] || []), msg],
+      }));
+
+      setChats((prev) => prev.map(c =>
+        c.id === chatId
+          ? { ...c, lastMessage: content, lastMessageTime: msg.timestamp, lastMessageSender: currentUser.userId }
+          : c
+      ));
+
+      // 2. Upload media in background, then patch the message with the real fileId
+      let finalImageUrl = extra?.imageUrl;
       if (mediaFile) {
         console.log(`📦 Chunking and encrypting ${type} for local vault...`);
         try {
@@ -2020,40 +2049,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
             toUid
           );
           finalImageUrl = mediaRef.fileId;
+
+          // Patch the optimistic message with the real fileId so LocalMedia can decrypt it
+          setMessages((prev) => ({
+            ...prev,
+            [chatId]: (prev[chatId] || []).map(m =>
+              m.id === msgId ? { ...m, imageUrl: finalImageUrl } : m
+            ),
+          }));
+
+          if (localPreviewUrl && localPreviewUrl.startsWith('blob:')) URL.revokeObjectURL(localPreviewUrl);
         } catch (err) {
           console.error('❌ Media chunking failed:', err);
+          setSendError('Media upload failed');
+          setTimeout(() => setSendError(null), 4000);
         }
       }
-
-      // 2. Optimistic local message (always shown immediately)
-      // Use a single shared timestamp so sender & receiver display the same time
-      const sharedTimestamp = new Date().toISOString();
-      const ttl = disappearingTimers[chatId] || 0;
-      const msg: Message = {
-        id: msgId,
-        chatId,
-        senderId: 'me',
-        content,
-        type,
-        timestamp: sharedTimestamp,
-        status: 'sent',
-        ...extra,
-        imageUrl: finalImageUrl,
-        expiresAt: ttl > 0 ? Date.now() + ttl * 1000 : undefined,
-        keyVersion: await getKeyVersion(),
-      };
-
-      setMessages((prev) => ({
-        ...prev,
-        [chatId]: [...(prev[chatId] || []), msg],
-      }));
-
-      // Update chat preview with sent message
-      setChats((prev) => prev.map(c =>
-        c.id === chatId
-          ? { ...c, lastMessage: content, lastMessageTime: msg.timestamp, lastMessageSender: currentUser.userId }
-          : c
-      ));
 
       // 3. Send via offline-aware sender (queues if offline, sends if online)
       console.log(`📤 sendMessage: from=${myId} to=${toUid} chatId=${chatId}`);

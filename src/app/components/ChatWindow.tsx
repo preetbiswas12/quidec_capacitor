@@ -1343,7 +1343,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
   isConsecutive?: boolean;
 }) {
   const { currentUser } = useApp();
-  const isMe = message.senderId === 'me';
+  const isMe = message.senderId === 'me' || message.senderId === currentUser?.userId;
   const isSystem = message.senderId === 'system';
   const senderContact = !isMe && !isSystem && isGroup ? contacts.find((c: any) => c.id === message.senderId) : null;
   const displayContact = senderContact || contact;
@@ -1575,7 +1575,7 @@ function LocalMedia({ fileId, mediaType, senderId, contactId, isImageOnly, messa
     const resolve = async () => {
       if (!currentUser) return;
       try {
-        const otherParty = isMe ? contactId : senderId;
+        const otherParty = (isMe || senderId === currentUser.userId) ? contactId : senderId;
         const decryptedUrl = await loadMediaWithCache(fileId, mediaType, currentUser.userId, otherParty);
         if (!cancelled) setUrl(decryptedUrl);
       } catch (err) { console.warn('⚠️ Media resolution failed:', err); } finally { if (!cancelled) setLoading(false); }
