@@ -68,8 +68,6 @@ export async function uploadChunkToCloudinary(
   formData.append('file', blob);
   formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
   formData.append('public_id', publicId);
-  formData.append('resource_type', 'raw');
-  formData.append('type', 'upload');
 
   const response = await fetch(
     `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`,
@@ -112,8 +110,6 @@ export async function uploadChunkMetadata(
   formData.append('file', jsonBlob);
   formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
   formData.append('public_id', publicId);
-  formData.append('resource_type', 'raw');
-  formData.append('type', 'upload');
 
   const response = await fetch(
     `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`,
