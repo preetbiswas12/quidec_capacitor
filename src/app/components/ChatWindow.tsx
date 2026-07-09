@@ -1690,10 +1690,12 @@ function LocalMedia({ fileId, mediaType, senderId, contactId, isImageOnly, messa
     if (!fileId) return;
     if (fileId.startsWith('data:') || fileId.startsWith('blob:')) { setUrl(fileId); setLoading(false); return; }
     let cancelled = false;
-    const resolve = async () => {
-      if (!currentUser) return;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 2500;
+    const resolve = async (attempt = 0) => {
+      if (!currentUser || cancelled) return;
+      const otherParty = (isMe || senderId === currentUser.userId) ? contactId : senderId;
       try {
-        const otherParty = (isMe || senderId === currentUser.userId) ? contactId : senderId;
         const decryptedUrl = await loadMediaWithCache(fileId, mediaType, currentUser.userId, otherParty);
         if (!cancelled) setUrl(decryptedUrl);
 
@@ -1703,7 +1705,16 @@ function LocalMedia({ fileId, mediaType, senderId, contactId, isImageOnly, messa
             confirmAndCleanup(fileId, message.totalChunks, currentUser.userId).catch(() => {});
           }).catch(() => {});
         }
-      } catch (err) { console.warn('⚠️ Media resolution failed:', err); } finally { if (!cancelled) setLoading(false); }
+      } catch (err) {
+        // Race condition: sender's Cloudinary upload may not have completed yet.
+        // Retry after a short delay to wait for upload propagation.
+        if (attempt < MAX_RETRIES && !cancelled) {
+          console.log(`🔄 Media not available yet (attempt ${attempt + 1}/${MAX_RETRIES}), retrying in ${RETRY_DELAY_MS}ms...`);
+          setTimeout(() => resolve(attempt + 1), RETRY_DELAY_MS);
+          return; // Don't setLoading(false) yet — still retrying
+        }
+        console.warn('⚠️ Media resolution failed after retries:', err);
+      } finally { if (!cancelled) setLoading(false); }
     };
     resolve();
     return () => { cancelled = true; };
