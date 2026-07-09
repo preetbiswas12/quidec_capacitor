@@ -1653,6 +1653,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }, ...prev];
         }
       });
+
+      // If user is actively viewing this chat, immediately send read receipts (blue tick)
+      // This bypasses the markAsRead guard which skips when unreadCount is already 0
+      if (activeChatId === chatId && currentUser) {
+        try {
+          await messageService.markAllMessagesAsRead(chatId, currentUser.userId, msg.fromUid);
+        } catch (err) {
+          console.warn('⚠️ Failed to send immediate read receipts:', err);
+        }
+      }
     });
 
     // 5. Listen to Typing Indicators (global — convert string[] to Record<string, boolean>)
