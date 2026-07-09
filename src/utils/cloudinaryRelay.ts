@@ -181,7 +181,7 @@ export async function fetchChunkFromCloudinary(
  * Calls a Firebase Cloud Function that holds the API secret.
  *
  * @param fileId - The file ID whose chunks to delete
- * @param totalChunks - Number of chunks to delete (0 to delete all via prefix)
+ * @param totalChunks - Number of chunks to delete
  */
 export async function deleteChunksFromCloudinary(
   fileId: string,
@@ -194,50 +194,28 @@ export async function deleteChunksFromCloudinary(
     const result = await deleteChunks({ fileId, totalChunks });
     return result.data as { success: boolean; deleted: number };
   } catch (err: any) {
-    console.error('❌ Cloudinary chunk deletion failed:', err);
-    // Fallback: try direct delete via REST (only works if bucket allows it)
-    return deleteChunksDirect(fileId, totalChunks);
+    // CF may not be deployed yet, or auth failed — log but don't throw
+    // The scheduled cleanup CF will handle orphaned chunks
+    console.warn(`⚠️ Cloud Function deleteCloudinaryChunks failed for ${fileId}: ${err.message || err}`);
+    return { success: false, deleted: 0 };
   }
 }
 
 /**
- * Direct delete fallback — attempts to delete via Cloudinary REST API.
- * This requires the upload preset to allow deletes, or will fail silently.
- * Used as fallback when the Cloud Function is unavailable.
+ * Direct delete fallback — NOT possible from browser.
+ * Cloudinary REST API DELETE requires API key + signature (server-side only).
+ * Browser requests are always blocked by CORS for Cloudinary admin API.
+ * Returns failure immediately — caller should rely on Firebase Cloud Function.
  */
 async function deleteChunksDirect(
-  fileId: string,
-  totalChunks: number
+  _fileId: string,
+  _totalChunks: number
 ): Promise<{ success: boolean; deleted: number }> {
-  if (!CLOUDINARY_CLOUD_NAME) {
-    return { success: false, deleted: 0 };
-  }
-
-  let deleted = 0;
-
-  // Delete each chunk individually
-  for (let i = 0; i < totalChunks; i++) {
-    try {
-      const publicId = `${CLOUDINARY_FOLDER}/${fileId}/chunk_${i}`;
-      const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/resources/raw/upload?public_ids[]=${encodeURIComponent(publicId)}`;
-
-      const resp = await fetch(url, { method: 'DELETE' });
-      if (resp.ok) deleted++;
-    } catch {
-      // Silent fail — Cloud Function is the primary mechanism
-    }
-  }
-
-  // Also delete metadata
-  try {
-    const metaId = `${CLOUDINARY_FOLDER}/${fileId}/_metadata`;
-    const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/resources/raw/upload?public_ids[]=${encodeURIComponent(metaId)}`;
-    await fetch(url, { method: 'DELETE' });
-  } catch {
-    // Silent fail
-  }
-
-  return { success: deleted > 0, deleted };
+  // Cloudinary REST API DELETE requires api_key + api_secret + signature.
+  // This can NEVER work from a browser due to CORS restrictions.
+  // The Firebase Cloud Function (deleteCloudinaryChunks) is the ONLY way to delete.
+  console.warn('⚠️ Client-side Cloudinary DELETE not possible — only Firebase CF can delete');
+  return { success: false, deleted: 0 };
 }
 
 /**

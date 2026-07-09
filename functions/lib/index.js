@@ -4,9 +4,10 @@
  * Handles server-side operations that require API secrets
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteCloudinaryChunks = void 0;
+exports.cleanupOrphanedCloudinaryChunks = exports.deleteCloudinaryChunks = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const crypto = require("crypto");
 admin.initializeApp();
 const CLOUDINARY_CLOUD_NAME = 'yrclkuaq';
 const CLOUDINARY_API_KEY = '339257421286331';
@@ -29,7 +30,7 @@ exports.deleteCloudinaryChunks = functions.https.onCall(async (data, context) =>
         throw new functions.https.HttpsError('invalid-argument', 'fileId is required');
     }
     if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
-        console.error('❌ Cloudinary credentials not configured');
+        console.error('Cloudinary credentials not configured');
         throw new functions.https.HttpsError('failed-precondition', 'Cloudinary not configured');
     }
     let deleted = 0;
@@ -43,7 +44,10 @@ exports.deleteCloudinaryChunks = functions.https.onCall(async (data, context) =>
             deleted++;
         }
         catch (err) {
-            errors.push(`chunk_${i}: ${err.message}`);
+            // 404 = already deleted, not an error worth reporting
+            if (!err.message.includes('404')) {
+                errors.push(`chunk_${i}: ${err.message}`);
+            }
         }
     }
     // Delete metadata file
@@ -53,12 +57,14 @@ exports.deleteCloudinaryChunks = functions.https.onCall(async (data, context) =>
         deleted++;
     }
     catch (err) {
-        errors.push(`_metadata: ${err.message}`);
+        if (!err.message.includes('404')) {
+            errors.push(`_metadata: ${err.message}`);
+        }
     }
     if (errors.length > 0) {
-        console.warn(`⚠️ Partial deletion for ${fileId}: ${errors.join(', ')}`);
+        console.warn(`Partial deletion for ${fileId}: ${errors.join(', ')}`);
     }
-    console.log(`✅ Deleted ${deleted} chunks for ${fileId}`);
+    console.log(`Deleted ${deleted} chunks for ${fileId}`);
     return {
         success: deleted > 0,
         deleted,
@@ -66,23 +72,95 @@ exports.deleteCloudinaryChunks = functions.https.onCall(async (data, context) =>
     };
 });
 /**
+ * Scheduled cleanup: delete Cloudinary chunks older than 24 hours.
+ * Runs daily as a safety net for orphaned relay chunks.
+ * Chunks should normally be deleted by recipients after download.
+ */
+exports.cleanupOrphanedCloudinaryChunks = functions.pubsub
+    .schedule('every 24 hours')
+    .onRun(async () => {
+    console.log('Running scheduled Cloudinary chunk cleanup...');
+    // Query Firestore for mediaChunks older than 24 hours
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const db = admin.firestore();
+    try {
+        const oldChunks = await db
+            .collection('mediaChunks')
+            .where('uploadedAt', '<', admin.firestore.Timestamp.fromMillis(cutoff))
+            .limit(500)
+            .get();
+        if (oldChunks.empty) {
+            console.log('No orphaned chunks found');
+            return null;
+        }
+        // Group by fileId
+        const fileMap = new Map();
+        for (const doc of oldChunks.docs) {
+            const data = doc.data();
+            const fileId = data.fileId;
+            if (fileId) {
+                fileMap.set(fileId, (fileMap.get(fileId) || 0) + 1);
+            }
+        }
+        let totalDeleted = 0;
+        for (const [fileId, count] of fileMap) {
+            try {
+                // Delete from Cloudinary
+                for (let i = 0; i < count; i++) {
+                    try {
+                        const publicId = `${CLOUDINARY_FOLDER}/${fileId}/chunk_${i}`;
+                        await deleteCloudinaryResource(publicId);
+                        totalDeleted++;
+                    }
+                    catch ( /* chunk may already be deleted */_a) { /* chunk may already be deleted */ }
+                }
+                // Delete metadata
+                try {
+                    const metaId = `${CLOUDINARY_FOLDER}/${fileId}/_metadata`;
+                    await deleteCloudinaryResource(metaId);
+                }
+                catch ( /* ok */_b) { /* ok */ }
+                // Also delete Firestore docs for this file
+                const batch = db.batch();
+                for (const doc of oldChunks.docs) {
+                    if (doc.data().fileId === fileId) {
+                        batch.delete(doc.ref);
+                    }
+                }
+                await batch.commit();
+            }
+            catch (err) {
+                console.warn(`Failed to cleanup ${fileId}: ${err.message}`);
+            }
+        }
+        console.log(`Scheduled cleanup complete: ${totalDeleted} chunks deleted`);
+    }
+    catch (err) {
+        console.error('Scheduled cleanup failed:', err.message);
+    }
+    return null;
+});
+/**
  * Delete a single resource from Cloudinary using signed API.
  */
 async function deleteCloudinaryResource(publicId) {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     // Create signature for delete
-    const crypto = require('crypto');
     const params_to_sign = `public_id=${publicId}&timestamp=${timestamp}${CLOUDINARY_API_SECRET}`;
     const signature = crypto.createHash('sha1').update(params_to_sign).digest('hex');
     const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/resources/raw/upload`;
-    const formData = new URLSearchParams();
-    formData.append('public_ids[]', publicId);
-    formData.append('timestamp', timestamp);
-    formData.append('api_key', CLOUDINARY_API_KEY);
-    formData.append('signature', signature);
+    // Use URLSearchParams for form body
+    const body = new URLSearchParams();
+    body.append('public_ids[]', publicId);
+    body.append('timestamp', timestamp);
+    body.append('api_key', CLOUDINARY_API_KEY);
+    body.append('signature', signature);
     const response = await fetch(url, {
         method: 'DELETE',
-        body: formData,
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: body.toString(),
     });
     if (!response.ok) {
         const errorText = await response.text();

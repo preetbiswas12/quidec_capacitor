@@ -67,15 +67,16 @@ export async function confirmAndCleanup(
 
     console.log(`🧹 Cleanup confirmed for ${fileId}: local cache verified, deleting from Cloudinary`);
 
-    // 2. Delete from Cloudinary
+    // 2. Delete from Cloudinary (best effort — scheduled CF handles orphans)
     const result = await deleteChunksFromCloudinary(fileId, totalChunks);
 
     if (result.success) {
       console.log(`✅ Cleaned up ${result.deleted} chunks for ${fileId} from Cloudinary`);
       return { success: true, reason: 'deleted' };
     } else {
-      console.warn(`⚠️ Partial cleanup for ${fileId}: ${result.deleted}/${totalChunks} deleted`);
-      return { success: false, reason: 'partial_delete' };
+      // Not critical — the scheduled cleanup CF will handle orphaned chunks
+      console.log(`ℹ️ Cloudinary cleanup pending for ${fileId} (will be handled by scheduled cleanup)`);
+      return { success: true, reason: 'scheduled_cleanup' };
     }
   } catch (err: any) {
     console.error(`❌ Cleanup failed for ${fileId}:`, err.message);

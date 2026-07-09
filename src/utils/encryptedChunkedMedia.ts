@@ -207,9 +207,13 @@ export async function saveEncryptedMediaChunks(
       )
 
       // 2. Upload to Cloudinary (temporary relay — deleted after recipient downloads)
+      //    Fire-and-forget: local FS write already succeeded, sender doesn't need to wait
       if (isCloudinaryConfigured()) {
-        uploadChunkToCloudinary(encryptedChunkBase64, fileId, i).catch((cloudErr) => {
-          console.warn(`⚠️ Cloudinary upload failed for chunk ${i}, falling back to Firestore:`, cloudErr);
+        uploadChunkToCloudinary(encryptedChunkBase64, fileId, i).then((uploadResult) => {
+          console.log(`☁️ Chunk ${i + 1}/${totalChunks} uploaded to Cloudinary: ${uploadResult.publicId}`);
+        }).catch((cloudErr: any) => {
+          console.error(`❌ Cloudinary upload failed for chunk ${i}: ${cloudErr.message || cloudErr}`);
+          console.log(`📝 Falling back to Firestore for chunk ${i}...`);
           // Fallback: write to Firestore if Cloudinary fails
           const chunkDocRef = doc(db, 'mediaChunks', `${fileId}_chunk_${i}`);
           const firestorePayload = {
@@ -219,10 +223,14 @@ export async function saveEncryptedMediaChunks(
             uploadedAt: serverTimestamp(),
             metadata: { ...metadata, uploadedBy: user1, intendedFor: user2 }
           };
-          setDoc(chunkDocRef, firestorePayload).catch(() => {});
+          setDoc(chunkDocRef, firestorePayload).then(() => {
+            console.log(`✅ Chunk ${i + 1}/${totalChunks} saved to Firestore (fallback)`);
+          }).catch((fsErr) => {
+            console.error(`❌ Firestore fallback also failed for chunk ${i}:`, fsErr);
+          });
         });
       } else {
-        // Cloudinary not configured — fallback to Firestore
+        // Cloudinary not configured — save to Firestore directly
         const chunkDocRef = doc(db, 'mediaChunks', `${fileId}_chunk_${i}`);
         const firestorePayload = {
           fileId,
@@ -231,8 +239,10 @@ export async function saveEncryptedMediaChunks(
           uploadedAt: serverTimestamp(),
           metadata: { ...metadata, uploadedBy: user1, intendedFor: user2 }
         };
-        setDoc(chunkDocRef, firestorePayload).catch((fsErr) => {
-          console.warn(`⚠️ Firestore write also failed for chunk ${i}:`, fsErr);
+        setDoc(chunkDocRef, firestorePayload).then(() => {
+          console.log(`✅ Chunk ${i + 1}/${totalChunks} saved to Firestore`);
+        }).catch((fsErr) => {
+          console.error(`❌ Firestore write failed for chunk ${i}:`, fsErr);
         });
       }
 
