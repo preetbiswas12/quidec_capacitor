@@ -59,34 +59,23 @@ export async function uploadMediaWithProgress(
     const arrayBuffer = await file.arrayBuffer()
     const fileData = new Uint8Array(arrayBuffer)
 
-    // Stage 2: Chunk and encrypt
-    if (onProgress) {
-      onProgress({
-        fileId,
-        totalSize: fileSize,
-        processedSize: fileSize * 0.3,
-        percentComplete: 30,
-        stage: 'chunking',
-      })
-    }
-
     const chunkResult = await saveEncryptedMediaChunks(
       fileData,
       mediaType,
       user1,
       user2,
-      file.name
+      file.name,
+      onProgress ? (chunkIndex, totalChunks) => {
+        const percent = Math.round((chunkIndex / totalChunks) * 70) + 25;
+        onProgress({
+          fileId,
+          totalSize: fileSize,
+          processedSize: Math.round((chunkIndex / totalChunks) * fileSize),
+          percentComplete: Math.min(percent, 95),
+          stage: 'chunking',
+        });
+      } : undefined
     )
-
-    if (onProgress) {
-      onProgress({
-        fileId: chunkResult.fileId,
-        totalSize: fileSize,
-        processedSize: fileSize * 0.8,
-        percentComplete: 80,
-        stage: 'encrypting',
-      })
-    }
 
     if (onProgress) {
       onProgress({

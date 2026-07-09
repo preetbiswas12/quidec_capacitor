@@ -2,21 +2,34 @@
  * Encrypted Chunked Media Storage
  * Stores media and messages in chunks with AES-256 encryption and SHA-256 hashing
  * Files are stored as encrypted chunks, decrypted on-demand for display
+ *
+ * Storage: Cloudinary (temporary relay) → Local SQLite (permanent cache)
+ * Sender uploads encrypted chunks to Cloudinary
+ * Recipient downloads + decrypts + caches locally
+ * After local cache confirmed, chunks deleted from Cloudinary
  */
 
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
 import { getConversationKey, getKeyVersion } from './encryption.js'
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  getDocs, 
-  query, 
-  where, 
-  orderBy, 
-  deleteDoc, 
-  serverTimestamp 
+import { getSessionKey, ensureKeyPair } from './e2ee'
+import {
+  uploadChunkToCloudinary,
+  uploadChunkMetadata,
+  fetchChunkFromCloudinary,
+  isCloudinaryConfigured,
+  type ChunkRelayInfo,
+} from './cloudinaryRelay'
+import {
+  collection,
+  doc,
+  setDoc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+  orderBy,
+  deleteDoc,
+  serverTimestamp
 } from 'firebase/firestore'
 import { db } from './firebase'
 
@@ -37,8 +50,8 @@ export interface ChunkMetadata {
   }
 }
 
-// Chunk size: 512KB (Optimized for Firestore document limit)
-const CHUNK_SIZE = 512 * 1024
+// Chunk size: 128KB (Small enough for reliable Firestore writes, well under 1MB doc limit)
+const CHUNK_SIZE = 128 * 1024
 
 const MEDIA_PATHS = {
   CHUNKS: 'media/chunks',
@@ -87,7 +100,8 @@ export async function saveEncryptedMediaChunks(
   mediaType: 'image' | 'video' | 'audio' | 'message' | 'document',
   user1: string,
   user2: string,
-  originalName?: string
+  originalName?: string,
+  onChunkProgress?: (chunkIndex: number, totalChunks: number) => void
 ): Promise<{
   fileId: string
   totalChunks: number
@@ -95,8 +109,18 @@ export async function saveEncryptedMediaChunks(
   fileHash: string
 }> {
   try {
-    // Get conversation-specific encryption key
-    const encryptionKey = await getConversationKey(user1, user2)
+    // Get encryption key: E2EE v2 session key, fallback to PBKDF2 conversation key
+    let encryptionKey = await getSessionKey(user1, user2);
+    if (!encryptionKey) {
+      try { await ensureKeyPair(user1); } catch { /* best effort */ }
+      encryptionKey = await getSessionKey(user1, user2);
+    }
+    if (!encryptionKey) {
+      encryptionKey = await getConversationKey(user1, user2);
+    }
+    if (!encryptionKey) {
+      throw new Error('No encryption key available for media');
+    }
 
     // Generate unique file ID
     const fileId = `${mediaType}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -156,51 +180,67 @@ export async function saveEncryptedMediaChunks(
       }
       const encryptedChunkBase64 = btoa(binary)
 
-      // 1. Save encrypted chunk to Firestore (for the recipient) — with timeout
-      const chunkDocRef = doc(db, 'mediaChunks', `${fileId}_chunk_${i}`);
-      await withTimeout(
-        setDoc(chunkDocRef, {
-          fileId,
-          chunkIndex: i,
-          data: encryptedChunkBase64, // Base64 string
-          uploadedAt: serverTimestamp(),
-          // We include metadata in the chunk for self-contained reassembly
-          metadata: {
-            ...metadata,
-            uploadedBy: user1,
-            intendedFor: user2
-          }
-        }),
-        15000,
-        `Firestore write chunk ${i}`
-      );
-
-      // 2. Save encrypted chunk to local filesystem (local cache — non-critical, fire-and-forget with timeout)
+      // 1. Write encrypted chunk to local filesystem FIRST (fast, reliable — sender reads from here)
       const chunkPath = `${MEDIA_PATHS.CHUNKS}/${fileId}_chunk_${i}`
       const metadataPath = `${MEDIA_PATHS.METADATA}/${fileId}_chunk_${i}.json`
-      withTimeout(
+      await withTimeout(
         Filesystem.writeFile({
           path: chunkPath,
           data: encryptedChunkBase64,
           directory: Directory.Documents,
           recursive: true,
           encoding: Encoding.UTF8,
-        }).then(() => Filesystem.writeFile({
+        }),
+        10000,
+        `Local FS write chunk ${i}`
+      )
+      await withTimeout(
+        Filesystem.writeFile({
           path: metadataPath,
           data: JSON.stringify(metadata),
           directory: Directory.Documents,
           recursive: true,
           encoding: Encoding.UTF8,
-        })),
-        5000,
-        `Local FS cache chunk ${i}`
-      ).catch((fsErr) => {
-        console.warn(`⚠️ Local filesystem cache failed for chunk ${i} (Firestore has it):`, fsErr)
-      })
+        }),
+        10000,
+        `Local FS metadata write chunk ${i}`
+      )
+
+      // 2. Upload to Cloudinary (temporary relay — deleted after recipient downloads)
+      if (isCloudinaryConfigured()) {
+        uploadChunkToCloudinary(encryptedChunkBase64, fileId, i).catch((cloudErr) => {
+          console.warn(`⚠️ Cloudinary upload failed for chunk ${i}, falling back to Firestore:`, cloudErr);
+          // Fallback: write to Firestore if Cloudinary fails
+          const chunkDocRef = doc(db, 'mediaChunks', `${fileId}_chunk_${i}`);
+          const firestorePayload = {
+            fileId,
+            chunkIndex: i,
+            data: encryptedChunkBase64,
+            uploadedAt: serverTimestamp(),
+            metadata: { ...metadata, uploadedBy: user1, intendedFor: user2 }
+          };
+          setDoc(chunkDocRef, firestorePayload).catch(() => {});
+        });
+      } else {
+        // Cloudinary not configured — fallback to Firestore
+        const chunkDocRef = doc(db, 'mediaChunks', `${fileId}_chunk_${i}`);
+        const firestorePayload = {
+          fileId,
+          chunkIndex: i,
+          data: encryptedChunkBase64,
+          uploadedAt: serverTimestamp(),
+          metadata: { ...metadata, uploadedBy: user1, intendedFor: user2 }
+        };
+        setDoc(chunkDocRef, firestorePayload).catch((fsErr) => {
+          console.warn(`⚠️ Firestore write also failed for chunk ${i}:`, fsErr);
+        });
+      }
 
       chunkMetadataArray.push(metadata)
 
       console.log(`✅ Chunk ${i + 1}/${totalChunks} encrypted and saved for ${fileId}`)
+
+      if (onChunkProgress) onChunkProgress(i + 1, totalChunks);
     }
 
     return {
@@ -279,7 +319,8 @@ async function retrieveDecryptedMediaWithKey(
   verified: boolean
 }> {
   try {
-    const encryptionKey = await getConversationKey(user1, user2, keyVersion)
+    // Get decryption key: E2EE v2 session key, fallback to PBKDF2 conversation key
+    let encryptionKey: CryptoKey = await getSessionKey(user1, user2) || await getConversationKey(user1, user2, keyVersion);
 
     // Get metadata for first chunk to know total chunks
     let firstMetadata: ChunkMetadata
@@ -296,14 +337,31 @@ async function retrieveDecryptedMediaWithKey(
       )
       firstMetadata = JSON.parse(metadataFile.data as string)
     } catch {
-      // Local metadata missing — fetch from Firestore (recipient path)
-      const chunkDoc = await withTimeout(
-        getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_0`)),
-        15000,
-        'Firestore read chunk 0 metadata'
-      )
-      if (!chunkDoc.exists()) throw new Error(`Metadata for chunk 0 not found anywhere!`)
-      firstMetadata = chunkDoc.data().metadata
+      // Local metadata missing — try Cloudinary, then Firestore
+      if (isCloudinaryConfigured()) {
+        try {
+          const metaB64 = await fetchChunkFromCloudinary(fileId, 0);
+          const metaJson = JSON.parse(atob(metaB64));
+          firstMetadata = metaJson.metadata || metaJson;
+        } catch {
+          // Cloudinary fetch failed — try Firestore
+          const chunkDoc = await withTimeout(
+            getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_0`)),
+            15000,
+            'Firestore read chunk 0 metadata'
+          )
+          if (!chunkDoc.exists()) throw new Error(`Metadata for chunk 0 not found anywhere!`)
+          firstMetadata = chunkDoc.data().metadata
+        }
+      } else {
+        const chunkDoc = await withTimeout(
+          getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_0`)),
+          15000,
+          'Firestore read chunk 0 metadata'
+        )
+        if (!chunkDoc.exists()) throw new Error(`Metadata for chunk 0 not found anywhere!`)
+        firstMetadata = chunkDoc.data().metadata
+      }
     }
     const totalChunks = firstMetadata.totalChunks
     const mediaType = firstMetadata.mediaType
@@ -316,7 +374,7 @@ async function retrieveDecryptedMediaWithKey(
       const chunkPath = `${MEDIA_PATHS.CHUNKS}/${fileId}_chunk_${i}`
       const metadataPath = `${MEDIA_PATHS.METADATA}/${fileId}_chunk_${i}.json`
 
-      // 1. Get Metadata (Local or Firestore)
+      // 1. Get Metadata (Local or Cloudinary/Firestore)
       let metadata: ChunkMetadata;
       try {
         const metadataFile = await withTimeout(
@@ -330,14 +388,30 @@ async function retrieveDecryptedMediaWithKey(
         );
         metadata = JSON.parse(metadataFile.data as string);
       } catch (err) {
-        // Metadata missing locally - it's fine, we'll get it from Firestore with the chunk
-        const chunkDoc = await withTimeout(
-          getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`)),
-          15000,
-          `Firestore read chunk ${i}`
-        );
-        if (!chunkDoc.exists()) throw new Error(`Metadata for chunk ${i} not found!`);
-        metadata = chunkDoc.data().metadata;
+        // Metadata missing locally — try Cloudinary, then Firestore
+        if (isCloudinaryConfigured()) {
+          try {
+            const metaB64 = await fetchChunkFromCloudinary(fileId, i);
+            const metaJson = JSON.parse(atob(metaB64));
+            metadata = metaJson.metadata || metaJson;
+          } catch {
+            const chunkDoc = await withTimeout(
+              getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`)),
+              15000,
+              `Firestore read chunk ${i}`
+            );
+            if (!chunkDoc.exists()) throw new Error(`Metadata for chunk ${i} not found!`);
+            metadata = chunkDoc.data().metadata;
+          }
+        } else {
+          const chunkDoc = await withTimeout(
+            getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`)),
+            15000,
+            `Firestore read chunk ${i}`
+          );
+          if (!chunkDoc.exists()) throw new Error(`Metadata for chunk ${i} not found!`);
+          metadata = chunkDoc.data().metadata;
+        }
       }
 
       // 2. Read encrypted chunk
@@ -354,40 +428,50 @@ async function retrieveDecryptedMediaWithKey(
         );
         chunkData = chunkFile.data as string;
       } catch (err) {
-        // Local file missing - try Firestore (recipient path)
-        console.log(`📡 Chunk ${i} missing locally, fetching from Firestore...`);
-        const chunkDoc = await withTimeout(
-          getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`)),
-          15000,
-          `Firestore read chunk ${i} data`
-        );
-        if (!chunkDoc.exists()) {
-          throw new Error(`Chunk ${i} not found anywhere!`);
+        // Local file missing — try Cloudinary, then Firestore
+        if (isCloudinaryConfigured()) {
+          console.log(`📡 Chunk ${i} missing locally, fetching from Cloudinary...`);
+          try {
+            chunkData = await fetchChunkFromCloudinary(fileId, i);
+          } catch (cloudErr) {
+            console.warn(`⚠️ Cloudinary fetch failed for chunk ${i}, trying Firestore:`, cloudErr);
+            const chunkDoc = await withTimeout(
+              getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`)),
+              15000,
+              `Firestore read chunk ${i} data`
+            );
+            if (!chunkDoc.exists()) {
+              throw new Error(`Chunk ${i} not found anywhere!`);
+            }
+            chunkData = chunkDoc.data().data;
+          }
+        } else {
+          console.log(`📡 Chunk ${i} missing locally, fetching from Firestore...`);
+          const chunkDoc = await withTimeout(
+            getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`)),
+            15000,
+            `Firestore read chunk ${i} data`
+          );
+          if (!chunkDoc.exists()) {
+            throw new Error(`Chunk ${i} not found anywhere!`);
+          }
+          chunkData = chunkDoc.data().data;
         }
-        chunkData = chunkDoc.data().data;
 
-        // Cache it locally for next time (fire-and-forget with timeout)
-        if (i === 0) {
-          withTimeout(
-            Filesystem.writeFile({
-              path: chunkPath,
-              data: chunkData,
-              directory: Directory.Documents,
-              recursive: true,
-              encoding: Encoding.UTF8,
-            }).then(() => Filesystem.writeFile({
-              path: metadataPath,
-              data: JSON.stringify(chunkDoc.data().metadata),
-              directory: Directory.Documents,
-              recursive: true,
-              encoding: Encoding.UTF8,
-            })),
-            5000,
-            `Cache chunk ${i} locally`
-          ).catch((cacheErr) => {
-            console.warn('⚠️ Failed to cache chunk locally:', cacheErr);
-          });
-        }
+        // Cache it locally for next time (fire-and-forget)
+        Filesystem.writeFile({
+          path: chunkPath,
+          data: chunkData,
+          directory: Directory.Documents,
+          recursive: true,
+          encoding: Encoding.UTF8,
+        }).then(() => Filesystem.writeFile({
+          path: metadataPath,
+          data: JSON.stringify(metadata),
+          directory: Directory.Documents,
+          recursive: true,
+          encoding: Encoding.UTF8,
+        })).catch(() => {})
       }
 
       // Decode from base64 robustly

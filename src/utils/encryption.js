@@ -399,3 +399,83 @@ export async function decryptMessageWithHistoricalKeys(encryptedData, user1, use
   }
   throw new Error('Failed to decrypt with any historical key');
 }
+
+// ─── E2EE v2 Wrappers (ECDH + HKDF + Ratchet) ─────────────────────────────
+// These functions try E2EE v2 first; if unavailable they fall back to the
+// legacy PBKDF2 path so existing callers work without changes.
+
+// Mutex per (sender, recipient) pair — prevents ratchet counter race conditions
+const ratchetLocks = new Map();
+
+function withRatchetLock(key, fn) {
+  const prev = ratchetLocks.get(key) || Promise.resolve();
+  const next = prev.then(fn, fn);
+  ratchetLocks.set(key, next.catch(() => {}));
+  return next;
+}
+
+/**
+ * Encrypt using E2EE v2 if a session key is available, else legacy PBKDF2.
+ * Returns { encrypted, version } where version is 2 (E2EE) or 1 (legacy).
+ */
+export async function encryptMessageV2(message, senderId, recipientId) {
+  const lockKey = [senderId, recipientId].sort().join('_');
+
+  try {
+    const { getSessionKey, encryptE2EE, ensureKeyPair } = await import('./e2ee');
+
+    await ensureKeyPair(senderId);
+    const sessionKey = await getSessionKey(senderId, recipientId);
+
+    if (sessionKey) {
+      return await withRatchetLock(lockKey, async () => {
+        const countersKey = `e2ee_counter_${lockKey}`;
+        let counter = parseInt(localStorage.getItem(countersKey) || '0', 10);
+        if (isNaN(counter) || counter < 0) counter = 0;
+        const encrypted = await encryptE2EE(message, sessionKey, counter);
+        localStorage.setItem(countersKey, String(counter + 1));
+        return { encrypted, version: 2 };
+      });
+    }
+  } catch (err) {
+    console.warn('⚠️ E2EE v2 encrypt unavailable, falling back to legacy:', err);
+  }
+
+  const convKey = await getConversationKey(senderId, recipientId);
+  const encrypted = await encryptMessage(message, convKey);
+  return { encrypted, version: 1 };
+}
+
+/**
+ * Decrypt a message that may be E2EE v2 or legacy PBKDF2.
+ * Accepts encrypted string OR already-parsed object (from pipe).
+ */
+export async function decryptMessageV2(encryptedOrPayload, senderId, recipientId) {
+  let raw = encryptedOrPayload;
+
+  if (typeof raw === 'object' && raw !== null && raw.ciphertext && raw.version === 2) {
+    raw = JSON.stringify(raw);
+  }
+
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.version === 2 && parsed.ciphertext) {
+        const { getSessionKey, decryptE2EE } = await import('./e2ee');
+        const sessionKey = await getSessionKey(recipientId, senderId);
+        if (sessionKey) {
+          const result = await decryptE2EE(raw, sessionKey);
+          return result.plaintext;
+        }
+      }
+    } catch {
+      // Not JSON or not E2EE v2 — try legacy
+    }
+  }
+
+  try {
+    return await decryptMessage(raw, await getConversationKey(senderId, recipientId));
+  } catch {
+    return await decryptMessageWithHistoricalKeys(raw, senderId, recipientId);
+  }
+}

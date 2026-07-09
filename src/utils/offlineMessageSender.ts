@@ -132,6 +132,7 @@ export async function sendMessageWhenAvailable(
     keyVersion?: number;
     groupId?: string;
     timestamp?: string;
+    totalChunks?: number;
   } = {}
 ): Promise<SendMessageResult> {
   const conversationId = options.groupId
@@ -175,6 +176,7 @@ export async function sendMessageWhenAvailable(
       replyToSender: options.replyToSender,
       expiresAt: options.expiresAt,
       timestamp: options.timestamp,
+      totalChunks: options.totalChunks,
     });
 
     return {

@@ -50,7 +50,8 @@ export default function ChatWindow() {
     setActiveChatId, contactInfoOpen, setContactInfoOpen,
     replyTo, setReplyTo, reactToMessage, clearChat,
     deleteMessage, addMessagesToChat, toggleStarMessage, editMessage, currentUser,
-    setDisappearingTimer, isDisappearingActive, getDisappearingRemaining, disappearingTimers
+    setDisappearingTimer, isDisappearingActive, getDisappearingRemaining, disappearingTimers,
+    markAsRead
   } = useApp();
 
   const [text, setText] = useState('');
@@ -64,11 +65,14 @@ export default function ChatWindow() {
   const [msgSearchIndex, setMsgSearchIndex] = useState(0);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [resolvedLightboxUrl, setResolvedLightboxUrl] = useState<string | null>(null);
+  const [lightboxVideo, setLightboxVideo] = useState<string | null>(null);
+  const [resolvedLightboxVideoUrl, setResolvedLightboxVideoUrl] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [pendingMedia, setPendingMedia] = useState<{ file: File; type: 'image' | 'video' | 'audio' | 'document'; previewUrl?: string } | null>(null);
   const [queuedMessages, setQueuedMessages] = useState(0);
-  const [activeUploads, setActiveUploads] = useState<Array<{ uploadId: string; name: string; size: number }>>([]);
+  const [activeUploads, setActiveUploads] = useState<Array<{ uploadId: string; name: string; size: number; progress?: number }>>([]);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(true);
   const [showTimerSheet, setShowTimerSheet] = useState(false);
@@ -107,14 +111,21 @@ export default function ChatWindow() {
         .map(m => m.id)
     : [];
 
+  // Use a ref for markAsRead to prevent infinite re-trigger of this effect
+  const markAsReadRef = useRef(markAsRead);
+  markAsReadRef.current = markAsRead;
+
   useEffect(() => {
-    if (chatId) setActiveChatId(chatId);
+    if (chatId) {
+      setActiveChatId(chatId);
+      markAsReadRef.current(chatId);
+    }
     return () => {
       setActiveChatId(null);
       if (pendingMedia?.previewUrl) URL.revokeObjectURL(pendingMedia.previewUrl);
       setPendingMedia(null);
     };
-  }, [chatId]);
+  }, [chatId]); // Removed markAsRead from deps — use ref instead
 
   useEffect(() => {
     if (!showSearch) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -137,6 +148,24 @@ export default function ChatWindow() {
     })();
     return () => { cancelled = true; };
   }, [lightboxImage, currentUser, contact]);
+
+  useEffect(() => {
+    if (!lightboxVideo) { setResolvedLightboxVideoUrl(null); return; }
+    if (lightboxVideo.startsWith('blob:') || lightboxVideo.startsWith('data:')) {
+      setResolvedLightboxVideoUrl(lightboxVideo);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = await loadMediaWithCache(lightboxVideo, 'video', currentUser?.userId || '', contact?.id || '');
+        if (!cancelled) setResolvedLightboxVideoUrl(url);
+      } catch {
+        if (!cancelled) setResolvedLightboxVideoUrl(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [lightboxVideo, currentUser, contact]);
 
   // Listen for message queue flush events (Priority 2: Message Queue)
   useEffect(() => {
@@ -393,28 +422,33 @@ export default function ChatWindow() {
     if (!pendingMedia || !chatId) return;
     const { file, type } = pendingMedia;
     const uploadId = `upload_${Date.now()}`;
+    const msgId = `msg-${Date.now()}`;
+
+    const extra: Partial<Message> = replyTo
+      ? { replyToId: replyTo.id, replyToContent: getMessagePreview(replyTo), replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
+      : {};
+
+    const previewUrl = pendingMedia.previewUrl;
+    setPendingMedia(null);
+    setReplyTo(null);
+
     const abortController = new AbortController();
     mediaValidator.registerUpload(uploadId, abortController, file.size);
     setActiveUploads(prev => [...prev, { uploadId, name: file.name, size: file.size }]);
 
     try {
-      const extra: Partial<Message> = replyTo
-        ? { replyToId: replyTo.id, replyToContent: getMessagePreview(replyTo), replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
-        : {};
-
       if (type === 'image') {
-        await sendMessage(chatId, '', 'image', extra, file);
+        await sendMessage(chatId, '', 'image', extra, file, { msgId, onUploadProgress: (p) => setUploadProgress(prev => ({ ...prev, [msgId]: p.percentComplete })) });
       } else if (type === 'video') {
-        await sendMessage(chatId, '🎥 Video', 'video', extra, file);
+        await sendMessage(chatId, '', 'video', extra, file, { msgId, onUploadProgress: (p) => setUploadProgress(prev => ({ ...prev, [msgId]: p.percentComplete })) });
       } else if (type === 'audio') {
-        await sendMessage(chatId, '🎵 Audio', 'audio', extra, file);
+        await sendMessage(chatId, '🎵 Audio', 'audio', extra, file, { msgId, onUploadProgress: (p) => setUploadProgress(prev => ({ ...prev, [msgId]: p.percentComplete })) });
       } else {
-        await sendMessage(chatId, `📎 ${file.name}`, 'document', extra, file);
+        await sendMessage(chatId, `📎 ${file.name}`, 'document', extra, file, { msgId, onUploadProgress: (p) => setUploadProgress(prev => ({ ...prev, [msgId]: p.percentComplete })) });
       }
 
-      if (pendingMedia.previewUrl) URL.revokeObjectURL(pendingMedia.previewUrl);
-      setPendingMedia(null);
-      setReplyTo(null);
+      setUploadProgress(prev => { const n = { ...prev }; delete n[msgId]; return n; });
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
     } catch (err: any) {
       setSendError(err.message || 'Failed to send media');
       setTimeout(() => setSendError(null), 4000);
@@ -723,14 +757,14 @@ export default function ChatWindow() {
           <>
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="absolute inset-0 z-100 bg-black/20 backdrop-blur-[2px]"
+              className="absolute inset-0 z-[100] bg-black/20 backdrop-blur-[2px]"
               onClick={() => setActiveMenuId(null)}
             />
             <motion.div
               initial={{ scale: 0.8, opacity: 0, y: 10 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: 10 }}
-              className="absolute z-101 bg-wa-menu-bg rounded-2xl shadow-2xl p-2 min-w-50 border border-wa-border"
+              className="absolute z-[101] bg-wa-menu-bg rounded-2xl shadow-2xl p-2 min-w-50 border border-wa-border"
               style={{ 
                 left: Math.min(menuPos.x, window.innerWidth - 220), 
                 top: Math.min(menuPos.y, window.innerHeight - 300) 
@@ -865,6 +899,38 @@ export default function ChatWindow() {
             <div className="flex-1 flex items-center justify-center p-2" onClick={() => setLightboxImage(null)}>
               {resolvedLightboxUrl ? (
                 <img src={resolvedLightboxUrl} alt="Full-screen photo preview" className="max-w-full max-h-full rounded-lg" style={{ objectFit: 'contain' }} onClick={e => e.stopPropagation()} />
+              ) : (
+                <div className="flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white border-t-transparent animate-spin" /></div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {lightboxVideo && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 z-200 bg-black flex flex-col"
+            role="dialog" aria-modal="true" aria-label="Video player"
+          >
+            <div className="flex items-center gap-3 px-4 py-3 bg-black/60 shrink-0">
+              <button onClick={() => { setLightboxVideo(null); setResolvedLightboxVideoUrl(null); }} className="text-white p-1 rounded-full hover:bg-white/10" aria-label="Close video player">
+                <ArrowLeft size={22} />
+              </button>
+              <span className="text-white flex-1" style={{ fontWeight: 500 }}>Video</span>
+            </div>
+            <div className="flex-1 flex items-center justify-center p-2" onClick={() => { setLightboxVideo(null); setResolvedLightboxVideoUrl(null); }}>
+              {resolvedLightboxVideoUrl ? (
+                <video
+                  src={resolvedLightboxVideoUrl}
+                  controls
+                  autoPlay
+                  playsInline
+                  className="max-w-full max-h-full rounded-lg"
+                  style={{ objectFit: 'contain' }}
+                  onClick={e => e.stopPropagation()}
+                />
               ) : (
                 <div className="flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-white border-t-transparent animate-spin" /></div>
               )}
@@ -1025,8 +1091,10 @@ export default function ChatWindow() {
                   isGroup={contact.isGroup} onReply={(m) => { setReplyTo(m); inputRef.current?.focus(); }}
                   isSearchHighlight={msgSearch.trim() !== '' && msg.content.toLowerCase().includes(msgSearch.toLowerCase())}
                   isSearchActive={matchedMsgIds[msgSearchIndex] === msg.id} onImageClick={(url) => setLightboxImage(url)}
+                  onVideoClick={(url) => setLightboxVideo(url)}
                   onContextMenu={(e) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); setActiveMenuId(msg.id); }}
                   isConsecutive={isConsecutive}
+                  uploadProgress={uploadProgress[msg.id]}
                 />
               </React.Fragment>
             );
@@ -1092,7 +1160,6 @@ export default function ChatWindow() {
                 <div className="px-4 py-4"><div className="grid grid-cols-4 gap-3">{[
                   { icon: File, label: 'Document', color: '#5c6bc0', onClick: () => docInputRef.current?.click() },
                   { icon: Image, label: 'Gallery', color: '#e91e63', onClick: () => photoInputRef.current?.click() },
-                  { icon: Camera, label: 'Camera', color: '#00897b', onClick: () => cameraInputRef.current?.click() },
                   { icon: Video, label: 'Video', color: '#d32f2f', onClick: () => videoInputRef.current?.click() },
                   { icon: Mic, label: 'Audio', color: '#ff8f00', onClick: () => startAudioRecording() },
                   { icon: Link, label: 'Link', color: '#fb8c00', onClick: () => setShowLinkInput(true) },
@@ -1111,6 +1178,18 @@ export default function ChatWindow() {
             <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
               {activeUploads.map(u => (
                 <div key={u.uploadId} className="flex items-center gap-2 bg-wa-secondary/40 text-wa-text-muted px-3 py-1.5 rounded-lg border border-wa-border/10">
+                  <div className="w-6 h-6 relative shrink-0">
+                    <svg width="24" height="24" viewBox="0 0 24 24" className="transform -rotate-90">
+                      <circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2" />
+                      <circle
+                        cx="12" cy="12" r="10" fill="none" stroke="var(--wa-accent, #00a884)" strokeWidth="2"
+                        strokeDasharray={`${2 * Math.PI * 10}`}
+                        strokeDashoffset={`${2 * Math.PI * 10 * (1 - (u.progress || 0) / 100)}`}
+                        strokeLinecap="round"
+                        className="transition-all duration-300"
+                      />
+                    </svg>
+                  </div>
                   <div className="min-w-0 truncate" style={{ fontSize: '0.78rem', maxWidth: 180 }}>{u.name}</div>
                   <button onClick={() => cancelUpload(u.uploadId, u.size)} className="text-wa-text-muted hover:text-red-400 p-0.5 transition-colors duration-150" aria-label="Cancel upload">✕</button>
                 </div>
@@ -1223,7 +1302,7 @@ export default function ChatWindow() {
               aria-label="Type a message"
             />
             {!editingMsgId && !text && <button onClick={() => { setShowAttachSheet(v => !v); setShowLinkInput(false); setShowEmojiPicker(false); }} className={`transition-colors duration-150 shrink-0 p-1 rounded-full hover:bg-wa-secondary/60 ${showAttachSheet ? 'text-wa-accent' : 'text-wa-header-icon hover:text-wa-primary'}`} aria-label={showAttachSheet ? 'Close attachments' : 'Attach file'} aria-expanded={showAttachSheet}><Paperclip size={20} /></button>}
-            {!editingMsgId && !text && <button onClick={() => { setShowAttachSheet(true); setShowLinkInput(false); setShowEmojiPicker(false); }} className="text-wa-header-icon hover:text-wa-primary transition-colors duration-150 shrink-0 p-1 rounded-full hover:bg-wa-secondary/60" aria-label="Take photo or record video"><Camera size={20} /></button>}
+            {!editingMsgId && !text && <button onClick={() => { cameraInputRef.current?.click(); }} className="text-wa-header-icon hover:text-wa-primary transition-colors duration-150 shrink-0 p-1 rounded-full hover:bg-wa-secondary/60" aria-label="Take photo or record video"><Camera size={20} /></button>}
           </div>
           <AnimatePresence mode="wait">
             {editingMsgId ? (
@@ -1328,7 +1407,7 @@ function formatDateSep(timestamp: any): string {
 
 // ─── MessageBubble ────────────────────────────────────────────────────────────
 
-function MessageBubble({ message, contact, contacts, showAvatar, showSenderName, isGroup, onReply, isSearchHighlight, isSearchActive, onImageClick, onContextMenu, isConsecutive }: {
+function MessageBubble({ message, contact, contacts, showAvatar, showSenderName, isGroup, onReply, isSearchHighlight, isSearchActive, onImageClick, onVideoClick, onContextMenu, isConsecutive, uploadProgress }: {
   message: Message;
   contact: any;
   contacts: any[];
@@ -1339,8 +1418,10 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
   isSearchHighlight?: boolean;
   isSearchActive?: boolean;
   onImageClick?: (url: string) => void;
+  onVideoClick?: (url: string) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   isConsecutive?: boolean;
+  uploadProgress?: number;
 }) {
   const { currentUser } = useApp();
   const isMe = message.senderId === 'me' || message.senderId === currentUser?.userId;
@@ -1376,6 +1457,8 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
 
   const isImage = message.type === 'image';
   const isImageOnly = isImage && !message.content && !message.replyToContent && !showSenderName;
+  const isVideoOnly = message.type === 'video' && !message.content && !message.replyToContent && !showSenderName;
+  const isMediaOnly = isImageOnly || isVideoOnly;
 
   return (
     <div
@@ -1408,9 +1491,10 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         initial={{ opacity: 0, x: isMe ? 40 : -40, scale: 0.92 }}
         animate={{ opacity: 1, x: 0, scale: 1 }}
         whileTap={{ scale: 0.995 }}
-        className={`relative max-w-[80%] rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-shadow duration-200 overflow-hidden break-all ${isImageOnly ? 'p-0' : 'px-3 py-1.5'} ${isMe ? 'bg-wa-bubble-self text-wa-primary' : 'bg-wa-bubble-other text-wa-primary'} ${isSearchActive ? 'ring-2 ring-wa-accent' : isSearchHighlight ? 'ring-1 ring-wa-accent/40' : ''}`}
+        className={`relative max-w-[80%] rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-shadow duration-200 overflow-hidden break-all ${isMediaOnly ? 'p-0' : 'px-3 py-1.5'} ${isMe ? 'bg-wa-bubble-self text-wa-primary' : 'bg-wa-bubble-other text-wa-primary'} ${isSearchActive ? 'ring-2 ring-wa-accent' : isSearchHighlight ? 'ring-1 ring-wa-accent/40' : ''}`}
+        style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
       >
-        {!isImageOnly && (isMe ? <div className="absolute bottom-0 right-0 w-0 h-0 border-l-[7px] border-l-transparent border-b-[7px] border-b-wa-bubble-self translate-x-1.5" /> : <div className="absolute bottom-0 left-0 w-0 h-0 border-r-[7px] border-r-transparent border-b-[7px] border-b-wa-bubble-other -translate-x-1.5" />)}
+        {!isMediaOnly && (isMe ? <div className="absolute bottom-0 right-0 w-0 h-0 border-l-[7px] border-l-transparent border-b-[7px] border-b-wa-bubble-self translate-x-1.5" /> : <div className="absolute bottom-0 left-0 w-0 h-0 border-r-[7px] border-r-transparent border-b-[7px] border-b-wa-bubble-other -translate-x-1.5" />)}
         
         {showSenderName && senderContact && <p style={{ fontSize: '0.78rem', fontWeight: 600, color: senderContact.avatarColor, marginBottom: '2px' }}>{senderContact.name}</p>}
 
@@ -1432,8 +1516,12 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         {message.type === 'document' && (() => {
           const filename = message.content.replace('📎 ', '');
           return (
-            <div className="flex items-center gap-2.5 py-0.5 cursor-pointer" style={{ minWidth: '200px', maxWidth: '260px' }} onClick={async () => {
+            <div className="flex items-center gap-2.5 py-0.5 cursor-pointer group" style={{ minWidth: '200px', maxWidth: '260px' }} onClick={async (e) => {
+              e.stopPropagation();
               if (!message.imageUrl || !currentUser) return;
+              const target = e.currentTarget;
+              const label = target.querySelector('.doc-label');
+              if (label) label.textContent = 'Opening...';
               try {
                 const otherParty = isMe ? contact.id : message.senderId;
                 const { retrieveDecryptedMedia } = await import('../../utils/encryptedChunkedMedia');
@@ -1443,22 +1531,31 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
                 const mime = mimeMap[ext] || 'application/octet-stream';
                 const blob = new Blob([result.data.buffer as ArrayBuffer], { type: mime });
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url; a.download = filename; document.body.appendChild(a); a.click();
-                setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
-              } catch (err) { console.warn('⚠️ Failed to open document:', err); }
+                if (ext === 'pdf' || ext === 'txt') {
+                  window.open(url, '_blank');
+                } else {
+                  const a = document.createElement('a');
+                  a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+                  setTimeout(() => a.remove(), 200);
+                }
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
+              } catch (err) {
+                console.warn('⚠️ Failed to open document:', err);
+                if (label) label.textContent = 'Failed to open';
+                setTimeout(() => { if (label) label.textContent = 'Tap to open'; }, 3000);
+              }
             }}>
               <div className="w-10 h-10 bg-wa-accent/15 rounded-xl flex items-center justify-center shrink-0"><FileText size={18} className="text-wa-accent" /></div>
-              <div className="min-w-0 flex-1"><p className="text-wa-primary truncate font-medium" style={{ fontSize: '0.82rem' }}>{filename}</p><p className="text-wa-text-muted mt-0.5 uppercase tracking-wide" style={{ fontSize: '0.65rem' }}>Tap to open</p></div>
+              <div className="min-w-0 flex-1"><p className="text-wa-primary truncate font-medium" style={{ fontSize: '0.82rem' }}>{filename}</p><p className="text-wa-text-muted mt-0.5 uppercase tracking-wide doc-label" style={{ fontSize: '0.65rem' }}>Tap to open</p></div>
               <Download size={15} className="text-wa-text-muted shrink-0" />
             </div>
           );
         })()}
 
         {message.type === 'video' && message.imageUrl && (
-          <div className={`relative overflow-hidden rounded-xl mt-0.5`} style={{ maxWidth: '240px' }}>
-            <LocalMedia fileId={message.imageUrl} mediaType="video" senderId={message.senderId} contactId={contact.id} isImageOnly={false} message={message} isMe={isMe} />
-          </div>
+            <div className={`relative overflow-hidden ${isVideoOnly ? (isMe ? 'rounded-2xl rounded-br-sm' : 'rounded-2xl rounded-bl-sm') : 'rounded-xl mt-0.5'}`} style={isVideoOnly ? {} : { maxWidth: '240px' }} onClick={() => onVideoClick?.(message.imageUrl!)}>
+              <LocalMedia fileId={message.imageUrl} mediaType="video" senderId={message.senderId} contactId={contact.id} isImageOnly={isVideoOnly} message={message} isMe={isMe} onVideoClick={onVideoClick} />
+            </div>
         )}
 
         {message.type === 'video' && message.content && <p className="text-wa-primary leading-relaxed mt-1" style={{ fontSize: '0.88rem', paddingRight: '68px' }}>{message.content}</p>}
@@ -1501,8 +1598,8 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         )}
 
         {/* Info row */}
-        {!(isImage && !message.content) && message.content !== '[Deleted]' && (
-          <div className={`flex items-center gap-1 whitespace-nowrap justify-end ${(!isImageOnly && message.type !== 'document' && message.type !== 'link') ? 'mt-0.5' : ''}`}>
+        {!(isMediaOnly) && message.content !== '[Deleted]' && (
+          <div className={`flex items-center gap-1 whitespace-nowrap justify-end ${(!isMediaOnly && message.type !== 'document' && message.type !== 'link') ? 'mt-0.5' : ''}`}>
             <span className="text-wa-text-muted" style={{ fontSize: '0.62rem' }}>{toTimeStr(message.timestamp)}</span>
             {isMe && (
               <>
@@ -1512,6 +1609,26 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
               </>
             )}
             {message.isStarred && <Star size={11} className="text-wa-star fill-wa-star" />}
+          </div>
+        )}
+
+        {uploadProgress !== undefined && uploadProgress < 100 && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-2xl z-10">
+            <div className="relative w-14 h-14">
+              <svg width="56" height="56" viewBox="0 0 56 56" className="transform -rotate-90">
+                <circle cx="28" cy="28" r="24" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="3" />
+                <circle
+                  cx="28" cy="28" r="24" fill="none" stroke="white" strokeWidth="3"
+                  strokeDasharray={`${2 * Math.PI * 24}`}
+                  strokeDashoffset={`${2 * Math.PI * 24 * (1 - uploadProgress / 100)}`}
+                  strokeLinecap="round"
+                  className="transition-all duration-300"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-white font-semibold" style={{ fontSize: '0.7rem' }}>{Math.round(uploadProgress)}%</span>
+              </div>
+            </div>
           </div>
         )}
       </motion.div>
@@ -1563,10 +1680,11 @@ export function getReplyPreviewText(message: Message): string {
   return 'Message';
 }
 
-function LocalMedia({ fileId, mediaType, senderId, contactId, isImageOnly, message, isMe }: any) {
+function LocalMedia({ fileId, mediaType, senderId, contactId, isImageOnly, message, isMe, onVideoClick }: any) {
   const { currentUser } = useApp();
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!fileId) return;
@@ -1578,19 +1696,82 @@ function LocalMedia({ fileId, mediaType, senderId, contactId, isImageOnly, messa
         const otherParty = (isMe || senderId === currentUser.userId) ? contactId : senderId;
         const decryptedUrl = await loadMediaWithCache(fileId, mediaType, currentUser.userId, otherParty);
         if (!cancelled) setUrl(decryptedUrl);
+
+        // Trigger Cloudinary cleanup after successful local cache
+        if (message.totalChunks && message.totalChunks > 0) {
+          import('../../utils/chunkRelayCleanup').then(({ confirmAndCleanup }) => {
+            confirmAndCleanup(fileId, message.totalChunks, currentUser.userId).catch(() => {});
+          }).catch(() => {});
+        }
       } catch (err) { console.warn('⚠️ Media resolution failed:', err); } finally { if (!cancelled) setLoading(false); }
     };
     resolve();
     return () => { cancelled = true; };
   }, [fileId, currentUser, isMe, contactId, senderId, mediaType]);
 
+  useEffect(() => {
+    if (mediaType !== 'video' || !url) return;
+    let cancelled = false;
+    try {
+      const video = document.createElement('video');
+      video.src = url;
+      video.muted = true;
+      video.preload = 'metadata';
+      video.currentTime = 0.1;
+      video.onloadeddata = () => {
+        if (cancelled) return;
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth || 320;
+          canvas.height = video.videoHeight || 240;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            if (!cancelled) setThumbnailUrl(dataUrl);
+          }
+        } catch { /* thumbnail extraction failed, show placeholder */ }
+      };
+    } catch { /* ignore */ }
+    return () => { cancelled = true; };
+  }, [url, mediaType]);
+
   if (loading) return <div className="w-full flex items-center justify-center bg-wa-secondary" style={{ height: '200px' }}><div className="w-8 h-8 rounded-full border-2 border-wa-accent border-t-transparent animate-spin" /></div>;
   if (!url) return <div className="w-full flex flex-col items-center justify-center bg-wa-secondary gap-2" style={{ height: '200px' }}><Image size={32} className="text-wa-text-muted" /><p className="text-wa-text-muted" style={{ fontSize: '0.7rem' }}>Failed to load media</p></div>;
 
   return (
     <>
-      <img src={url} alt="Shared image" className="w-full block" style={{ maxHeight: isImageOnly ? '320px' : '220px', minHeight: '120px', objectFit: 'cover', cursor: 'pointer' }} />
-      {isImageOnly && (
+      {mediaType === 'video' ? (
+        <div className="relative cursor-pointer" onClick={() => onVideoClick?.(url)}>
+          {thumbnailUrl ? (
+            <img src={thumbnailUrl} alt="Video" className="w-full block" style={{ maxHeight: '320px', minHeight: '120px', objectFit: 'cover', backgroundColor: '#000' }} />
+          ) : (
+            <div className="w-full flex items-center justify-center bg-black" style={{ height: '200px' }}>
+              <Video size={32} className="text-white/50" />
+            </div>
+          )}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-14 h-14 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center shadow-lg">
+              <div className="w-0 h-0 border-l-[18px] border-l-white border-t-[11px] border-t-transparent border-b-[11px] border-b-transparent ml-1.5" />
+            </div>
+          </div>
+          <div className="absolute bottom-1.5 right-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-full px-1.5 py-0.5">
+            <span style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,0.92)' }}>{toTimeStr(message.timestamp)}</span>
+            {isMe && (
+              <>
+                {message.status === 'sent' && <Check size={11} style={{ color: 'rgba(255,255,255,0.8)' }} />}
+                {message.status === 'delivered' && <CheckCheck size={11} style={{ color: 'rgba(255,255,255,0.8)' }} />}
+                {message.status === 'read' && <CheckCheck size={11} className="text-wa-read" />}
+              </>
+            )}
+          </div>
+        </div>
+      ) : mediaType === 'audio' ? (
+        <audio src={url} controls preload="metadata" className="w-full" style={{ height: '36px' }} />
+      ) : (
+        <img src={url} alt="Shared image" className="w-full block" style={{ maxHeight: isImageOnly ? '320px' : '220px', minHeight: '120px', objectFit: 'cover', cursor: 'pointer' }} />
+      )}
+      {isImageOnly && mediaType !== 'video' && mediaType !== 'audio' && (
         <div className="absolute bottom-1.5 right-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-full px-1.5 py-0.5">
           <span style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,0.92)' }}>{toTimeStr(message.timestamp)}</span>
           {isMe && (

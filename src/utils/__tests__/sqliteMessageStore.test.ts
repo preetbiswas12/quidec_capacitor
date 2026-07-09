@@ -24,6 +24,21 @@ vi.mock('../logger', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock('sql.js', async () => {
+  const actual = await import('sql.js');
+  const origInitSqlJs = actual.default;
+  const fixedInitSqlJs = (opts?: any) => origInitSqlJs({
+    ...opts,
+    locateFile: (file: string) => {
+      if (file.endsWith('.wasm')) {
+        return require.resolve('sql.js/dist/sql-wasm.wasm');
+      }
+      return file;
+    },
+  });
+  return { default: fixedInitSqlJs };
+});
+
 import {
   appendMessage,
   loadMessages,

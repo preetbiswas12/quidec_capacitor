@@ -15,6 +15,7 @@ import { db, realtimeDb } from '../firebase';
 import { sanitizePathComponent } from './shared';
 import { validateEmail, validatePassword, validateUsername, loginLimiter, registerLimiter, validateDisplayName, validateAbout, profileUpdateLimiter } from '../validators';
 import { auth } from '../firebase';
+import { decryptUserData, encryptUserData } from '../e2ee';
 
 export const userService = {
   /**
@@ -41,7 +42,12 @@ export const userService = {
       const duration = Date.now() - startTime;
       logger.info('getUserProfile', `Profile fetched in ${duration}ms`);
 
-      return userDoc.data();
+      const raw = userDoc.data();
+      try {
+        return await decryptUserData(uid, raw);
+      } catch {
+        return raw;
+      }
     } catch (error: any) {
       const duration = Date.now() - startTime;
       logger.error('getUserProfile', `Failed after ${duration}ms: ${error.message}`);
@@ -75,10 +81,13 @@ export const userService = {
       if (updates.photoURL !== undefined) sanitized.photoURL = updates.photoURL;
       if (updates.notificationsEnabled !== undefined) sanitized.notificationsEnabled = updates.notificationsEnabled;
 
+      // Encrypt sensitive fields before writing
+      const encrypted = await encryptUserData(uid, sanitized);
+
       logger.info('updateUserProfile', `Updating profile for ${uid}`);
 
       await updateDoc(doc(db, 'users', uid), {
-        ...sanitized,
+        ...encrypted,
         updatedAt: serverTimestamp(),
       });
 
@@ -115,9 +124,20 @@ export const userService = {
       );
       const snapshot = await getDocs(q);
 
-      return snapshot.docs
-        .map(doc => ({ handle: doc.id, ...doc.data() }))
-        .filter(u => u.handle !== currentUid);
+      const results = await Promise.all(
+        snapshot.docs
+          .filter(doc => doc.id !== currentUid)
+          .map(async doc => {
+            const raw = { handle: doc.id, ...doc.data() };
+            try {
+              const decrypted = await decryptUserData(doc.id, raw);
+              return { ...raw, ...decrypted };
+            } catch {
+              return raw;
+            }
+          })
+      );
+      return results;
     } catch (error: any) {
       console.error('❌ Error searching users:', error.message);
       return [];
@@ -139,11 +159,14 @@ export const userService = {
         return null;
       }
 
-      const doc = snapshot.docs[0];
-      return {
-        handle: doc.id,
-        ...doc.data(),
-      };
+      const d = snapshot.docs[0];
+      const raw = { handle: d.id, ...d.data() };
+      try {
+        const decrypted = await decryptUserData(d.id, raw);
+        return { ...raw, ...decrypted };
+      } catch {
+        return raw;
+      }
     } catch (error: any) {
       console.error('❌ Error getting user by username:', error.message);
       return null;

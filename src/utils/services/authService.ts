@@ -33,6 +33,7 @@ import { validateEmail, validatePassword, validateUsername, loginLimiter, regist
 import logger from '../logger';
 import { sanitizePathComponent, getCustomUsernameByFirebaseUid, generateUniqueUserId } from './shared';
 import { setUserContext, clearUserContext } from '../errorMonitoring';
+import { ensureKeyPair, encryptUserData } from '../e2ee';
 
 // Re-export from shared for barrel
 export { sanitizePathComponent, getCustomUsernameByFirebaseUid, generateUniqueUserId, generateUserIdSync } from './shared';
@@ -81,10 +82,18 @@ export const authService = {
       await updateProfile(user, { displayName: generatedUserId });
       await sendEmailVerification(user);
 
+      // Generate E2EE key pair first so vault key is available for encryption
+      try {
+        await ensureKeyPair(generatedUserId);
+      } catch (e2eeErr) {
+        console.warn('⚠️ E2EE key pair generation during registration failed:', e2eeErr);
+      }
+
+      const sensitiveFields = await encryptUserData(generatedUserId, { email });
       await setDoc(doc(db, 'users', generatedUserId), {
         uid: user.uid,
         username: generatedUserId,
-        email,
+        ...sensitiveFields,
         displayName: username,
         photoURL: null,
         emailVerified: false,
@@ -177,7 +186,8 @@ export const authService = {
       try {
         const fcmToken = await getFCMToken();
         if (fcmToken) {
-          await setDoc(doc(db, 'users', customUsername), { fcmToken }, { merge: true });
+          const enc = await encryptUserData(customUsername, { fcmToken }).catch(() => ({}));
+          await setDoc(doc(db, 'users', customUsername), { ...enc }, { merge: true });
           console.log('✅ FCM token saved');
         }
       } catch (fcmErr) {
@@ -292,14 +302,17 @@ export const authService = {
 
     const firestoreUpdates: any = { 
       updatedAt: serverTimestamp(),
-      uid: user.uid,  // Always include uid for create/update rule compliance
+      uid: user.uid,
     };
     if (updates.name) {
       firestoreUpdates.displayName = updates.name;
       await updateProfile(user, { displayName: updates.name });
     }
     if (updates.avatar !== undefined) firestoreUpdates.photoURL = updates.avatar;
-    if (updates.about !== undefined) firestoreUpdates.about = updates.about;
+    if (updates.about !== undefined) {
+      const enc = await encryptUserData(updates.userId, { about: updates.about });
+      Object.assign(firestoreUpdates, enc);
+    }
 
     await setDoc(doc(db, 'users', updates.userId), firestoreUpdates, { merge: true });
     return { success: true };

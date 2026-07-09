@@ -24,6 +24,7 @@ import { ref, set, remove } from 'firebase/database';
 import { db, realtimeDb } from '../firebase';
 import { sanitizePathComponent } from './shared';
 import { friendRequestLimiter } from '../validators';
+import { decryptUserData } from '../e2ee';
 
 export const friendRequestService = {
   /**
@@ -278,7 +279,13 @@ export const friendRequestService = {
   async getUserInfo(uid: string) {
     try {
       const userDoc = await getDoc(doc(db, 'users', uid));
-      return userDoc.data();
+      const raw = userDoc.data();
+      if (!raw) return null;
+      try {
+        return await decryptUserData(uid, raw);
+      } catch {
+        return raw;
+      }
     } catch (error: any) {
       console.error('❌ Error getting user info:', error.message);
       return null;

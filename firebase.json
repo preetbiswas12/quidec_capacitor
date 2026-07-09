@@ -1,11 +1,9 @@
 {
-  "firestore": [
-    {
-      "rules": "firestore.rules",
-      "indexes": "firestore.indexes.json",
-      "database": "quidec"
-    }
-  ],
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json",
+    "database": "quidec"
+  },
   "database": {
     "rules": "database.rules.json"
   },

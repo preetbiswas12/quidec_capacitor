@@ -13,6 +13,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { Capacitor } from '@capacitor/core';
+import { encryptUserData } from '../e2ee';
 import { db, realtimeDb, getFCMToken, EMBEDDED_VAPID_KEY } from '../firebase';
 
 export const notificationService = {
@@ -26,8 +27,9 @@ export const notificationService = {
           vapidKey: EMBEDDED_VAPID_KEY,
         });
 
+        const enc = await encryptUserData(uid, { fcmToken: token }).catch(() => ({}));
         await updateDoc(doc(db, 'users', uid), {
-          fcmToken: token,
+          ...enc,
           notificationsEnabled: true,
         });
 

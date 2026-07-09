@@ -6,6 +6,15 @@ vi.mock('../../firebase', () => ({
   auth: {},
 }));
 
+vi.mock('../../e2ee', () => ({
+  decryptUserData: vi.fn((_uid: string, data: any) => Promise.resolve(data)),
+  encryptUserData: vi.fn((_uid: string, data: any) => Promise.resolve(data)),
+}));
+
+vi.mock('./shared', () => ({
+  sanitizePathComponent: vi.fn((s: string) => s),
+}));
+
 vi.mock('../../logger', () => ({
   default: {
     info: vi.fn(),
@@ -292,7 +301,7 @@ describe('getUserByUsername', () => {
 
     const result = await userService.getUserByUsername('alice');
 
-    expect(result).toEqual({ uid: 'u1', username: 'alice' });
+    expect(result).toEqual({ handle: 'u1', username: 'alice' });
   });
 });
 

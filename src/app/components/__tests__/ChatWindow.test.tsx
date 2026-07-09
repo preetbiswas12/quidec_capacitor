@@ -70,6 +70,10 @@ vi.mock('../../../utils/firebaseServices', () => ({
 }));
 vi.mock('../Avatar', () => ({ default: (props: any) => <div data-testid="avatar">{props.name?.[0]}</div> }));
 vi.mock('../ContactInfo', () => ({ default: () => <div data-testid="contact-info" /> }));
+vi.mock('../TypingDots', () => ({ default: () => <div data-testid="typing-dots" /> }));
+vi.mock('../../../utils/sanitize', () => ({
+  sanitizeUrl: vi.fn((url: string) => url),
+}));
 
 import ChatWindow from '../ChatWindow';
 import { useParams } from 'react-router';
@@ -115,11 +119,7 @@ describe('ChatWindow', () => {
     const textarea = screen.getByPlaceholderText('Message');
     fireEvent.change(textarea, { target: { value: 'Test message' } });
     await waitFor(() => {
-      const sendBtns = container.querySelectorAll('button');
-      const sendBtn = Array.from(sendBtns).find(btn => {
-        const svg = btn.querySelector('svg');
-        return svg && btn.className.includes('4d91fb');
-      });
+      const sendBtn = container.querySelector('button[aria-label="Send message"]');
       expect(sendBtn).toBeTruthy();
       if (sendBtn) fireEvent.click(sendBtn);
     });
@@ -143,7 +143,7 @@ describe('ChatWindow', () => {
       typingContacts: { 'chat-1': true },
     });
     renderWithProviders(<ChatWindow />);
-    expect(screen.getByText(/typing/i)).toBeInTheDocument();
+    expect(screen.getByTestId('typing-dots')).toBeInTheDocument();
   });
 
   it('shows "Chat not found" when chatId is missing', () => {

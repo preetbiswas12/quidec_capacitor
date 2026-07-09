@@ -9,7 +9,8 @@ import { db, auth } from '../../utils/firebase';
 import { initializePushNotifications } from '../../utils/fcm';
 import { loadMessages as loadLocalMessages, loadAllChats, listLocalChatIds, clearKeyCache, updateMessageReactions, updateMessageStar, updateMessageContent, getStarredMessages, searchAllMessages as searchLocalMessages, migrateOldEncryptionData, appendMessage as appendLocalMessage } from '../../utils/sqliteMessageStore';
 import type { SearchResult as LocalSearchResult } from '../../utils/sqliteMessageStore';
-import { getEncryptionKey, getKeyVersion, checkAndRotateKey, decryptMessage, getConversationKey, decryptMessageWithHistoricalKeys } from '../../utils/encryption';
+import { getEncryptionKey, getKeyVersion, checkAndRotateKey, decryptMessageV2, getConversationKey } from '../../utils/encryption';
+import { ensureKeyPair, encryptUserData, decryptUserData } from '../../utils/e2ee';
 import { sendMessageWhenAvailable, startAutoFlushOnReconnect, queueReadReceipt } from '../../utils/offlineMessageSender';
 import { uploadMediaWithProgress, loadMediaWithCache } from '../../utils/mediaUploadHandler';
 import { permissionManager } from '../../utils/permissionManager';
@@ -69,10 +70,11 @@ export interface Message {
   linkUrl?: string;
   linkTitle?: string;
   linkDomain?: string;
-  expiresAt?: number; // epoch ms — message should be deleted after this time
+  expiresAt?: number;
   isEdited?: boolean;
   keyVersion?: number;
   hmac?: string;
+  totalChunks?: number;
 }
 
 export interface Chat {
@@ -196,7 +198,7 @@ interface AppContextType {
   chatsLoaded: boolean;
 
   // Messaging
-  sendMessage: (chatId: string, content: string, type?: Message['type'], extra?: Partial<Message>, mediaFile?: File) => Promise<void>;
+  sendMessage: (chatId: string, content: string, type?: Message['type'], extra?: Partial<Message>, mediaFile?: File, options?: { msgId?: string; onUploadProgress?: (progress: { percentComplete: number; stage: string }) => void }) => Promise<void>;
   startChat: (contactId: string) => Promise<string>;
   addMessagesToChat: (chatId: string, items: Message[]) => void;
   reactToMessage: (chatId: string, messageId: string, emoji: string) => Promise<void>;
@@ -323,6 +325,7 @@ function mapFirestoreMessage(raw: any, chatId: string): Message {
     replyToContent: raw.replyToContent || undefined,
     replyToSender: raw.replyToSender || undefined,
     expiresAt: raw.expiresAt?.toMillis?.() || raw.expiresAt || undefined,
+    totalChunks: raw.totalChunks || undefined,
   };
 }
 
@@ -517,7 +520,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const querySnapshot = await getDocs(q);
           if (!querySnapshot.empty) {
             const userDoc = querySnapshot.docs[0];
-            const data = userDoc.data();
+            const rawData = userDoc.data();
+            const data = await decryptUserData(userDoc.id, rawData).catch(() => rawData);
             profileName = data.displayName || profileName;
             profileAvatar = data.photoURL || profileAvatar;
             profileAbout = data.about || '';
@@ -546,6 +550,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Initialize production collections
       if (result.emailVerified) {
         initializeProductionCollections().catch(err => console.warn('⚠️ Collection init skipped:', err));
+
+        // Initialize E2EE key pair (ECDH + HKDF + Ratchet)
+        import('../../utils/e2ee').then(({ ensureKeyPair }) => {
+          ensureKeyPair(customId).catch(err => console.warn('⚠️ E2EE key pair init skipped:', err));
+        });
       }
 
       // NOTE: Permission requests for returning users are handled by the
@@ -684,7 +693,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
               if (!querySnapshot.empty) {
                 const userDoc = querySnapshot.docs[0];
-                const data = userDoc.data();
+                const rawData = userDoc.data();
+                const data = await decryptUserData(userDoc.id, rawData).catch(() => rawData);
                 about = data.about || about;
                 avatar = data.photoURL || avatar;
                 name = data.displayName || name;
@@ -698,7 +708,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 console.warn('⚠️ No doc found by uid, trying displayName as doc ID:', handle);
                 const handleDoc = await getDoc(doc(db, 'users', handle));
                 if (handleDoc.exists()) {
-                  const data = handleDoc.data();
+                  const rawData = handleDoc.data();
+                  const data = await decryptUserData(handle, rawData).catch(() => rawData);
                   about = data.about || about;
                   avatar = data.photoURL || avatar;
                   name = data.displayName || name;
@@ -741,6 +752,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             // key version, which requires shared state (not per-device Preferences).
             migrateOldEncryptionData().catch(() => {});
             getEncryptionKey(user.userId).then(key => initializePushNotifications(user.userId, key)).catch(() => {});
+
+            // Initialize E2EE key pair (ECDH + HKDF + Ratchet)
+            import('../../utils/e2ee').then(({ ensureKeyPair }) => {
+              ensureKeyPair(user.userId).catch(err => console.warn('⚠️ E2EE key pair init skipped:', err));
+            });
           } else {
             console.log('🚀 Finalizing state: NEEDS_VERIFICATION');
             
@@ -824,7 +840,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
             if (querySnapshot && !querySnapshot.empty) {
               const userDoc = querySnapshot.docs[0];
-              const data = userDoc.data();
+              const rawData = userDoc.data();
+              const data = await decryptUserData(userDoc.id, rawData).catch(() => rawData);
               about = data.about || about;
               avatar = data.photoURL || avatar;
               name = data.displayName || name;
@@ -834,7 +851,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               const handle = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
               const handleDoc = await getDoc(doc(db, 'users', handle));
               if (handleDoc.exists()) {
-                const data = handleDoc.data();
+                const rawData = handleDoc.data();
+                const data = await decryptUserData(handle, rawData).catch(() => rawData);
                 about = data.about || about;
                 avatar = data.photoURL || avatar;
                 name = data.displayName || name;
@@ -911,8 +929,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
           // Update Firestore
           const userRef = doc(db, 'users', currentUser.userId);
+          const encFields = await encryptUserData(currentUser.userId, { email: latestEmail });
           await updateDoc(userRef, {
-            email: latestEmail,
+            ...encFields,
             updatedAt: serverTimestamp(),
           });
 
@@ -1073,64 +1092,72 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [currentUser, isOnboarded]);
 
+  // Store chat list in ref so the listener callback always sees latest chats without re-subscribing
+  const chatsRef = useRef(chats);
+  chatsRef.current = chats;
+
   useEffect(() => {
-    if (!currentUser || chats.length === 0) {
-      return;
-    }
+    if (!currentUser) return;
 
-    const unsubscribers = chats.map((chat) => {
-      if (!chat.contactId) {
-        return () => {};
-      }
+    // Set up listeners for all current chats — but only re-subscribe when currentUser changes,
+    // NOT when chats changes. This prevents the catastrophic listener churn where every new
+    // message tears down and re-creates all Firestore onSnapshot listeners.
+    const setupListeners = () => {
+      const currentChats = chatsRef.current;
+      if (currentChats.length === 0) return [];
 
-      // Derive the correct other user from conversation ID (sorted format)
-      const myId = currentUser.userId;
-      let otherUserId = chat.contactId;
-      if (otherUserId === myId) {
-        if (chat.id.startsWith(myId + '_')) {
-          otherUserId = chat.id.slice(myId.length + 1);
-        } else if (chat.id.endsWith('_' + myId)) {
-          otherUserId = chat.id.slice(0, chat.id.length - myId.length - 1);
-        }
-        console.warn(`⚠️ chat.contactId was self — derived otherUserId=${otherUserId} for chat ${chat.id}`);
-      }
+      return currentChats.map((chat) => {
+        if (!chat.contactId) return () => {};
 
-      return messageService.listenToMessages(
-        currentUser.userId,
-        otherUserId,
-        (rawMessages) => {
-          const mappedMessages = rawMessages.map((raw) => mapFirestoreMessage(raw, chat.id));
-
-          setMessages((prev) => {
-            if (rawMessages.length === 0 && prev[chat.id] && prev[chat.id].length > 0) {
-              return prev;
-            }
-            const firestoreIds = new Set(mappedMessages.map(m => m.id));
-            const optimistic = (prev[chat.id] || []).filter(m => !firestoreIds.has(m.id));
-            return {
-              ...prev,
-              [chat.id]: [...optimistic, ...mappedMessages],
-            };
-          });
-
-          if (mappedMessages.length > 0) {
-            const lastMessage = mappedMessages[mappedMessages.length - 1];
-            setChats((prev) =>
-              prev.map((item) =>
-                item.id === chat.id
-                  ? {
-                      ...item,
-                      lastMessage: lastMessage.content,
-                      lastMessageTime: lastMessage.timestamp,
-                      lastMessageSender: lastMessage.senderId,
-                    }
-                  : item
-              )
-            );
+        const myId = currentUser.userId;
+        let otherUserId = chat.contactId;
+        if (otherUserId === myId) {
+          if (chat.id.startsWith(myId + '_')) {
+            otherUserId = chat.id.slice(myId.length + 1);
+          } else if (chat.id.endsWith('_' + myId)) {
+            otherUserId = chat.id.slice(0, chat.id.length - myId.length - 1);
           }
         }
-      );
-    });
+
+        return messageService.listenToMessages(
+          currentUser.userId,
+          otherUserId,
+          (rawMessages) => {
+            const mappedMessages = rawMessages.map((raw) => mapFirestoreMessage(raw, chat.id));
+
+            setMessages((prev) => {
+              if (rawMessages.length === 0 && prev[chat.id] && prev[chat.id].length > 0) {
+                return prev;
+              }
+              const firestoreIds = new Set(mappedMessages.map(m => m.id));
+              const optimistic = (prev[chat.id] || []).filter(m => !firestoreIds.has(m.id));
+              return {
+                ...prev,
+                [chat.id]: [...optimistic, ...mappedMessages],
+              };
+            });
+
+            if (mappedMessages.length > 0) {
+              const lastMessage = mappedMessages[mappedMessages.length - 1];
+              setChats((prev) =>
+                prev.map((item) =>
+                  item.id === chat.id
+                    ? {
+                        ...item,
+                        lastMessage: lastMessage.content,
+                        lastMessageTime: lastMessage.timestamp,
+                        lastMessageSender: lastMessage.senderId,
+                      }
+                    : item
+                )
+              );
+            }
+          }
+        );
+      });
+    };
+
+    const unsubscribers = setupListeners();
 
     return () => {
       unsubscribers.forEach((unsubscribe) => {
@@ -1141,7 +1168,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       });
     };
-  }, [currentUser, chats]);
+  }, [currentUser]); // Removed `chats` from deps — messages arrive via RTDB, not these Firestore listeners
 
   // ─── Group Messages Listener ─────────────────────────────────────────────
   useEffect(() => {
@@ -1249,8 +1276,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // Update Firestore user document
       const userRef = doc(db, 'users', currentUser.userId);
+      const encFields = await encryptUserData(currentUser.userId, { email: latestEmail });
       await updateDoc(userRef, {
-        email: latestEmail,
+        ...encFields,
         updatedAt: serverTimestamp(),
       });
 
@@ -1562,17 +1590,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       let decryptedContent = msg.content;
       if (msg.isEncrypted && msg.content) {
         try {
-          const convKey = await getConversationKey(msg.fromUid, uid);
-          const decrypted = await decryptMessage(msg.content, convKey);
+          const decrypted = await decryptMessageV2(msg.content, msg.fromUid, uid);
           decryptedContent = decrypted.content || '';
         } catch {
-          try {
-            const decrypted = await decryptMessageWithHistoricalKeys(msg.content, msg.fromUid, uid);
-            decryptedContent = decrypted.content || '';
-          } catch {
-            console.warn('⚠️ Failed to decrypt incoming pipe message:', msg.id);
-            decryptedContent = '[Message could not be decrypted]';
-          }
+          console.warn('⚠️ Failed to decrypt incoming pipe message:', msg.id);
+          decryptedContent = '[Message could not be decrypted]';
         }
       }
 
@@ -1981,7 +2003,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ─── Chat Methods ─────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(
-    async (chatId: string, content: string, type: Message['type'] = 'text', extra?: Partial<Message>, mediaFile?: File) => {
+    async (chatId: string, content: string, type: Message['type'] = 'text', extra?: Partial<Message>, mediaFile?: File, options?: { msgId?: string; onUploadProgress?: (progress: { percentComplete: number; stage: string }) => void }) => {
       if (!currentUser) return;
 
       // Check if this is a group chat
@@ -1994,7 +2016,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       // ─── 1-on-1 messaging via offline-aware sender ───
-      const msgId = `msg-${Date.now()}`;
+      const msgId = options?.msgId || `msg-${Date.now()}`;
 
       // Derive toUid FIRST — needed for media encryption key derivation
       const myId = currentUser.userId;
@@ -2039,6 +2061,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // 2. Upload media in background, then patch the message with the real fileId
       let finalImageUrl = extra?.imageUrl;
+      let finalTotalChunks = 0;
       if (mediaFile) {
         console.log(`📦 Chunking and encrypting ${type} for local vault...`);
         try {
@@ -2046,23 +2069,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
             mediaFile,
             (['image', 'video', 'audio', 'document'].includes(type) ? type : 'image') as 'image' | 'video' | 'audio' | 'document',
             currentUser.userId,
-            toUid
+            toUid,
+            options?.onUploadProgress ? (p) => options.onUploadProgress!({ percentComplete: p.percentComplete, stage: p.stage }) : undefined
           );
           finalImageUrl = mediaRef.fileId;
+          finalTotalChunks = mediaRef.totalChunks || 0;
 
-          // Patch the optimistic message with the real fileId so LocalMedia can decrypt it
+          // Patch the optimistic message with the real fileId and totalChunks
           setMessages((prev) => ({
             ...prev,
             [chatId]: (prev[chatId] || []).map(m =>
-              m.id === msgId ? { ...m, imageUrl: finalImageUrl } : m
+              m.id === msgId ? { ...m, imageUrl: finalImageUrl, totalChunks: finalTotalChunks } : m
             ),
           }));
 
           if (localPreviewUrl && localPreviewUrl.startsWith('blob:')) URL.revokeObjectURL(localPreviewUrl);
         } catch (err) {
           console.error('❌ Media chunking failed:', err);
-          setSendError('Media upload failed');
-          setTimeout(() => setSendError(null), 4000);
+          toast.error('Media upload failed');
         }
       }
 
@@ -2078,6 +2102,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         expiresAt: msg.expiresAt,
         keyVersion: await getKeyVersion(),
         timestamp: sharedTimestamp,
+        totalChunks: finalTotalChunks,
       });
 
       if (result.status === 'queued') {
@@ -2192,10 +2217,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const markGroupRead = useCallback(
     async (groupId: string) => {
       if (!currentUser) return;
+      // Guard: skip if already read
+      const existing = chats.find(c => c.id === groupId);
+      if (existing && existing.unreadCount === 0) return;
       await groupService.markGroupMessagesRead(groupId, currentUser.userId);
       setChats(prev => prev.map(c => c.id === groupId ? { ...c, unreadCount: 0 } : c));
     },
-    [currentUser]
+    [currentUser, chats]
   );
 
   const reactToMessage = useCallback(
@@ -2245,12 +2273,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const markAsRead = useCallback(async (chatId: string) => {
     if (!currentUser) return;
 
+    // Guard: skip if chat already read (prevents infinite loop with setChats)
+    const existingChat = chatsRef.current.find(c => c.id === chatId);
+    if (existingChat && existingChat.unreadCount === 0) return;
+
     const isGroupChat = groups.some(g => g.groupId === chatId);
 
     if (isGroupChat) {
       await markGroupRead(chatId);
     } else {
-      const contactId = chats.find(c => c.id === chatId)?.contactId || chatId;
+      const contactId = existingChat?.contactId || chatId;
       if (!navigator.onLine) {
         queueReadReceipt(chatId, '', contactId, currentUser.userId, 'read');
       } else {
@@ -2258,7 +2290,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       setChats((prev) => prev.map(c => c.id === chatId ? { ...c, unreadCount: 0 } : c));
     }
-  }, [currentUser, chats, groups, markGroupRead]);
+  }, [currentUser, groups, markGroupRead]); // Removed `chats` from deps — use chatsRef.current instead
 
   const clearAllChats = useCallback(async () => {
     if (!window.confirm('Are you sure you want to delete all messages? This cannot be undone.')) return;
@@ -2293,18 +2325,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!currentUser) return;
 
     // 1. Optimistic update — replace content with [Deleted] so both sides see it
-    setMessages(prev => ({
-      ...prev,
-      [chatId]: (prev[chatId] || []).map(m =>
-        m.id === messageId ? { ...m, content: '[Deleted]', type: 'system' as const } : m
-      ),
-    }));
+    setMessages(prev => {
+      const chatMessages = prev[chatId] || [];
+      const targetMsg = chatMessages.find(m => m.id === messageId);
 
-    // 2. Persist to local store
+      // 2. Cleanup Cloudinary chunks if this is a media message
+      if (targetMsg?.imageUrl && targetMsg.totalChunks && targetMsg.totalChunks > 0) {
+        import('../../utils/chunkRelayCleanup').then(({ cleanupOnMessageDelete }) => {
+          cleanupOnMessageDelete(targetMsg.imageUrl!, targetMsg.totalChunks!).catch(() => {});
+        }).catch(() => {});
+      }
+
+      return {
+        ...prev,
+        [chatId]: chatMessages.map(m =>
+          m.id === messageId ? { ...m, content: '[Deleted]', type: 'system' as const } : m
+        ),
+      };
+    });
+
+    // 3. Persist to local store
     const { deleteMessageById } = await import('../../utils/sqliteMessageStore');
     await deleteMessageById(currentUser.userId, chatId, messageId);
 
-    // 3. Notify the other user + tombstone in Firestore
+    // 4. Notify the other user + tombstone in Firestore
     const chat = chats.find(c => c.id === chatId);
     if (chat) {
       const conversationId = messageService.getConversationId(currentUser.userId, chat.contactId);
@@ -2626,7 +2670,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const activeChat = chats.find(c => c.id === activeChatId);
+    const activeChat = chatsRef.current.find(c => c.id === activeChatId);
     if (!activeChat) return;
 
     // Detect group chat: check if this contact has isGroup set
@@ -2670,7 +2714,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [currentUser, activeChatId, chats, contacts]);
+  }, [currentUser, activeChatId, contacts]); // Removed `chats` — use chatsRef.current instead
 
   // Sync Mute status with FCM service
   useEffect(() => {

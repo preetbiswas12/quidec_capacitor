@@ -183,12 +183,7 @@ service cloud.firestore {
 
     match /mediaChunks/{chunkId} {
       allow create: if isAuthenticated();
-      allow read, delete: if isAuthenticated() && (
-        isUser(resource.data.metadata.uploadedBy)
-        || isUser(resource.data.metadata.intendedFor)
-        || request.auth.uid == resource.data.metadata.uploadedBy
-        || request.auth.uid == resource.data.metadata.intendedFor
-      );
+      allow read, delete: if isAuthenticated();
     }
 
     // ═══════════════════════════════════════════════════════════════════════

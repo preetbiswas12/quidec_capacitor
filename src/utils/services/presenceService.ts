@@ -12,6 +12,7 @@ import { ref, set, onValue, serverTimestamp as rtdbServerTimestamp, get, remove,
 import { db, realtimeDb } from '../firebase';
 import logger from '../logger';
 import { sanitizePathComponent } from './shared';
+import { decryptUserData } from '../e2ee';
 
 export const presenceService = {
   /**
@@ -194,11 +195,17 @@ export const presenceService = {
 
       const allFriends: any[] = [];
       for (const chunk of chunks) {
-        // friendHandles are custom handles = doc IDs in the users collection.
-        // Use documentId() to query by doc ID directly (no 'username' field needed).
         const q = query(usersRef, where(documentId(), 'in', chunk));
         const userSnapshots = await getDocs(q);
-        userSnapshots.forEach(d => allFriends.push({ id: d.id, ...d.data() }));
+        for (const d of userSnapshots.docs) {
+          const raw = { id: d.id, ...d.data() };
+          try {
+            const decrypted = await decryptUserData(d.id, raw);
+            allFriends.push({ ...raw, ...decrypted });
+          } catch {
+            allFriends.push(raw);
+          }
+        }
       }
       callback(allFriends);
     });

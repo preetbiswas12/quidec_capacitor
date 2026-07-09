@@ -96,6 +96,11 @@ vi.mock('../shared', () => ({
   generateUniqueUserId: vi.fn().mockResolvedValue('testuser.1234'),
 }));
 
+vi.mock('../../e2ee', () => ({
+  ensureKeyPair: vi.fn().mockResolvedValue(undefined),
+  encryptUserData: vi.fn((_uid: string, data: any) => Promise.resolve(data)),
+}));
+
 import { authService } from '../authService';
 import { auth, getFCMToken } from '../../firebase';
 import { validateEmail, validatePassword, validateUsername, loginLimiter, registerLimiter } from '../../validators';

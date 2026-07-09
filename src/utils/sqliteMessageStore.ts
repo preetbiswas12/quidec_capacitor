@@ -391,14 +391,15 @@ export async function updateMessageStar(
 }
 
 export async function updateMessageContent(
-  _userUid: string,
+  userUid: string,
   _chatId: string,
   messageId: string,
   content: string,
   isEdited: boolean
 ): Promise<void> {
   if (!db) return;
-  db.run(`UPDATE messages SET content = ?, isEdited = ? WHERE id = ?`, [content, isEdited ? 1 : 0, messageId]);
+  const encryptedContent = await encryptContent(userUid, content);
+  db.run(`UPDATE messages SET content = ?, encryptedContent = ?, isEdited = ? WHERE id = ?`, [content, encryptedContent, isEdited ? 1 : 0, messageId]);
   schedulePersist();
 }
 
@@ -406,10 +407,11 @@ export async function saveMessages(userUid: string, chatId: string, messages: St
   const d = await initDatabase(userUid);
   d.run(`DELETE FROM messages WHERE chatId = ?`, [chatId]);
   for (const msg of messages) {
+    const encryptedContent = await encryptContent(userUid, msg.content);
     d.run(
       `INSERT INTO messages (id, chatId, senderId, content, encryptedContent, type, timestamp, status, reactions, isStarred, replyToId, replyToContent, replyToSender, mediaPath, expiresAt, isEdited, keyVersion, hmac, createdAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      messageToRow(msg, userUid)
+      messageToRow(msg, encryptedContent)
     );
   }
   schedulePersist();

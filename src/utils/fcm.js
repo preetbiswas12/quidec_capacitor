@@ -113,10 +113,18 @@ async function sendTokenToBackend(userId, fcmToken) {
   try {
     const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
     const { db } = await import('./firebase');
-    await setDoc(doc(db, 'users', userId), {
-      fcmToken: fcmToken,
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
+    let fields = { fcmToken: fcmToken, updatedAt: serverTimestamp() };
+    try {
+      const { encryptUserData } = await import('./e2ee');
+      const enc = await encryptUserData(userId, { fcmToken });
+      // Only replace with encrypted fields if vault encryption actually succeeded
+      // (encryptUserData returns original fields as-is when vault key fails)
+      if (enc.fcmToken_enc) {
+        fields = { ...fields, ...enc };
+        delete fields.fcmToken;
+      }
+    } catch { /* vault key not ready yet — keep plaintext fcmToken */ }
+    await setDoc(doc(db, 'users', userId), fields, { merge: true });
     console.log('✅ FCM token saved to Firestore');
   } catch (err) {
     console.error('❌ Error saving FCM token:', err);

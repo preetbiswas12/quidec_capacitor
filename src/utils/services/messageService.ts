@@ -36,10 +36,11 @@ import {
   runTransaction,
 } from 'firebase/firestore';
 import { ref, set, onChildAdded, remove, get, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
-import { encryptMessage, decryptMessage, decryptMessageWithHistoricalKeys, getConversationKey, deriveSigningKey, signMessage, verifySignature } from '../encryption';
+import { encryptMessageV2, decryptMessageV2, getConversationKey, deriveSigningKey, signMessage, verifySignature } from '../encryption';
 import { uploadMediaWithProgress } from '../mediaUploadHandler';
 import { presenceService } from './presenceService';
 import { idbPaginator } from '../idbPaginator';
+import { decryptUserData } from '../e2ee';
 
 // Helper to generate conversation ID consistently for both directions
 const getConversationId = (uid1: string, uid2: string) => {
@@ -65,6 +66,7 @@ export const messageService = {
       replyToContent?: string;
       replyToSender?: string;
       expiresAt?: number;
+      totalChunks?: number;
     } = {}
   ) {
     const startTime = Date.now();
@@ -74,12 +76,10 @@ export const messageService = {
     try {
       logger.info('recordMessage', `Recording message from ${fromUid} to ${toUid}`);
 
-      // E2E Encryption: Encrypt content if it's a text message
+      // E2E Encryption: Encrypt content with E2EE v2 (ECDH + HKDF + ratchet)
       let encryptedContent = content;
       let hmacSignature: string | null = null;
       try {
-        const convKey = await getConversationKey(fromUid, toUid);
-
         // Sign the message content before encryption (HMAC authentication)
         try {
           const signingKey = await deriveSigningKey(`${fromUid}:${toUid}`);
@@ -88,7 +88,12 @@ export const messageService = {
           logger.warn('recordMessage', `HMAC signing failed: ${signErr}`);
         }
 
-        encryptedContent = await encryptMessage({ content, messageType: options.messageType || 'text' }, convKey);
+        const { encrypted } = await encryptMessageV2(
+          { content, messageType: options.messageType || 'text' },
+          fromUid,
+          toUid
+        );
+        encryptedContent = encrypted;
       } catch (encErr) {
         throw new Error(`Encryption failed — cannot send unencrypted message: ${encErr}`);
       }
@@ -114,6 +119,7 @@ export const messageService = {
         replyToId: options.replyToId || null,
         replyToContent: options.replyToContent || null,
         replyToSender: options.replyToSender || null,
+        totalChunks: options.totalChunks || null,
       };
 
       // TRANSIENT DELIVERY PIPE (Zero Persistence)
@@ -204,9 +210,6 @@ export const messageService = {
     mediaUrl: string | null = null
   ): Promise<{ encrypted: string; hmac: string | null; messageId: string; fromUid: string; toUid: string; messageType: string; mediaUrl: string | null; timestamp: string }> {
     try {
-      // Encrypt the message content
-      const conversationKey = await getConversationKey(fromUid, toUid);
-
       // Sign the payload before encryption
       let hmac: string | null = null;
       try {
@@ -223,7 +226,7 @@ export const messageService = {
         messageId,
         timestamp: new Date().toISOString(),
       };
-      const encrypted = await encryptMessage(messagePayload, conversationKey);
+      const { encrypted } = await encryptMessageV2(messagePayload, fromUid, toUid);
 
       return {
         encrypted,
@@ -255,7 +258,8 @@ export const messageService = {
       }
 
       const userData = userDoc.data();
-      const fcmToken = userData.fcmToken;
+      const decrypted = await decryptUserData(toUid, userData).catch(() => userData);
+      const fcmToken = decrypted.fcmToken || userData.fcmToken;
 
       if (!fcmToken) {
         console.warn('⚠️ Recipient has no FCM token');
@@ -315,14 +319,9 @@ export const messageService = {
     hmacVerified: boolean;
   }> {
     try {
-      // 1. Decrypt the message (with historical key fallback)
+      // 1. Decrypt the message (E2EE v2 or legacy PBKDF2)
       let decryptedPayload;
-      try {
-        decryptedPayload = await decryptMessage(encryptedContent, await getConversationKey(fromUid, currentUid));
-      } catch {
-        // Current key failed — try historical versions
-        decryptedPayload = await decryptMessageWithHistoricalKeys(encryptedContent, fromUid, currentUid);
-      }
+      decryptedPayload = await decryptMessageV2(encryptedContent, fromUid, currentUid);
       const content = decryptedPayload.content || '';
 
       // Verify HMAC signature if present
@@ -451,27 +450,6 @@ export const messageService = {
 
       const { messageId, conversationId } = result;
 
-      // Check if recipient is online, if so mark as delivered (don't fail on this)
-      try {
-        const unsubPresence = await presenceService.listenToUserPresence(
-          toUid,
-          async (isOnline) => {
-            if (isOnline) {
-              // Mark as delivered after 500ms if online
-              setTimeout(() => {
-                this.markMessageDelivered(conversationId, messageId, toUid)
-                  .catch(err => logger.warn('sendMessage', `Failed to mark delivered: ${err}`));
-              }, 500);
-            }
-            // Unsubscribe after first callback — we only need the initial presence check
-            try { unsubPresence(); } catch { /* already unsubscribed */ }
-          }
-        );
-      } catch (presenceErr) {
-        logger.warn('sendMessage', `Failed to check presence: ${presenceErr}`);
-        // Don't fail message send if presence check fails
-      }
-
       // Notify recipient via Render FCM relay (fire-and-forget, non-blocking)
       const notifyUrl = import.meta.env.VITE_NOTIFY_URL;
       if (notifyUrl) {
@@ -574,11 +552,19 @@ export const messageService = {
    * Receipts are transient - immediately consumed and deleted
    */
   listenToReceipts(uid: string, callback: (receipt: { type: 'delivered' | 'read', messageId: string, conversationId: string }) => void) {
+    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+
     // Listen to delivery receipts (sanitize UID for RTDB path)
     const deliveredRef = ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered`);
     const unsubDelivered = onChildAdded(deliveredRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
+
+      // Guard: ignore stale receipts from previous sessions
+      if (data.deliveredAt && Date.now() - data.deliveredAt > FIVE_MINUTES_MS) {
+        remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered/${snapshot.key}`)).catch(() => {});
+        return;
+      }
 
       callback({ type: 'delivered', messageId: snapshot.key!, conversationId: data.conversationId });
 
@@ -590,6 +576,12 @@ export const messageService = {
     const unsubRead = onChildAdded(readRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
+
+      // Guard: ignore stale receipts from previous sessions
+      if (data.readAt && Date.now() - data.readAt > FIVE_MINUTES_MS) {
+        remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read/${snapshot.key}`)).catch(() => {});
+        return;
+      }
 
       callback({ type: 'read', messageId: snapshot.key!, conversationId: data.conversationId });
 
@@ -715,15 +707,10 @@ export const messageService = {
 
         if (data.isEncrypted) {
           try {
-            const decrypted = await decryptMessage(data.content, await getConversationKey(fromUid, toUid));
+            const decrypted = await decryptMessageV2(data.content, fromUid, toUid);
             decryptedContent = decrypted.content || '';
-          } catch {
-            try {
-              const decrypted = await decryptMessageWithHistoricalKeys(data.content, fromUid, toUid);
-              decryptedContent = decrypted.content || '';
-            } catch (decErr) {
-              console.warn('⚠️ Decryption failed for message:', doc.id);
-            }
+          } catch (decErr) {
+            console.warn('⚠️ Decryption failed for message:', doc.id);
           }
         }
 
@@ -772,15 +759,10 @@ export const messageService = {
 
           if (data.isEncrypted) {
             try {
-              const decrypted = await decryptMessage(data.content, await getConversationKey(fromUid, toUid));
+              const decrypted = await decryptMessageV2(data.content, fromUid, toUid);
               decryptedContent = decrypted.content || '';
-            } catch {
-              try {
-                const decrypted = await decryptMessageWithHistoricalKeys(data.content, fromUid, toUid);
-                decryptedContent = decrypted.content || '';
-              } catch (decErr) {
-                console.warn('⚠️ Decryption failed for message:', doc.id);
-              }
+            } catch (decErr) {
+              console.warn('⚠️ Decryption failed for message:', doc.id);
             }
           }
 

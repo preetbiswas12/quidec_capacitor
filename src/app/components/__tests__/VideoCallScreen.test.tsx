@@ -45,6 +45,7 @@ vi.mock('motion/react', () => {
 
 vi.mock('firebase/firestore', () => ({
   getFirestore: vi.fn(),
+  initializeFirestore: vi.fn(),
   doc: vi.fn(),
   setDoc: vi.fn(),
   updateDoc: vi.fn(),
