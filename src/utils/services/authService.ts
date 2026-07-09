@@ -105,10 +105,10 @@ export const authService = {
         fcmToken: null,
       });
 
-      await set(ref(realtimeDb, `presence/${sanitizePathComponent(user.uid)}`), {
+      await set(ref(realtimeDb, `presence/${sanitizePathComponent(generatedUserId)}`), {
         online: false,
         lastSeen: rtdbServerTimestamp(),
-        username,
+        username: generatedUserId,
       });
 
       await setDoc(doc(db, 'friendships', generatedUserId), {
@@ -171,7 +171,7 @@ export const authService = {
         return { success: false, message: 'User profile not found. Please re-register.', user };
       }
 
-      await set(ref(realtimeDb, `presence/${sanitizePathComponent(user.uid)}`), {
+      await set(ref(realtimeDb, `presence/${sanitizePathComponent(customUsername)}`), {
         online: true,
         lastSeen: rtdbServerTimestamp(),
         username: customUsername,
@@ -266,7 +266,7 @@ export const authService = {
     if (user) {
       try {
         const customUsername = await getCustomUsernameByFirebaseUid(user.uid);
-        await set(ref(realtimeDb, `presence/${sanitizePathComponent(user.uid)}`), {
+        await set(ref(realtimeDb, `presence/${sanitizePathComponent(customUsername || user.uid)}`), {
           online: false,
           lastSeen: rtdbServerTimestamp(),
           username: customUsername || user.displayName || user.email,

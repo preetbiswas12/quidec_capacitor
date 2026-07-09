@@ -185,14 +185,14 @@ describe('registerUser', () => {
     expect(friendDocData.blockedUsers).toEqual([]);
   });
 
-  it('sets RTDB presence on register', async () => {
+  it('sets RTDB presence on register using custom handle', async () => {
     await authService.registerUser('test@example.com', 'TestUser', 'password123');
 
-    expect(mockRtdbRef).toHaveBeenCalledWith({}, 'presence/firebase-uid-123');
+    expect(mockRtdbRef).toHaveBeenCalledWith({}, 'presence/testuser.1234');
     expect(mockRtdbSet).toHaveBeenCalledTimes(1);
     const [, presenceData] = mockRtdbSet.mock.calls[0];
     expect(presenceData.online).toBe(false);
-    expect(presenceData.username).toBe('TestUser');
+    expect(presenceData.username).toBe('testuser.1234');
   });
 
   it('calls setUserContext after registration', async () => {
@@ -296,7 +296,7 @@ describe('loginUser', () => {
     expect(result.emailVerified).toBe(true);
     expect(result.username).toBe('testuser.1234');
 
-    expect(mockRtdbRef).toHaveBeenCalledWith({}, 'presence/firebase-uid-456');
+    expect(mockRtdbRef).toHaveBeenCalledWith({}, 'presence/testuser.1234');
     expect(mockRtdbSet).toHaveBeenCalledTimes(1);
     const [, presenceData] = mockRtdbSet.mock.calls[0];
     expect(presenceData.online).toBe(true);
@@ -433,7 +433,7 @@ describe('logoutUser', () => {
     const result = await authService.logoutUser();
 
     expect(result.success).toBe(true);
-    expect(mockRtdbRef).toHaveBeenCalledWith({}, 'presence/firebase-uid-100');
+    expect(mockRtdbRef).toHaveBeenCalledWith({}, 'presence/testuser.1234');
     expect(mockRtdbSet).toHaveBeenCalledTimes(1);
     const [, presenceData] = mockRtdbSet.mock.calls[0];
     expect(presenceData.online).toBe(false);

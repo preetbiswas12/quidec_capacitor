@@ -22,17 +22,18 @@ export const presenceService = {
     try {
       logger.info('setUserOnline', `Setting user ${username} online`);
 
-      // Update RTDB presence (real-time)
-      const presenceRef = ref(realtimeDb, `presence/${sanitizePathComponent(uid)}`);
+      // Update RTDB presence (real-time) — use username (custom handle) as key
+      // to match listenToFriendsPresence which reads presence/{customHandle}
+      const presenceRef = ref(realtimeDb, `presence/${sanitizePathComponent(username)}`);
       await set(presenceRef, {
         online: true,
         lastSeen: rtdbServerTimestamp(),
         username,
       });
 
-      // Update Firestore metadata (backup)
+      // Update Firestore metadata (backup) — users collection is keyed by custom handle
       try {
-        await setDoc(doc(db, 'users', uid), {
+        await setDoc(doc(db, 'users', username), {
           isOnline: true,
           lastSeen: serverTimestamp(),
         }, { merge: true });
@@ -55,14 +56,14 @@ export const presenceService = {
     try {
       logger.info('setUserOffline', `Setting user ${uid} offline`);
 
-      // Update RTDB presence
+      // Update RTDB presence — use uid (which should be custom handle) as key
       const presenceRef = ref(realtimeDb, `presence/${sanitizePathComponent(uid)}`);
       await set(presenceRef, {
         online: false,
         lastSeen: rtdbServerTimestamp(),
       });
 
-      // Update Firestore metadata (backup)
+      // Update Firestore metadata (backup) — users collection is keyed by custom handle
       try {
         await setDoc(doc(db, 'users', uid), {
           isOnline: false,

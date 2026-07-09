@@ -1917,7 +1917,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       avatar: rawContact.avatar || rawContact.photoURL || null,
       avatarColor: getAvatarColor(userId),
       initials: getInitials(name),
-      isOnline: rawContact.online ?? false,
+      isOnline: rawContact.isOnline ?? rawContact.online ?? false,
       lastSeen: (() => {
         const ls = rawContact.lastSeen;
         if (!ls) return 'offline';
