@@ -16,6 +16,7 @@ import {
   uploadChunkToCloudinary,
   uploadChunkMetadata,
   fetchChunkFromCloudinary,
+  fetchMetadataFromCloudinary,
   isCloudinaryConfigured,
   type ChunkRelayInfo,
 } from './cloudinaryRelay'
@@ -253,6 +254,41 @@ export async function saveEncryptedMediaChunks(
       if (onChunkProgress) onChunkProgress(i + 1, totalChunks);
     }
 
+    // 3. Upload metadata to Cloudinary (so receiver can fetch it)
+    //    Also store in Firestore for reliability — small JSON, not chunk data
+    if (isCloudinaryConfigured()) {
+      uploadChunkMetadata(chunkMetadataArray, fileId).then((result) => {
+        console.log(`☁️ Metadata uploaded to Cloudinary: ${result.publicId}`);
+      }).catch((err: any) => {
+        console.error(`❌ Cloudinary metadata upload failed for ${fileId}:`, err.message || err);
+      });
+    }
+
+    // Always write metadata to Firestore (small JSON — reliable fallback)
+    try {
+      const metadataDocRef = doc(db, 'mediaChunks', `${fileId}_metadata`);
+      await setDoc(metadataDocRef, {
+        fileId,
+        chunks: chunkMetadataArray.map(m => ({
+          chunkIndex: m.chunkIndex,
+          totalChunks: m.totalChunks,
+          chunkHash: m.chunkHash,
+          chunkSize: m.chunkSize,
+          mediaType: m.mediaType,
+          originalName: m.originalName,
+          timestamp: m.timestamp,
+          keyVersion: m.keyVersion,
+          encryption: m.encryption,
+        })),
+        uploadedBy: user1,
+        intendedFor: user2,
+        uploadedAt: serverTimestamp(),
+      });
+      console.log(`✅ Metadata saved to Firestore for ${fileId}`);
+    } catch (fsErr: any) {
+      console.warn(`⚠️ Firestore metadata write failed for ${fileId}:`, fsErr.message || fsErr);
+    }
+
     return {
       fileId,
       totalChunks,
@@ -334,6 +370,7 @@ async function retrieveDecryptedMediaWithKey(
 
     // Get metadata for first chunk to know total chunks
     let firstMetadata: ChunkMetadata
+    let cachedCloudinaryMetadata: ChunkMetadata[] | null = null  // Shared across chunk loop
     try {
       const firstMetadataPath = `${MEDIA_PATHS.METADATA}/${fileId}_chunk_0.json`
       const metadataFile = await withTimeout(
@@ -347,30 +384,48 @@ async function retrieveDecryptedMediaWithKey(
       )
       firstMetadata = JSON.parse(metadataFile.data as string)
     } catch {
-      // Local metadata missing — try Cloudinary, then Firestore
+      // Local metadata missing — try Cloudinary metadata, then Firestore metadata
       if (isCloudinaryConfigured()) {
         try {
-          const metaB64 = await fetchChunkFromCloudinary(fileId, 0);
-          const metaJson = JSON.parse(atob(metaB64));
-          firstMetadata = metaJson.metadata || metaJson;
+          // Fetch the _metadata JSON file from Cloudinary (contains ChunkMetadata[])
+          const chunksMeta = await fetchMetadataFromCloudinary(fileId);
+          if (Array.isArray(chunksMeta) && chunksMeta.length > 0) {
+            firstMetadata = chunksMeta[0];
+            // Cache all chunk metadata locally for the per-chunk loop below
+            cachedCloudinaryMetadata = chunksMeta;
+          } else {
+            throw new Error('Cloudinary metadata empty');
+          }
         } catch {
-          // Cloudinary fetch failed — try Firestore
-          const chunkDoc = await withTimeout(
-            getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_0`)),
+          // Cloudinary metadata fetch failed — try Firestore metadata doc
+          const metaDoc = await withTimeout(
+            getDoc(doc(db, 'mediaChunks', `${fileId}_metadata`)),
             15000,
-            'Firestore read chunk 0 metadata'
-          )
-          if (!chunkDoc.exists()) throw new Error(`Metadata for chunk 0 not found anywhere!`)
-          firstMetadata = chunkDoc.data().metadata
+            'Firestore read metadata doc'
+          );
+          if (!metaDoc.exists()) throw new Error(`Metadata for chunk 0 not found anywhere!`);
+          const metaDocData = metaDoc.data();
+          if (Array.isArray(metaDocData.chunks) && metaDocData.chunks.length > 0) {
+            firstMetadata = metaDocData.chunks[0];
+            cachedCloudinaryMetadata = metaDocData.chunks;
+          } else {
+            throw new Error(`Metadata for chunk 0 not found anywhere!`);
+          }
         }
       } else {
-        const chunkDoc = await withTimeout(
-          getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_0`)),
+        const metaDoc = await withTimeout(
+          getDoc(doc(db, 'mediaChunks', `${fileId}_metadata`)),
           15000,
-          'Firestore read chunk 0 metadata'
-        )
-        if (!chunkDoc.exists()) throw new Error(`Metadata for chunk 0 not found anywhere!`)
-        firstMetadata = chunkDoc.data().metadata
+          'Firestore read metadata doc'
+        );
+        if (!metaDoc.exists()) throw new Error(`Metadata for chunk 0 not found anywhere!`);
+        const metaDocData = metaDoc.data();
+        if (Array.isArray(metaDocData.chunks) && metaDocData.chunks.length > 0) {
+          firstMetadata = metaDocData.chunks[0];
+          cachedCloudinaryMetadata = metaDocData.chunks;
+        } else {
+          throw new Error(`Metadata for chunk 0 not found anywhere!`);
+        }
       }
     }
     const totalChunks = firstMetadata.totalChunks
@@ -398,22 +453,12 @@ async function retrieveDecryptedMediaWithKey(
         );
         metadata = JSON.parse(metadataFile.data as string);
       } catch (err) {
-        // Metadata missing locally — try Cloudinary, then Firestore
-        if (isCloudinaryConfigured()) {
-          try {
-            const metaB64 = await fetchChunkFromCloudinary(fileId, i);
-            const metaJson = JSON.parse(atob(metaB64));
-            metadata = metaJson.metadata || metaJson;
-          } catch {
-            const chunkDoc = await withTimeout(
-              getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`)),
-              15000,
-              `Firestore read chunk ${i}`
-            );
-            if (!chunkDoc.exists()) throw new Error(`Metadata for chunk ${i} not found!`);
-            metadata = chunkDoc.data().metadata;
-          }
+        // Metadata missing locally — use cached metadata from Cloudinary/Firestore,
+        // or fetch per-chunk metadata from Firestore
+        if (cachedCloudinaryMetadata && cachedCloudinaryMetadata[i]) {
+          metadata = cachedCloudinaryMetadata[i];
         } else {
+          // Fetch per-chunk metadata from Firestore
           const chunkDoc = await withTimeout(
             getDoc(doc(db, 'mediaChunks', `${fileId}_chunk_${i}`)),
             15000,

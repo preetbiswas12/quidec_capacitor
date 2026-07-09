@@ -2,15 +2,15 @@
  * Cloudinary Relay — Temporary storage for encrypted media chunks
  *
  * Upload: Client-side unsigned upload (no API secret exposed)
- * Delete: Server-side via Firebase Cloud Function (holds API secret)
+ * Delete: Orphans handled by Cloudinary free tier (25GB) or manual cleanup
  *
  * Flow:
- *   Sender uploads encrypted chunks → Cloudinary (temporary)
- *   Recipient downloads + decrypts → caches in local SQLite
- *   After SQLite confirms cache → chunks permanently deleted from Cloudinary
+ *   Sender uploads encrypted chunks + metadata JSON → Cloudinary (temporary)
+ *   Recipient downloads metadata → downloads chunks → decrypts → caches locally
+ *   Chunks accumulate on Cloudinary free tier (25GB) until Blaze plan upgrade
  */
 
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import type { ChunkMetadata } from './encryptedChunkedMedia';
 
 // ─── Configuration (hardcoded for mobile — no env vars needed) ──────────────
 
@@ -93,10 +93,11 @@ export async function uploadChunkToCloudinary(
 
 /**
  * Upload chunk metadata to Cloudinary as a JSON file.
- * Stored alongside chunks for cleanup verification.
+ * Stored alongside chunks so the receiver can fetch metadata to know
+ * totalChunks, mediaType, encryption iv/salt/keyVersion for each chunk.
  */
 export async function uploadChunkMetadata(
-  metadata: ChunkRelayInfo,
+  chunksMetadata: ChunkMetadata[],
   fileId: string
 ): Promise<UploadResult> {
   if (!CLOUDINARY_CLOUD_NAME) {
@@ -104,7 +105,8 @@ export async function uploadChunkMetadata(
   }
 
   const publicId = `${CLOUDINARY_FOLDER}/${fileId}/_metadata`;
-  const jsonBlob = new Blob([JSON.stringify(metadata)], { type: 'application/json' });
+  // Store the full array — receiver uses index 0 for totalChunks/mediaType
+  const jsonBlob = new Blob([JSON.stringify(chunksMetadata)], { type: 'application/json' });
 
   const formData = new FormData();
   formData.append('file', jsonBlob);
@@ -170,47 +172,45 @@ export async function fetchChunkFromCloudinary(
   });
 }
 
-// ─── Delete (Server-side via Firebase Cloud Function) ───────────────────────
+/**
+ * Fetch chunk metadata JSON from Cloudinary.
+ * Returns the ChunkMetadata[] array uploaded alongside the chunks.
+ * The receiver uses index 0 to determine totalChunks/mediaType,
+ * and each element for per-chunk encryption iv/salt/keyVersion.
+ */
+export async function fetchMetadataFromCloudinary(
+  fileId: string
+): Promise<ChunkMetadata[]> {
+  if (!CLOUDINARY_CLOUD_NAME) {
+    throw new Error('VITE_CLOUDINARY_CLOUD_NAME not configured');
+  }
+
+  const publicId = `${CLOUDINARY_FOLDER}/${fileId}/_metadata`;
+  const url = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/raw/upload/${publicId}`;
+
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Cloudinary metadata fetch failed: ${response.status} ${response.statusText}`);
+  }
+
+  const text = await response.text();
+  return JSON.parse(text) as ChunkMetadata[];
+}
+
+// ─── Delete ────────────────────────────────────────────────────────────────
 
 /**
  * Delete all chunks for a file from Cloudinary.
- * Calls a Firebase Cloud Function that holds the API secret.
- *
- * @param fileId - The file ID whose chunks to delete
- * @param totalChunks - Number of chunks to delete
+ * Cloudinary REST DELETE requires API secret (server-side only).
+ * Cannot work from browser due to CORS. Chunks accumulate on Cloudinary
+ * free tier (25GB) until a server-side cleanup solution is deployed.
  */
 export async function deleteChunksFromCloudinary(
-  fileId: string,
-  totalChunks: number
-): Promise<{ success: boolean; deleted: number }> {
-  try {
-    const functions = getFunctions();
-    const deleteChunks = httpsCallable(functions, 'deleteCloudinaryChunks');
-
-    const result = await deleteChunks({ fileId, totalChunks });
-    return result.data as { success: boolean; deleted: number };
-  } catch (err: any) {
-    // CF may not be deployed yet, or auth failed — log but don't throw
-    // The scheduled cleanup CF will handle orphaned chunks
-    console.warn(`⚠️ Cloud Function deleteCloudinaryChunks failed for ${fileId}: ${err.message || err}`);
-    return { success: false, deleted: 0 };
-  }
-}
-
-/**
- * Direct delete fallback — NOT possible from browser.
- * Cloudinary REST API DELETE requires API key + signature (server-side only).
- * Browser requests are always blocked by CORS for Cloudinary admin API.
- * Returns failure immediately — caller should rely on Firebase Cloud Function.
- */
-async function deleteChunksDirect(
   _fileId: string,
   _totalChunks: number
 ): Promise<{ success: boolean; deleted: number }> {
-  // Cloudinary REST API DELETE requires api_key + api_secret + signature.
-  // This can NEVER work from a browser due to CORS restrictions.
-  // The Firebase Cloud Function (deleteCloudinaryChunks) is the ONLY way to delete.
-  console.warn('⚠️ Client-side Cloudinary DELETE not possible — only Firebase CF can delete');
+  console.log(`ℹ️ Cloudinary chunk deletion not available from browser — chunks will remain on Cloudinary free tier`);
   return { success: false, deleted: 0 };
 }
 
@@ -220,14 +220,8 @@ async function deleteChunksDirect(
 export async function deleteMultipleFileChunks(
   files: Array<{ fileId: string; totalChunks: number }>
 ): Promise<{ success: boolean; totalDeleted: number }> {
-  let totalDeleted = 0;
-
-  for (const file of files) {
-    const result = await deleteChunksFromCloudinary(file.fileId, file.totalChunks);
-    totalDeleted += result.deleted;
-  }
-
-  return { success: totalDeleted > 0, totalDeleted };
+  // No-op: Cloudinary delete not available from browser
+  return { success: false, totalDeleted: 0 };
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
