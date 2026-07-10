@@ -42,6 +42,7 @@ vi.mock('firebase/database', () => ({
   onValue: vi.fn(() => vi.fn()),
   remove: vi.fn(() => Promise.resolve()),
   onChildAdded: vi.fn(() => vi.fn()),
+  onDisconnect: vi.fn((_ref: any) => ({ set: vi.fn(() => Promise.resolve()) })),
   serverTimestamp: vi.fn(() => 1234567890),
 }));
 

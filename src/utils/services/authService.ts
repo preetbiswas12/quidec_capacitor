@@ -27,7 +27,7 @@ import {
   serverTimestamp,
   deleteDoc,
 } from 'firebase/firestore';
-import { ref, set, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
+import { ref, set, serverTimestamp as rtdbServerTimestamp, onDisconnect } from 'firebase/database';
 import { db, auth, realtimeDb, getFCMToken } from '../firebase';
 import { validateEmail, validatePassword, validateUsername, loginLimiter, registerLimiter } from '../validators';
 import logger from '../logger';
@@ -173,6 +173,13 @@ export const authService = {
 
       await set(ref(realtimeDb, `presence/${sanitizePathComponent(customUsername)}`), {
         online: true,
+        lastSeen: rtdbServerTimestamp(),
+        username: customUsername,
+      });
+
+      // Set onDisconnect — automatically marks offline when client disconnects
+      onDisconnect(ref(realtimeDb, `presence/${sanitizePathComponent(customUsername)}`)).set({
+        online: false,
         lastSeen: rtdbServerTimestamp(),
         username: customUsername,
       });

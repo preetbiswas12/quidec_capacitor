@@ -8,7 +8,7 @@
  */
 
 import { doc, setDoc, collection, query, where, getDocs, onSnapshot, serverTimestamp, documentId, getDoc } from 'firebase/firestore';
-import { ref, set, onValue, serverTimestamp as rtdbServerTimestamp, get, remove, onChildAdded } from 'firebase/database';
+import { ref, set, onValue, serverTimestamp as rtdbServerTimestamp, get, remove, onChildAdded, onDisconnect } from 'firebase/database';
 import { db, realtimeDb } from '../firebase';
 import logger from '../logger';
 import { sanitizePathComponent } from './shared';
@@ -27,6 +27,14 @@ export const presenceService = {
       const presenceRef = ref(realtimeDb, `presence/${sanitizePathComponent(username)}`);
       await set(presenceRef, {
         online: true,
+        lastSeen: rtdbServerTimestamp(),
+        username,
+      });
+
+      // Set onDisconnect — automatically marks offline when client disconnects
+      // (browser close, network drop, app kill without explicit logout)
+      onDisconnect(presenceRef).set({
+        online: false,
         lastSeen: rtdbServerTimestamp(),
         username,
       });

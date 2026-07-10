@@ -52,6 +52,7 @@ vi.mock('firebase/database', () => ({
   ref: mockRtdbRef,
   set: mockRtdbSet,
   serverTimestamp: () => mockRtdbServerTimestamp(),
+  onDisconnect: vi.fn((_ref: any) => ({ set: vi.fn(() => Promise.resolve()) })),
 }));
 
 vi.mock('../../firebase', () => ({
