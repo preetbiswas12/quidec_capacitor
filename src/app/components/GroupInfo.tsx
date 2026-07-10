@@ -138,7 +138,7 @@ export default function GroupInfo() {
       <input ref={groupIconInputRef} type="file" accept="image/*" className="hidden" onChange={handleGroupIconSelect} />
 
       {/* ── Header ── */}
-      <div className="flex items-center gap-4 px-4 py-4 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border/10">
+      <div className="flex items-center gap-4 px-4 py-4 pt-safe bg-wa-header flex-shrink-0 border-b border-wa-border/10">
         <button
           onClick={() => navigate(-1)}
           className="text-wa-header-icon hover:text-wa-primary p-2 -ml-2 rounded-full hover:bg-white/5 transition-colors"
@@ -513,7 +513,7 @@ export default function GroupInfo() {
       <AnimatePresence>
         {lightboxImage && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-black flex flex-col" onClick={() => setLightboxImage(null)}>
-            <div className="flex items-center gap-3 px-4 py-3 bg-black/60 flex-shrink-0 pt-10">
+            <div className="flex items-center gap-3 px-4 py-3 bg-black/60 flex-shrink-0 pt-safe">
               <button onClick={() => setLightboxImage(null)} className="text-white p-2"><X size={24} /></button>
               <span className="text-white flex-1 font-bold">PHOTO</span>
               <button onClick={e => { e.stopPropagation(); }} className="text-white p-2"><Download size={22} /></button>

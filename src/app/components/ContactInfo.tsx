@@ -99,7 +99,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
     <div className="h-full flex flex-col bg-wa-main overflow-y-auto no-scrollbar pb-12">
 
       {/* ── Header ── */}
-      <div className="flex items-center gap-4 px-4 py-4 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border/10">
+      <div className="flex items-center gap-4 px-4 py-4 pt-safe bg-wa-header flex-shrink-0 border-b border-wa-border/10">
         <button
           onClick={onClose}
           className="text-wa-header-icon hover:text-wa-primary p-2 -ml-2 rounded-full hover:bg-white/5 transition-colors"

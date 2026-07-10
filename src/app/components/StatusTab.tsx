@@ -181,7 +181,7 @@ export default function StatusTab() {
       {showCreate && (
         <div className="absolute inset-0 z-50 flex flex-col" style={{ backgroundColor: newStatusBg }}>
           {/* Top bar */}
-          <div className="flex items-center justify-between px-4 py-3 pt-10">
+          <div className="flex items-center justify-between px-4 py-3 pt-safe">
             <button
               onClick={() => { setShowCreate(false); setNewStatusText(''); }}
               className="text-white/80 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
@@ -416,7 +416,7 @@ function StatusViewer({
       style={{ backgroundColor: status.backgroundColor || '#111B21' }}
     >
       {/* Progress bars */}
-      <div className="flex gap-1 px-3 pt-10 pb-2">
+      <div className="flex gap-1 px-3 pt-safe pb-2">
         {contactStatuses.map((_, i) => (
           <div key={i} className="flex-1 h-0.5 bg-white/20 rounded-full overflow-hidden">
             <div

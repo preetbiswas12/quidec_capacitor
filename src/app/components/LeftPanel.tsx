@@ -215,7 +215,7 @@ export default function LeftPanel() {
 
       {/* Header */}
       {!settingsSubPage && (
-        <div className="flex-shrink-0 bg-wa-header border-b border-wa-border/8 pt-10">
+        <div className="flex-shrink-0 bg-wa-header border-b border-wa-border/8 pt-safe">
           {activeTab === 'settings' ? (
             <div className="flex items-center px-4 py-2.5">
               <button onClick={() => setActiveTab('chats')} className="text-wa-header-icon hover:text-wa-primary p-1.5 -ml-1.5 rounded-full hover:bg-white/5 transition-colors duration-150 flex-shrink-0">
@@ -513,7 +513,7 @@ export default function LeftPanel() {
             className="absolute inset-0 bg-wa-main flex flex-col z-40 transition-colors duration-200"
           >
             {/* Header */}
-            <div className="flex items-center gap-3 px-4 py-4 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border/10">
+            <div className="flex items-center gap-3 px-4 py-4 pt-safe bg-wa-header flex-shrink-0 border-b border-wa-border/10">
               <button onClick={resetNewChat} className="text-wa-header-icon hover:text-wa-primary p-1">
                 <ArrowLeft size={20} />
               </button>
@@ -736,7 +736,7 @@ export default function LeftPanel() {
             className="absolute inset-0 bg-wa-main flex flex-col z-40"
           >
             {/* Header */}
-            <div className="flex items-center gap-3 px-4 py-4 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border/10">
+            <div className="flex items-center gap-3 px-4 py-4 pt-safe bg-wa-header flex-shrink-0 border-b border-wa-border/10">
               <button onClick={() => { setShowCreateGroup(false); setGroupName(''); setGroupDescription(''); setSelectedMembers([]); setGroupSearch(''); }} className="text-wa-header-icon hover:text-wa-primary p-1">
                 <ArrowLeft size={20} />
               </button>

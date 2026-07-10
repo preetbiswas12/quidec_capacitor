@@ -1224,7 +1224,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
       <input ref={avatarInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleAvatarSelect} />
 
       {/* Profile section - Sleek & Flat */}
-      <div className="flex flex-col items-center pt-10 pb-8 flex-shrink-0 border-b border-wa-border/10 bg-transparent">
+      <div className="flex flex-col items-center pt-safe pb-8 flex-shrink-0 border-b border-wa-border/10 bg-transparent">
         <div className="relative group cursor-pointer" onClick={() => go('account')}>
           <div className="w-32 h-32 rounded-full p-1 border-2 border-wa-accent">
             <div className="w-full h-full rounded-full overflow-hidden border-2 border-wa-main group-hover:scale-[1.02] transition-transform duration-500 relative bg-wa-secondary/20">
@@ -1525,7 +1525,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
 function SubPageShell({ title, onBack, children }: { title: string; onBack: () => void; children: ReactNode }) {
   return (
     <div className="flex flex-col h-full bg-wa-main">
-      <div className="flex items-center gap-3 px-4 py-3 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border/50">
+      <div className="flex items-center gap-3 px-4 py-3 pt-safe bg-wa-header flex-shrink-0 border-b border-wa-border/50">
         <button onClick={onBack} className="text-wa-header-icon hover:text-wa-primary p-2 -ml-2 rounded-full hover:bg-white/5 transition-colors">
           <ArrowLeft size={20} />
         </button>

@@ -292,7 +292,7 @@ export default function VoiceCallScreen() {
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center h-full w-full max-w-sm mx-auto px-8">
         {/* Top bar */}
-        <div className="flex items-center justify-between w-full pt-14 mb-auto">
+        <div className="flex items-center justify-between w-full pt-safe mb-auto">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-wa-accent animate-pulse" />
             <span className="text-white/80 text-sm">Veill</span>

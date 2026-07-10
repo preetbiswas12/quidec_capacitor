@@ -268,7 +268,7 @@ export default function CallsTab() {
             transition={{ duration: 0.22, ease: 'easeInOut' }}
             className="absolute inset-0 bg-wa-main flex flex-col z-20"
           >
-            <div className="flex items-center gap-3 px-4 py-4 pt-10 bg-wa-header flex-shrink-0 border-b border-wa-border/10">
+            <div className="flex items-center gap-3 px-4 py-4 pt-safe bg-wa-header flex-shrink-0 border-b border-wa-border/10">
               <button
                 onClick={() => { setShowNewCallSheet(false); setNewCallSearch(''); }}
                 className="text-wa-header-icon hover:text-wa-primary p-1"

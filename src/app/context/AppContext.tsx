@@ -376,6 +376,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // UI State
   const [activeTab, setActiveTab] = useState<'chats' | 'calls' | 'status' | 'settings'>('chats');
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const activeChatIdRef = useRef<string | null>(null);
+  useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
 
   // Loading state — true once initial listeners have fired at least once
   const [chatsLoaded, setChatsLoaded] = useState(false);
@@ -1211,7 +1213,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   lastMessage: lastMsg.content,
                   lastMessageTime: lastMsg.timestamp,
                   lastMessageSender: lastMsg.senderId,
-                  unreadCount: (activeChatId === group.groupId) ? 0 : (c.unreadCount + 1),
+                  unreadCount: (activeChatIdRef.current === group.groupId) ? 0 : (c.unreadCount + 1),
                 }
               : c
           ));
@@ -1640,7 +1642,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             lastMessage: incomingMsg.content,
             lastMessageTime: incomingMsg.timestamp,
             lastMessageSender: incomingMsg.senderId,
-            unreadCount: (activeChatId === chatId) ? 0 : (c.unreadCount + 1)
+            unreadCount: (activeChatIdRef.current === chatId) ? 0 : (c.unreadCount + 1)
           } : c);
         } else {
           return [{
@@ -1656,7 +1658,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // If user is actively viewing this chat, immediately send read receipts (blue tick)
       // This bypasses the markAsRead guard which skips when unreadCount is already 0
-      if (activeChatId === chatId && currentUser) {
+      if (activeChatIdRef.current === chatId && currentUser) {
         try {
           await messageService.markAllMessagesAsRead(chatId, currentUser.userId, msg.fromUid);
         } catch (err) {
@@ -2422,7 +2424,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         const { StatusBar, Style } = await import('@capacitor/status-bar');
         await StatusBar.setStyle({ style: isDark ? Style.Dark : Style.Light });
-        await StatusBar.setBackgroundColor({ color: isDark ? '#202C33' : '#F0F2F5' });
+        await StatusBar.setBackgroundColor({ color: '#00000000' });
       } catch (err) {
         // Not on mobile or plugin failed
       }

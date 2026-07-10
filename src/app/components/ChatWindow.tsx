@@ -954,7 +954,7 @@ export default function ChatWindow() {
           {showSearch && (
             <motion.div
               initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-              className="bg-wa-header border-b border-wa-border shrink-0 overflow-hidden pt-10"
+              className="bg-wa-header border-b border-wa-border shrink-0 overflow-hidden pt-safe"
             >
               <div className="flex items-center gap-2 px-3 py-2">
                 <button onClick={closeSearch} className="text-[#aebac1] p-1 shrink-0 hover:text-wa-primary transition-colors duration-150" aria-label="Close search"><ArrowLeft size={20} /></button>
@@ -971,7 +971,7 @@ export default function ChatWindow() {
           )}
         </AnimatePresence>
 
-        <div className="relative z-30 flex items-center gap-3 px-3 py-2.5 pt-10 bg-wa-header/95 backdrop-blur-md shrink-0 border-b border-wa-border/10">
+        <div className="relative z-30 flex items-center gap-3 px-3 py-2.5 pt-safe bg-wa-header/95 backdrop-blur-md shrink-0 border-b border-wa-border/10">
           <button onClick={handleBack} className="text-wa-header-icon hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5 transition-colors duration-150" aria-label="Go back to chats"><ArrowLeft size={20} /></button>
           <button onClick={() => setContactInfoOpen(!contactInfoOpen)} className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity duration-150">
             <div className="relative">
