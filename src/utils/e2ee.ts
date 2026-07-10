@@ -98,7 +98,8 @@ export async function loadPrivateKeyLocal(userId: string): Promise<CryptoKey | n
       true,
       ['deriveBits', 'deriveKey']
     );
-  } catch {
+  } catch (err) {
+    console.warn('[e2ee] Failed to load ECDH private key from storage:', err);
     return null;
   }
 }
@@ -128,7 +129,8 @@ export async function fetchRemotePublicKey(userId: string): Promise<string | nul
     if (!snap.exists()) return null;
     const data = snap.data();
     return data.e2eePublicKey || null;
-  } catch {
+  } catch (err) {
+    console.warn('[e2ee] Failed to fetch remote public key from Firestore:', err);
     return null;
   }
 }

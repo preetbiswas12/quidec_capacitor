@@ -75,7 +75,7 @@ export default function GroupInfo() {
       }
       updateContact(groupId!, { name: groupNameEdit.trim() });
     } catch (err: any) {
-      alert(err.message || 'Failed to update group');
+      toast.error(err.message || 'Failed to update group');
     }
     setEditingGroupName(false);
   };
@@ -87,7 +87,7 @@ export default function GroupInfo() {
       }
       updateContact(groupId!, { about: descriptionEdit.trim() });
     } catch (err: any) {
-      alert(err.message || 'Failed to update description');
+      toast.error(err.message || 'Failed to update description');
     }
     setEditingDescription(false);
   };
@@ -314,7 +314,7 @@ export default function GroupInfo() {
                             try {
                               if (currentUser) await removeGroupMember(groupId!, memberId, currentUser.userId);
                             } catch (err: any) {
-                              alert(err.message);
+                              toast.error(err.message);
                             }
                           }
                         }}
@@ -336,7 +336,7 @@ export default function GroupInfo() {
                                 await updateDoc(doc(db, 'groups', groupId!), { admins: arrayUnion(memberId) });
                               }
                             } catch (err: any) {
-                              alert(err.message);
+                              toast.error(err.message);
                             }
                           }
                         }}
@@ -354,7 +354,7 @@ export default function GroupInfo() {
                               await transferOwnership(groupId!, memberId);
                               toast.success(`Ownership transferred to ${member?.name || memberId}`);
                             } catch (err: any) {
-                              alert(err.message);
+                              toast.error(err.message);
                             }
                           }
                         }}
@@ -412,7 +412,7 @@ export default function GroupInfo() {
                         setShowAddMembers(false);
                         setAddMemberSearch('');
                       } catch (err: any) {
-                        alert(err.message);
+                        toast.error(err.message);
                       }
                     }}
                     className="w-full flex items-center gap-3 px-2 py-3 hover:bg-wa-secondary/50 transition-colors text-left"
@@ -498,7 +498,7 @@ export default function GroupInfo() {
                 await leaveGroup(groupId!);
                 navigate('/app');
               } catch (err: any) {
-                alert(err.message);
+                toast.error(err.message);
               }
             }
           }}

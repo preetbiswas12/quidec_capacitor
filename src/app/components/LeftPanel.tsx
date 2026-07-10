@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageSquare, MoreVertical, PenSquare, ArrowLeft, X, Search, AtSign, UserPlus, Check, Clock, Users, Circle } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 import { useApp } from '../context/AppContext';
 import type { SearchResult } from '../context/AppContext';
 import ChatList from './ChatList';
@@ -857,7 +858,7 @@ export default function LeftPanel() {
                     setActiveChatId(groupId);
                     navigate(`/app/chat/${groupId}`);
                   } catch (err: any) {
-                    alert('Failed to create group: ' + err.message);
+                    toast.error('Failed to create group: ' + err.message);
                   } finally {
                     setCreatingGroup(false);
                   }

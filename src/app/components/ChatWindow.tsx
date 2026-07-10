@@ -514,7 +514,7 @@ export default function ChatWindow() {
 
         if (blob.size === 0) return;
 
-        // @ts-ignore
+        // @ts-expect-error — File constructor lib typings incomplete for Blob overload
         const file = new File([blob], `audio_${Date.now()}.webm`, { type: 'audio/webm' });
 
         const validation = await mediaValidator.validateFile(file, 'audio');
@@ -750,7 +750,7 @@ export default function ChatWindow() {
       action: () => { setShowHeaderMenu(false); setShowTimerSheet(true); },
     },
     { label: 'Search', action: () => openSearch() },
-    { label: 'Mute notifications', action: () => { setShowHeaderMenu(false); alert('Notifications for this chat will be muted for 8 hours.'); } },
+    { label: 'Mute notifications', action: () => { setShowHeaderMenu(false); toast.success('Notifications muted for 8 hours'); } },
     { label: 'Clear chat', action: () => { setShowHeaderMenu(false); clearChat(chatId!); } },
   ];
 
@@ -1173,8 +1173,8 @@ export default function ChatWindow() {
                   { icon: Video, label: 'Video', color: '#d32f2f', onClick: () => videoInputRef.current?.click() },
                   { icon: Mic, label: 'Audio', color: '#ff8f00', onClick: () => startAudioRecording() },
                   { icon: Link, label: 'Link', color: '#fb8c00', onClick: () => setShowLinkInput(true) },
-                  { icon: User, label: 'Contact', color: '#43a047', onClick: () => alert('Contact sharing is coming soon!') },
-                  { icon: MapPin, label: 'Location', color: '#e53935', onClick: () => alert('Location sharing is coming soon!') },
+                  { icon: User, label: 'Contact', color: '#43a047', onClick: () => toast('Contact sharing coming soon') },
+                  { icon: MapPin, label: 'Location', color: '#e53935', onClick: () => toast('Location sharing coming soon') },
                 ].map(item => (
                   <button key={item.label} onClick={item.onClick} className="flex flex-col items-center gap-2 py-2 rounded-xl hover:bg-wa-secondary/30 transition-all duration-150 active:scale-95"><div className="w-12 h-12 rounded-full flex items-center justify-center transition-transform duration-150" style={{ backgroundColor: `${item.color}18` }}><item.icon size={21} style={{ color: item.color }} /></div><span className="text-wa-text-muted" style={{ fontSize: '0.7rem' }}>{item.label}</span></button>
                 ))}</div></div>

@@ -117,7 +117,8 @@ async function decryptContent(userUid: string, encrypted: string): Promise<strin
     const ciphertext = data.slice(12);
     const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
     return new TextDecoder().decode(decrypted);
-  } catch {
+  } catch (err) {
+    console.warn('[sqlite] Decrypt failed, returning raw ciphertext:', err);
     return encrypted;
   }
 }
@@ -263,7 +264,9 @@ async function rowToMessage(row: (string | number | null)[], userUid?: string): 
   if (encryptedContent && userUid) {
     try {
       content = await decryptContent(userUid, encryptedContent);
-    } catch { /* fallback to plaintext content */ }
+    } catch (err) {
+      console.warn('[sqlite] Failed to decrypt message, falling back to plaintext:', err);
+    }
   }
   return {
     id: row[0] as string,
@@ -477,8 +480,8 @@ export async function migrateOldEncryptionData(): Promise<void> {
         path: DB_FILENAME,
         directory: DB_DIR,
       });
-    } catch {
-      // File may not exist — ignore
+    } catch (err) {
+      console.warn('[sqlite] Could not delete old SQLite database during migration:', err);
     }
 
     // 2. Reset in-memory DB so initDatabase creates a fresh one
@@ -495,16 +498,16 @@ export async function migrateOldEncryptionData(): Promise<void> {
       await Preferences.set({ key: 'encryption_key_version_v1', value: '1' });
       await Preferences.set({ key: 'encryption_last_rotation_v1', value: String(Date.now()) });
       await Preferences.remove({ key: SALT_KEY });
-    } catch {
-      // Preferences may not be available — ignore
+    } catch (err) {
+      console.warn('[sqlite] Failed to reset encryption Preferences during migration:', err);
     }
 
     // 4. Clear conversation key cache (from old device-salt derivation)
     try {
       const { clearConversationKeyCache } = await import('./encryption');
       clearConversationKeyCache();
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn('[sqlite] Failed to clear conversation key cache during migration:', err);
     }
 
     // 5. Mark migration complete
