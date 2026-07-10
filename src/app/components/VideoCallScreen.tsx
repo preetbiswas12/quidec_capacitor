@@ -59,6 +59,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
   const reconnectAttemptRef = useRef(0);
   const isReconnectingRef = useRef(false);
   const callEndedRef = useRef(false);
+  const durationRef = useRef(0);
 
   const remoteContact = contacts.find((c) => c.id === remoteUserId);
 
@@ -426,7 +427,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
 
       // Save call history record with duration
       if (currentUser && remoteUserId) {
-        saveCallRecord(remoteUserId, 'video', isIncoming ? 'incoming' : 'outgoing', duration).catch(() => {});
+        saveCallRecord(remoteUserId, 'video', isIncoming ? 'incoming' : 'outgoing', durationRef.current).catch(() => {});
       }
 
       // Cleanup
@@ -446,7 +447,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
       console.error('Error ending call:', err);
       navigate(-1);
     }
-  }, [callId, stopMediaTracks, navigate]);
+  }, [callId, stopMediaTracks, navigate, currentUser, remoteUserId, isIncoming, saveCallRecord]);
 
   /**
    * Toggle mute
@@ -477,8 +478,6 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
    */
   const handleFlipCamera = useCallback(async () => {
     try {
-      setIsFrontCamera(!isFrontCamera);
-
       // Stop current video track
       localStreamRef.current?.getVideoTracks().forEach((track) => track.stop());
 
@@ -491,6 +490,9 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
           facingMode: !isFrontCamera ? 'user' : 'environment',
         },
       });
+
+      // Only flip state after successful camera access
+      setIsFrontCamera(!isFrontCamera);
 
       const videoTrack = stream.getVideoTracks()[0];
       if (peerConnectionRef.current && videoTrack) {
@@ -553,7 +555,7 @@ export default function VideoCallScreen(props: VideoCallScreenProps) {
   useEffect(() => {
     if (callState === 'connected') {
       timerRef.current = setInterval(() => {
-        setDuration((d) => d + 1);
+        setDuration((d) => { durationRef.current = d + 1; return d + 1; });
       }, 1000);
     }
 

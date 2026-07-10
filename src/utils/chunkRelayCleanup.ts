@@ -25,7 +25,7 @@ const MEDIA_PATHS = {
 async function verifyLocalCache(fileId: string, totalChunks: number): Promise<boolean> {
   let cachedCount = 0;
 
-  for (let i = 0; i < Math.min(totalChunks, 3); i++) {
+  for (let i = 0; i < totalChunks; i++) {
     try {
       const chunkPath = `${MEDIA_PATHS.CHUNKS}/${fileId}_chunk_${i}`;
       await Filesystem.readFile({
@@ -39,8 +39,8 @@ async function verifyLocalCache(fileId: string, totalChunks: number): Promise<bo
     }
   }
 
-  // At least first 3 chunks (or all if fewer) must be cached
-  return cachedCount >= Math.min(totalChunks, 3);
+  // All chunks must be cached before we delete from Cloudinary
+  return cachedCount >= totalChunks;
 }
 
 /**

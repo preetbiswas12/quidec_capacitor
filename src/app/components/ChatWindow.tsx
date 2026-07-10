@@ -5,13 +5,24 @@ import {
   Mic, Send, CheckCheck, Check, Lock, FileText, Camera,
   X, Reply, Link, Image, MapPin, User, File, MessageSquare,
   ExternalLink, ChevronDown, ChevronUp, Download, Share2, Save, Star,
-  Clock, Timer, Edit3, Trash2
+  Clock, Timer, Edit3, Trash2, Copy
 } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 
 function toTimeStr(ts: any): string {
   if (!ts) return '';
-  try { return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
+  try {
+    let date: Date;
+    if (typeof ts?.toDate === 'function') {
+      date = ts.toDate();
+    } else if (typeof ts?.seconds === 'number') {
+      date = new Date(ts.seconds * 1000);
+    } else {
+      date = new Date(ts);
+    }
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
 }
 
 function toMillis(ts: any): number {
@@ -706,7 +717,6 @@ export default function ChatWindow() {
           data: base64data.split(',')[1],
           directory: Directory.Documents,
         });
-        alert('Image saved to Documents');
       };
       reader.readAsDataURL(blob);
     } catch (err) {
@@ -852,9 +862,9 @@ export default function ChatWindow() {
                     navigator.clipboard.writeText(chatMessages.find(m => m.id === activeMenuId)?.content || '');
                     setActiveMenuId(null);
                   }}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 text-wa-primary text-sm font-medium text-red-400"
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 text-wa-primary text-sm font-medium"
                 >
-                  <Check size={18} /> Copy Text
+                  <Copy size={18} className="text-wa-text-muted" /> Copy Text
                 </button>
                 {(() => {
                   const activeMsg = chatMessages.find(m => m.id === activeMenuId);
@@ -1245,7 +1255,7 @@ export default function ChatWindow() {
           )}
         </AnimatePresence>
 
-        <div className="flex items-end gap-2 px-3 py-2.5 bg-wa-header shrink-0 border-t border-wa-border/5">
+        <div className="relative flex items-end gap-2 px-3 py-2.5 bg-wa-header shrink-0 border-t border-wa-border/5">
           {sendError && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
@@ -1578,7 +1588,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
           </a>
         )}
 
-        {message.type === 'text' && (
+        {message.type === 'text' && message.content !== '[Deleted]' && (
           <p className="text-wa-primary leading-relaxed" style={{ fontSize: '0.88rem', paddingRight: '68px' }}>
             {message.content}
             {message.isEdited && <span className="text-wa-text-muted ml-1 italic" style={{ fontSize: '0.72rem' }}>(edited)</span>}

@@ -29,14 +29,6 @@ export default function VoiceCallScreen() {
     about: currentUser.about || 'Available'
   } as any : null);
 
-  useEffect(() => {
-    if (!contact && !currentUser) {
-      navigate('/app');
-    }
-  }, [contact, currentUser, navigate]);
-
-  if (!contact) return null;
-
   const [callState, setCallState] = useState<'calling' | 'connected' | 'reconnecting' | 'ended'>('calling');
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
@@ -51,6 +43,15 @@ export default function VoiceCallScreen() {
   const isReconnectingRef = useRef(false);
   const isReceiverRef = useRef(false);
   const callEndedRef = useRef(false);
+  const durationRef = useRef(0);
+
+  useEffect(() => {
+    if (!contact && !currentUser) {
+      navigate('/app');
+    }
+  }, [contact, currentUser, navigate]);
+
+  if (!contact) return null;
 
   const performIceRestart = useCallback(async () => {
     const pc = peerConnectionRef.current;
@@ -86,7 +87,7 @@ export default function VoiceCallScreen() {
       setCallState('ended');
       clearInterval(timerRef.current);
       if (currentUser && contactId) {
-        saveCallRecord(contactId, 'voice', isReceiverRef.current ? 'incoming' : 'outgoing', duration).catch(() => {});
+        saveCallRecord(contactId, 'voice', isReceiverRef.current ? 'incoming' : 'outgoing', durationRef.current).catch(() => {});
       }
       navigateTimerRef.current = setTimeout(() => navigate(-1), 2000);
       return;
@@ -99,7 +100,7 @@ export default function VoiceCallScreen() {
       isReconnectingRef.current = false;
       performIceRestart();
     }, delay);
-  }, [currentUser, contactId, contact, duration, navigate, performIceRestart, saveCallRecord]);
+  }, [currentUser, contactId, contact, navigate, performIceRestart, saveCallRecord]);
 
   const initializeCall = useCallback(async () => {
     if (!contact || !currentUser) return;
@@ -225,7 +226,7 @@ export default function VoiceCallScreen() {
 
   useEffect(() => {
     if (callState === 'connected') {
-      timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
+      timerRef.current = setInterval(() => setDuration(d => { durationRef.current = d + 1; return d + 1; }), 1000);
     }
     return () => clearInterval(timerRef.current);
   }, [callState]);
@@ -256,14 +257,11 @@ export default function VoiceCallScreen() {
     if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
 
     if (currentUser && contactId) {
-      const isReceiver = new URLSearchParams(window.location.search || window.location.hash.split('?')[1]).get('received') === 'true';
-      saveCallRecord(contactId, 'voice', isReceiver ? 'incoming' : 'outgoing', duration).catch(() => {});
+      saveCallRecord(contactId, 'voice', isReceiverRef.current ? 'incoming' : 'outgoing', durationRef.current).catch(() => {});
     }
 
     navigateTimerRef.current = setTimeout(() => navigate(-1), 1500);
   };
-
-  if (!contact) return null;
 
   return (
     <div className="h-full w-full relative overflow-hidden flex flex-col items-center">

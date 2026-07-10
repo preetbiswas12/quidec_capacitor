@@ -210,6 +210,14 @@ class MediaCache {
     this.cache.clear()
   }
 
+  delete(fileId: string): void {
+    const cached = this.cache.get(fileId)
+    if (cached) {
+      URL.revokeObjectURL(cached.url)
+      this.cache.delete(fileId)
+    }
+  }
+
   size(): number {
     return this.cache.size
   }
@@ -248,11 +256,8 @@ export async function loadMediaWithCache(
  */
 export async function deleteMediaFile(fileId: string, totalChunks: number): Promise<void> {
   try {
-    // Clear from cache
-    const cached = mediaCache.get(fileId)
-    if (cached) {
-      URL.revokeObjectURL(cached)
-    }
+    // Clear from cache (revokes blob URL and removes entry)
+    mediaCache.delete(fileId)
 
     // Delete from storage
     await deleteEncryptedMedia(fileId, totalChunks)

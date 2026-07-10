@@ -765,6 +765,13 @@ export async function deleteEncryptedMedia(fileId: string, totalChunks: number):
       }
     }
 
+    // Delete the Firestore _metadata document
+    try {
+      await deleteDoc(doc(db, 'mediaChunks', `${fileId}_metadata`));
+    } catch (err) {
+      console.warn(`⚠️ Failed to delete Firestore metadata doc:`, err);
+    }
+
     console.log(`✅ Deleted all chunks for ${fileId}`)
   } catch (err) {
     console.error('❌ Failed to delete encrypted media:', err)

@@ -632,7 +632,7 @@ export const messageService = {
   ) {
     try {
       // Get local messages that need read receipt
-      const { loadMessages } = await import('../localMessageStore');
+      const { loadMessages } = await import('../sqliteMessageStore');
       const localMessages = await loadMessages(readerUid, conversationId);
 
       // Send read receipts for each unread message from the other person
