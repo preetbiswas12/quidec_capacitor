@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import {
-  X, Search, Bell, Trash2, MessageSquare,
+  X, Search, Bell, Trash2, MessageSquare, Play,
   FileText, ExternalLink, Download, Image as ImageIcon, Link as LinkIcon,
   Camera, Edit3, Check, ChevronRight, ShieldAlert, LogOut, UserPlus,
 } from 'lucide-react';
@@ -21,19 +21,32 @@ interface Props {
 
 type MediaTab = 'media' | 'docs' | 'links';
 
-function ThumbnailImage({ fileId, user1, user2 }: { fileId: string; user1: string; user2: string }) {
+function ThumbnailImage({ fileId, user1, user2, mediaType = 'image' }: { fileId: string; user1: string; user2: string; mediaType?: string }) {
   const [src, setSrc] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    loadMediaWithCache(fileId, 'image', user1, user2)
+    loadMediaWithCache(fileId, mediaType === 'video' ? 'video' : 'image', user1, user2)
       .then(url => { if (!cancelled) setSrc(url); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [fileId, user1, user2]);
+  }, [fileId, user1, user2, mediaType]);
 
   if (!src) return <div className="w-full h-full bg-wa-secondary/30 animate-pulse" />;
-  return <img src={src} alt="media" className="w-full h-full object-cover" />;
+  return (
+    <div className="relative w-full h-full">
+      {mediaType === 'video' ? (
+        <video src={src} className="w-full h-full object-cover" muted preload="metadata" />
+      ) : (
+        <img src={src} alt="media" className="w-full h-full object-cover" />
+      )}
+      {mediaType === 'video' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+          <Play size={20} className="text-white drop-shadow-md" fill="white" />
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }: Props) {
@@ -84,7 +97,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
 
   // Pull real media/links/docs from this chat's messages
   const chatMessages = messages[chatId] || [];
-  const mediaMessages = chatMessages.filter(m => m.type === 'image' && (m as any).imageUrl);
+  const mediaMessages = chatMessages.filter(m => (m.type === 'image' || m.type === 'video') && (m as any).imageUrl);
   const docMessages   = chatMessages.filter(m => m.type === 'document');
   const linkMessages  = chatMessages.filter(m => m.type === 'link');
   const totalShared   = mediaMessages.length + docMessages.length + linkMessages.length;
@@ -395,7 +408,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
                         className="aspect-square rounded-lg overflow-hidden bg-wa-secondary/20"
                         onClick={() => setLightboxImage((m as any).imageUrl)}
                       >
-                        <ThumbnailImage fileId={(m as any).imageUrl} user1={currentUser?.userId || ''} user2={contactId} />
+                        <ThumbnailImage fileId={(m as any).imageUrl} user1={currentUser?.userId || ''} user2={contactId} mediaType={m.type} />
                       </button>
                     ))}
                   </div>

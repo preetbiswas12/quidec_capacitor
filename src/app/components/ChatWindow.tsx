@@ -1472,7 +1472,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
 
   return (
     <div
-      className={`flex items-end gap-1 ${isConsecutive ? 'mb-px' : 'mb-0.5'} relative group overflow-hidden ${isMe ? 'justify-end' : 'justify-start'}`}
+      className={`flex items-end gap-1 ${isConsecutive ? 'mb-1' : 'mb-2'} relative group overflow-hidden ${isMe ? 'justify-end' : 'justify-start'}`}
       onContextMenu={onContextMenu}
     >
       {/* Swipe Reply Visual */}

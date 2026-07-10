@@ -359,7 +359,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
           setStorageUsed(est.usage || 0);
           setStorageTotal(est.quota || 0);
         }
-        const { listLocalChatIds, loadMessages } = await import('../../utils/localMessageStore');
+        const { listLocalChatIds, loadMessages } = await import('../../utils/sqliteMessageStore');
         const chatIds = await listLocalChatIds();
         const chatStats: Array<{ chatId: string; name: string; messageCount: number; sizeBytes: number }> = [];
         for (const cid of chatIds) {
@@ -454,7 +454,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
     try {
       setLoading(true);
       setError(null);
-      const { loadMessages } = await import('../../utils/localMessageStore');
+      const { loadMessages } = await import('../../utils/sqliteMessageStore');
       const allChats: any = {};
       let exported = 0;
       let failed = 0;

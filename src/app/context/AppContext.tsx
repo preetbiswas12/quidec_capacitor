@@ -2321,11 +2321,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const clearChat = useCallback(async (chatId: string) => {
     if (!window.confirm('Clear all messages in this chat?')) return;
     
-    const { deleteLocalChat: deleteOldStore } = await import('../../utils/localMessageStore');
-    await deleteOldStore(chatId);
-
-    const { deleteLocalChat: deleteSqliteStore } = await import('../../utils/sqliteMessageStore');
-    await deleteSqliteStore(chatId);
+    const { deleteLocalChat } = await import('../../utils/sqliteMessageStore');
+    await deleteLocalChat(chatId);
     
     setMessages(prev => ({ ...prev, [chatId]: [] }));
     setChats(prev => prev.map(c => c.id === chatId ? { ...c, lastMessage: '', lastMessageTime: '', unreadCount: 0 } : c));
