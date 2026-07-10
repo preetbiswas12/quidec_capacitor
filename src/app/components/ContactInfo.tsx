@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import {
   X, Search, Bell, Trash2, MessageSquare,
@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useApp } from '../context/AppContext';
 import Avatar from './Avatar';
+import { loadMediaWithCache } from '../../utils/mediaUploadHandler';
 
 interface Props {
   contactId: string;
@@ -20,6 +21,21 @@ interface Props {
 
 type MediaTab = 'media' | 'docs' | 'links';
 
+function ThumbnailImage({ fileId, user1, user2 }: { fileId: string; user1: string; user2: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadMediaWithCache(fileId, 'image', user1, user2)
+      .then(url => { if (!cancelled) setSrc(url); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [fileId, user1, user2]);
+
+  if (!src) return <div className="w-full h-full bg-wa-secondary/30 animate-pulse" />;
+  return <img src={src} alt="media" className="w-full h-full object-cover" />;
+}
+
 export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }: Props) {
   const navigate = useNavigate();
   const { contacts, messages, updateContact, updateGroupInfo, addGroupMembers, removeGroupMember, leaveGroup, currentUser } = useApp();
@@ -27,6 +43,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
   const [isMuted, setIsMuted] = useState(false);
   const [mediaTab, setMediaTab] = useState<MediaTab>('media');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [resolvedLightboxUrl, setResolvedLightboxUrl] = useState<string | null>(null);
   const [editingGroupName, setEditingGroupName] = useState(false);
   const [groupNameEdit, setGroupNameEdit] = useState('');
   const [editingDescription, setEditingDescription] = useState(false);
@@ -34,6 +51,17 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
   const [showAddMembers, setShowAddMembers] = useState(false);
   const [addMemberSearch, setAddMemberSearch] = useState('');
   const groupIconInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!lightboxImage) { setResolvedLightboxUrl(null); return; }
+    if (lightboxImage.startsWith('blob:') || lightboxImage.startsWith('data:')) {
+      setResolvedLightboxUrl(lightboxImage);
+      return;
+    }
+    loadMediaWithCache(lightboxImage, 'image', currentUser?.userId || '', contactId)
+      .then(url => setResolvedLightboxUrl(url))
+      .catch(() => setResolvedLightboxUrl(null));
+  }, [lightboxImage, currentUser, contactId]);
 
   if (!contact) return null;
 
@@ -367,7 +395,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
                         className="aspect-square rounded-lg overflow-hidden bg-wa-secondary/20"
                         onClick={() => setLightboxImage((m as any).imageUrl)}
                       >
-                        <img src={(m as any).imageUrl} alt="media" className="w-full h-full object-cover hover:opacity-80 transition-opacity" />
+                        <ThumbnailImage fileId={(m as any).imageUrl} user1={currentUser?.userId || ''} user2={contactId} />
                       </button>
                     ))}
                   </div>
@@ -492,13 +520,19 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
       {/* ── Image Lightbox ── */}
       <AnimatePresence>
         {lightboxImage && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-black flex flex-col" onClick={() => setLightboxImage(null)}>
-            <div className="flex items-center gap-3 px-4 py-3 bg-black/60 flex-shrink-0 pt-10">
-              <button onClick={() => setLightboxImage(null)} className="text-white p-2"><X size={24} /></button>
-              <span className="text-white flex-1 font-bold">PHOTO</span>
-              <button onClick={e => { e.stopPropagation(); }} className="text-white p-2"><Download size={22} /></button>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] bg-black/90 flex flex-col" onClick={() => setLightboxImage(null)}>
+            <div className="flex items-center justify-end p-3">
+              <button onClick={() => setLightboxImage(null)} className="text-white p-1 rounded-full hover:bg-white/10" aria-label="Close photo viewer">
+                <X size={24} />
+              </button>
             </div>
-            <div className="flex-1 flex items-center justify-center p-4"><img src={lightboxImage} alt="fullscreen" className="max-w-full max-h-full rounded-2xl shadow-2xl" style={{ objectFit: 'contain' }} onClick={e => e.stopPropagation()} /></div>
+            <div className="flex-1 flex items-center justify-center p-4">
+              {resolvedLightboxUrl ? (
+                <img src={resolvedLightboxUrl} alt="fullscreen" className="max-w-full max-h-full rounded-2xl shadow-2xl" style={{ objectFit: 'contain' }} onClick={e => e.stopPropagation()} />
+              ) : (
+                <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
