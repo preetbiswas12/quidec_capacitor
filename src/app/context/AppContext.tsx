@@ -1045,6 +1045,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 isStarred: m.isStarred,
                 reactions: m.reactions,
               }));
+            } else {
+              const statusMap = new Map(storedMsgs.map(m => [m.id, m.status]));
+              next[chatId] = next[chatId].map(msg => {
+                const sqliteStatus = statusMap.get(msg.id);
+                if (sqliteStatus && sqliteStatus !== msg.status) {
+                  const P: Record<string, number> = { sent: 0, delivered: 1, read: 2 };
+                  if ((P[sqliteStatus] ?? 0) > (P[msg.status] ?? 0)) {
+                    return { ...msg, status: sqliteStatus as any };
+                  }
+                }
+                return msg;
+              });
             }
           }
           return next;
@@ -1842,8 +1854,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }, 3000);
 
     // Cleanup all listeners on unmount or user change
+    // 9. Visibility-based presence: foreground=online, background 5s=last seen, killed=immediate last seen
+    let backgroundTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // App went to background — after 5 seconds, mark offline with local timestamp
+        backgroundTimer = setTimeout(() => {
+          presenceService.setUserOffline(uid);
+          console.log('😴 App backgrounded >5s — marked offline');
+        }, 5000);
+      } else {
+        // App came to foreground — cancel any pending offline timer, mark online immediately
+        if (backgroundTimer) {
+          clearTimeout(backgroundTimer);
+          backgroundTimer = null;
+        }
+        presenceService.setUserOnline(uid, currentUser?.name || uid);
+        console.log('👁️ App foreground — marked online');
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      // App killed / tab closed — immediately mark offline with local timestamp
+      presenceService.setUserOffline(uid);
+      console.log('🔌 beforeunload — marked offline immediately');
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     return () => {
       if (chatsLoadedTimeout.current) clearTimeout(chatsLoadedTimeout.current);
+      if (backgroundTimer) clearTimeout(backgroundTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       navigator.serviceWorker?.removeEventListener('message', swMessageHandler);
       presenceUnsubscribeRef.current?.();
       typingUnsubscribeRef.current?.();
@@ -1861,6 +1905,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       unsubscribeSignaling();
       unsubscribeGroups();
       deviceSessionUnsubscribeRef.current?.();
+      // Mark offline on cleanup (logout, navigate away)
+      presenceService.setUserOffline(uid);
     };
   }, [currentUser, isOnboarded, navigate]);
 
@@ -2285,13 +2331,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const markAsRead = useCallback(async (chatId: string) => {
     if (!currentUser) return;
 
-    // Guard: skip if chat already read (prevents infinite loop with setChats)
     const existingChat = chatsRef.current.find(c => c.id === chatId);
-    if (existingChat && existingChat.unreadCount === 0) return;
-
     const isGroupChat = groups.some(g => g.groupId === chatId);
 
     if (isGroupChat) {
+      if (existingChat && existingChat.unreadCount === 0) return;
       await markGroupRead(chatId);
     } else {
       const contactId = existingChat?.contactId || chatId;
@@ -2299,10 +2343,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
         queueReadReceipt(chatId, '', contactId, currentUser.userId, 'read');
       } else {
         await messageService.markAllMessagesAsRead(chatId, currentUser.userId, contactId);
+
+        try {
+          const { loadMessages } = await import('../../utils/sqliteMessageStore');
+          const localMsgs = await loadMessages(currentUser.userId, chatId);
+          const unreadReceived = localMsgs.filter(
+            (m: any) => m.senderId !== currentUser.userId && m.status !== 'delivered' && m.status !== 'read'
+          );
+          for (const m of unreadReceived) {
+            await messageService.markMessageDelivered(chatId, m.id, contactId);
+          }
+        } catch (err) {
+          console.warn('⚠️ Failed to send catch-up delivery receipts:', err);
+        }
       }
       setChats((prev) => prev.map(c => c.id === chatId ? { ...c, unreadCount: 0 } : c));
     }
-  }, [currentUser, groups, markGroupRead]); // Removed `chats` from deps — use chatsRef.current instead
+  }, [currentUser, groups, markGroupRead]);
 
   const clearAllChats = useCallback(async () => {
     if (!window.confirm('Are you sure you want to delete all messages? This cannot be undone.')) return;
