@@ -79,7 +79,7 @@ jobs:
         run: ./gradlew assemble${{ (inputs.build_type || 'release') == 'release' && 'Release' || 'Debug' }}
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-apk-${{ github.sha }}
           path: android/app/build/outputs/apk/${{ (inputs.build_type || 'release') }}/*.apk
