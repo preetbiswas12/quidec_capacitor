@@ -1221,7 +1221,7 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
   ) : (
     <div className="flex flex-col h-full overflow-y-auto relative bg-wa-main text-wa-primary transition-colors duration-200 no-scrollbar pb-10">
       {/* Hidden avatar input — capture attribute enables camera on Android */}
-      <input ref={avatarInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleAvatarSelect} />
+      <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarSelect} />
 
       {/* Profile section - Sleek & Flat */}
       <div className="flex flex-col items-center pt-safe pb-8 flex-shrink-0 border-b border-wa-border/10 bg-transparent">

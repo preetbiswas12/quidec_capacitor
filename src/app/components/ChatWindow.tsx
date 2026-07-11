@@ -1695,7 +1695,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
 
   return (
     <div
-      className={`flex items-end gap-1 ${isConsecutive ? 'mb-1' : 'mb-2'} relative group overflow-x-hidden overflow-y-visible ${isMe ? 'justify-end' : 'justify-start'}`}
+      className={`flex items-end gap-1 ${isConsecutive ? 'mb-1' : 'mb-2'} relative group overflow-hidden ${isMe ? 'justify-end' : 'justify-start'}`}
       onContextMenu={onContextMenu}
     >
       {/* Swipe Reply Visual */}
@@ -1878,9 +1878,11 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
 
       {/* Reaction bubble — separate from message bubble, like WhatsApp */}
       {message.reactions && message.reactions.length > 0 && (
-        <div className={`absolute -bottom-3 left-0 flex items-center bg-wa-menu-bg border border-wa-border/40 rounded-full px-1.5 py-0.5 shadow-sm z-20`}>
-          {message.reactions.map((r, i) => <span key={i} className="text-sm leading-none">{r.emoji}</span>)}
-          {message.reactions.length > 1 && <span className="text-[9px] text-wa-text-muted font-bold ml-0.5">{message.reactions.length}</span>}
+        <div className={`flex items-center ${isMe ? 'justify-end' : 'justify-start'} -mt-1 mb-0.5`}>
+          <div className="flex items-center bg-wa-menu-bg border border-wa-border/40 rounded-full px-2 py-0.5 shadow-sm z-20">
+            {message.reactions.map((r, i) => <span key={i} className="text-base leading-none">{r.emoji}</span>)}
+            {message.reactions.length > 1 && <span className="text-[10px] text-wa-text-muted font-bold ml-1">{message.reactions.length}</span>}
+          </div>
         </div>
       )}
       </div>
