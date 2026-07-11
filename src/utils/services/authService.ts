@@ -72,7 +72,7 @@ export const authService = {
 
     try {
       if (auth.currentUser) {
-        try { await signOut(auth); } catch (_) {}
+        try { await signOut(auth); } catch { /* ignore signout before re-register */ }
       }
       await setPersistence(auth, browserLocalPersistence);
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);

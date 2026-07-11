@@ -110,17 +110,12 @@ async function encryptContent(userUid: string, plaintext: string): Promise<strin
 }
 
 async function decryptContent(userUid: string, encrypted: string): Promise<string> {
-  try {
-    const key = await getEncryptionKey(userUid);
-    const data = base64ToBytes(encrypted);
-    const iv = data.slice(0, 12);
-    const ciphertext = data.slice(12);
-    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
-    return new TextDecoder().decode(decrypted);
-  } catch (err) {
-    console.warn('[sqlite] Decrypt failed, returning raw ciphertext:', err);
-    return encrypted;
-  }
+  const key = await getEncryptionKey(userUid);
+  const data = base64ToBytes(encrypted);
+  const iv = data.slice(0, 12);
+  const ciphertext = data.slice(12);
+  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return new TextDecoder().decode(decrypted);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
