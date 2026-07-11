@@ -816,7 +816,7 @@ export default function ChatWindow() {
       <AnimatePresence>
         {activeMenuId && (
           <>
-            <motion.div 
+      <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 z-[100] bg-black/20 backdrop-blur-[2px]"
               onClick={() => setActiveMenuId(null)}
@@ -1723,6 +1723,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         </div>
       )}
 
+      <div className={`relative inline-flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
       <motion.div
         id={`msg-${message.id}`}
         drag={isSelectionMode ? false : "x"}
@@ -1877,11 +1878,12 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
 
       {/* Reaction bubble — separate from message bubble, like WhatsApp */}
       {message.reactions && message.reactions.length > 0 && (
-        <div className={`flex items-center ${isMe ? 'self-end -mb-2.5 mr-1' : 'self-end -mb-2.5 ml-1'} bg-wa-bubble-other border border-wa-border/40 rounded-full px-1.5 py-0.5 shadow-sm z-20 relative`}>
+        <div className={`absolute -bottom-3 left-0 flex items-center bg-wa-menu-bg border border-wa-border/40 rounded-full px-1.5 py-0.5 shadow-sm z-20`}>
           {message.reactions.map((r, i) => <span key={i} className="text-sm leading-none">{r.emoji}</span>)}
           {message.reactions.length > 1 && <span className="text-[9px] text-wa-text-muted font-bold ml-0.5">{message.reactions.length}</span>}
         </div>
       )}
+      </div>
     </div>
   );
 }
