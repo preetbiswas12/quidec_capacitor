@@ -966,44 +966,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ─── Native Permissions Initialization ────────────────────────────────────
   // Runs when isOnboarded becomes true (after email verification or returning user).
   // Uses crash recovery: if onboarding was already completed in a previous session,
-  // skip re-requesting permissions to avoid infinite crash loops.
+  // skip re-requesting camera/mic/storage permissions but ALWAYS check notifications.
   useEffect(() => {
     if (!isOnboarded || !currentUser) return;
 
     const requestNativePermissions = async () => {
       try {
-        // Crash recovery: if onboarding was already completed, skip permissions
         const alreadyCompleted = await permissionManager.hasCompletedOnboarding();
-        if (alreadyCompleted) {
-          console.log('✅ Onboarding already completed in previous session — skipping permission requests');
-          return;
-        }
 
-        console.log('🛡️ First-time onboarding: requesting Android permissions...');
+        if (!alreadyCompleted) {
+          console.log('🛡️ First-time onboarding: requesting Android permissions...');
 
-        // Check if we've asked before (but maybe didn't complete)
-        const hasAsked = await permissionManager.hasAskedPermissions();
+          const hasAsked = await permissionManager.hasAskedPermissions();
 
-        if (!hasAsked) {
-          // First time: request all permissions sequentially
-          const result = await permissionManager.requestAllPermissions();
-          console.log('📱 Permissions granted:', result);
-
-          // Request notification permission separately via the LocalNotifications API
-          // (Android 13+ POST_NOTIFICATIONS). This is the only safe path — the
-          // PushNotifications API crashes the app on Android 13+ when accepted.
-          const notifGranted = await requestNotificationPermissions();
-          if (notifGranted) {
-            const saved = await permissionManager.loadPermissionStatus() || { camera: true, microphone: true, storage: true, notifications: false };
-            saved.notifications = true;
-            await permissionManager.savePermissionStatus(saved);
+          if (!hasAsked) {
+            const result = await permissionManager.requestAllPermissions();
+            console.log('📱 Permissions granted:', result);
+          } else {
+            console.log('⚠️ Permissions were asked but onboarding did not complete — requesting missing only');
+            const result = await permissionManager.requestMissingPermissions();
+            console.log('📱 Permission status:', result);
           }
         } else {
-          // Asked before but onboarding wasn't completed (possible crash):
-          // only request missing permissions
-          console.log('⚠️ Permissions were asked but onboarding did not complete — requesting missing only');
-          const result = await permissionManager.requestMissingPermissions();
-          console.log('📱 Permission status:', result);
+          console.log('✅ Onboarding already completed — skipping camera/mic/storage permissions');
+        }
+
+        // ALWAYS check notification permission — even for returning users.
+        // Users may have denied it previously, or it may have been revoked.
+        const notifStatus = await requestNotificationPermissions();
+        if (notifStatus) {
+          const saved = await permissionManager.loadPermissionStatus() || { camera: true, microphone: true, storage: true, notifications: false };
+          saved.notifications = true;
+          await permissionManager.savePermissionStatus(saved);
         }
       } catch (err) {
         console.warn('⚠️ Permission initialization error (non-fatal):', err);

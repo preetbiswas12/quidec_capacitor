@@ -232,11 +232,14 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   try {
     if (!(window as any).Capacitor?.isNativePlatform?.()) {
       // On web, request Notification API permission
-      if ('Notification' in window && Notification.permission === 'default') {
+      if ('Notification' in window) {
+        if (Notification.permission === 'granted') return true;
+        if (Notification.permission === 'denied') return false;
+        // Only prompt if never asked ('default')
         const permission = await Notification.requestPermission();
         return permission === 'granted';
       }
-      return true;
+      return false;
     }
 
     // Check Android API level — POST_NOTIFICATIONS is only needed on API 33+
@@ -249,6 +252,10 @@ export async function requestNotificationPermissions(): Promise<boolean> {
       console.log(`📱 Android API ${apiLevel} (< 33): notifications granted by default`);
       return true;
     }
+
+    // Check if already granted before requesting (avoid unnecessary API calls)
+    const existing = await LocalNotifications.checkPermissions();
+    if (existing.display === 'granted') return true;
 
     // Android 13+: need to request POST_NOTIFICATIONS at runtime
     const result = await LocalNotifications.requestPermissions();
