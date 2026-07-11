@@ -65,20 +65,20 @@ beforeEach(() => {
 });
 
 describe('setUserOnline', () => {
-  it('writes online status to RTDB using username', async () => {
+  it('writes online status to RTDB using uid (custom handle)', async () => {
     await presenceService.setUserOnline('uid1', 'alice');
 
-    expect(mockRef).toHaveBeenCalledWith({}, 'presence/alice');
+    expect(mockRef).toHaveBeenCalledWith({}, 'presence/uid1');
     expect(mockSet).toHaveBeenCalledTimes(1);
     const [, payload] = mockSet.mock.calls[0] as any[];
     expect(payload.online).toBe(true);
     expect(payload.username).toBe('alice');
   });
 
-  it('writes online status to Firestore using username', async () => {
+  it('writes online status to Firestore using uid (custom handle)', async () => {
     await presenceService.setUserOnline('uid1', 'alice');
 
-    expect(mockDoc).toHaveBeenCalledWith({}, 'users', 'alice');
+    expect(mockDoc).toHaveBeenCalledWith({}, 'users', 'uid1');
     expect(mockSetDoc).toHaveBeenCalledTimes(1);
     const [docRef, payload, options] = mockSetDoc.mock.calls[0] as any[];
     expect(payload.isOnline).toBe(true);
