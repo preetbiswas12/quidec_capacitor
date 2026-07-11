@@ -836,7 +836,7 @@ export default function ChatWindow() {
                 {EMOJI_LIST.map(e => (
                   <button 
                     key={e} 
-                    onClick={() => { reactToMessage(chatId!, activeMenuId, e); setActiveMenuId(null); }}
+                    onClick={() => { reactToMessage(chatId!, activeMenuId, e); setActiveMenuId(null); setIsSelectionMode(false); }}
                     className="text-2xl hover:scale-125 transition-transform p-1.5 active:scale-90"
                     aria-label={`React with ${e}`}
                   >
