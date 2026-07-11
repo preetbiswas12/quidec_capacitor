@@ -5,6 +5,13 @@ import { useApp } from '../context/AppContext';
 import { useNavigate } from 'react-router';
 import Avatar from './Avatar';
 
+function formatReqTime(ts: string): string {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 export default function MessageRequests() {
   const navigate = useNavigate();
   const {
@@ -168,7 +175,7 @@ export default function MessageRequests() {
                       <div className="flex-1 min-w-0">
                         <p className="text-wa-primary" style={{ fontWeight: 600 }}>{c.name}</p>
                         <p className="text-wa-text-muted" style={{ fontSize: '0.75rem' }}>
-                          {req.status === 'accepted' ? 'Accepted' : 'Declined'} · {req.timestamp}
+                          {req.status === 'accepted' ? 'Accepted' : 'Declined'} · {formatReqTime(req.timestamp)}
                         </p>
                       </div>
                     </div>
@@ -237,7 +244,7 @@ export default function MessageRequests() {
                       <div className="flex-1 min-w-0">
                         <p className="text-wa-primary" style={{ fontWeight: 600 }}>{contact?.name || req.contactId}</p>
                         <p className="text-wa-text-muted" style={{ fontSize: '0.75rem' }}>
-                          {req.status === 'accepted' ? 'Accepted' : 'Declined'} · {req.timestamp}
+                          {req.status === 'accepted' ? 'Accepted' : 'Declined'} · {formatReqTime(req.timestamp)}
                         </p>
                       </div>
                     </div>
@@ -275,7 +282,7 @@ function RequestCard({
           <p className="text-wa-primary" style={{ fontWeight: 800, fontSize: '1.1rem', letterSpacing: '-0.3px' }}>{contact.name}</p>
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-wa-accent font-bold" style={{ fontSize: '0.82rem' }}>@{contact.userId?.replace('@', '') || contact.id}</span>
-            <span className="text-wa-text-muted" style={{ fontSize: '0.82rem' }}>· {timestamp}</span>
+            <span className="text-wa-text-muted" style={{ fontSize: '0.82rem' }}>· {formatReqTime(timestamp)}</span>
           </div>
         </div>
       </div>

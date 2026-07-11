@@ -2536,7 +2536,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         const { StatusBar, Style } = await import('@capacitor/status-bar');
         await StatusBar.setStyle({ style: isDark ? Style.Dark : Style.Light });
-        await StatusBar.setBackgroundColor({ color: isDark ? '#1F2C34' : '#F0F2F5' });
+        await StatusBar.setBackgroundColor({ color: isDark ? '#000000' : '#F0F2F5' });
       } catch (err) {
         // Not on mobile or plugin failed
       }

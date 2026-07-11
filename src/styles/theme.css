@@ -58,8 +58,8 @@
 .dark {
   /* WhatsApp Dark Theme */
   --wa-bg-main: #000000;
-  --wa-bg-secondary: #111B21;
-  --wa-bg-header: #1F2C34;
+  --wa-bg-secondary: #0A0A0A;
+  --wa-bg-header: #000000;
   --wa-bg-chat: #000000;
   --wa-bg-bubble-self: #005C8B;
   --wa-bg-bubble-other: #1F2C34;
@@ -73,9 +73,9 @@
   --wa-online-green: #4d91fb;
   --wa-read-blue: #53bdeb;
   --wa-star-yellow: #f9a825;
-  --wa-menu-bg: #233138;
-  --wa-menu-hover: #2A3942;
-  --wa-date-bg: #182229;
+  --wa-menu-bg: #111111;
+  --wa-menu-hover: #1A1A1A;
+  --wa-date-bg: #111111;
 
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
