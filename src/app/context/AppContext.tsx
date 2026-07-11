@@ -206,6 +206,8 @@ interface AppContextType {
   clearAllChats: () => Promise<void>;
   clearChat: (chatId: string) => Promise<void>;
   deleteMessage: (chatId: string, messageId: string) => Promise<void>;
+  deleteMessageForMe: (chatId: string, messageId: string) => Promise<void>;
+  forwardMessages: (messageIds: string[], targetChatId: string) => Promise<void>;
   typingContacts: Record<string, boolean>;
 
   // Groups
@@ -2435,6 +2437,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [currentUser, chats]);
 
+  const deleteMessageForMe = useCallback(async (chatId: string, messageId: string) => {
+    if (!currentUser) return;
+
+    setMessages(prev => {
+      const chatMessages = prev[chatId] || [];
+      return {
+        ...prev,
+        [chatId]: chatMessages.filter(m => m.id !== messageId),
+      };
+    });
+
+    try {
+      const { deleteMessageById } = await import('../../utils/sqliteMessageStore');
+      await deleteMessageById(currentUser.userId, chatId, messageId);
+    } catch (err) {
+      console.warn('⚠️ Failed to delete message from local store:', err);
+    }
+  }, [currentUser]);
+
+  const forwardMessages = useCallback(async (messageIds: string[], targetChatId: string) => {
+    if (!currentUser || messageIds.length === 0) return;
+
+    for (const msgId of messageIds) {
+      let foundMsg: Message | undefined;
+      for (const chatMsgs of Object.values(messages)) {
+        foundMsg = chatMsgs.find(m => m.id === msgId);
+        if (foundMsg) break;
+      }
+      if (!foundMsg) continue;
+
+      const prefix = foundMsg.content.startsWith('[Forwarded]') ? '' : '[Forwarded] ';
+      const content = `${prefix}${foundMsg.content}`;
+
+      await sendMessage(targetChatId, content, foundMsg.type, {
+        imageUrl: foundMsg.imageUrl,
+        linkUrl: foundMsg.linkUrl,
+        linkTitle: foundMsg.linkTitle,
+        linkDomain: foundMsg.linkDomain,
+      });
+    }
+  }, [currentUser, messages, sendMessage]);
+
   // ─── Friend Request Methods ────────────────────────────────────────────────
 
   const sendChatRequest = useCallback(async (contactId: string) => {
@@ -2869,6 +2913,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     clearAllChats,
     clearChat,
     deleteMessage,
+    deleteMessageForMe,
+    forwardMessages,
     addMessagesToChat,
     typingContacts,
     searchQuery,

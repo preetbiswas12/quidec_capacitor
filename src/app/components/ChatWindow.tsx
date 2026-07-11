@@ -5,7 +5,7 @@ import {
   Mic, Send, CheckCheck, Check, Lock, FileText, Camera,
   X, Reply, Link, Image, MapPin, User, File, MessageSquare,
   ExternalLink, ChevronDown, ChevronUp, Download, Share2, Save, Star,
-  Clock, Timer, Edit3, Trash2, Copy
+  Clock, Timer, Edit3, Trash2, Copy, Forward
 } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 
@@ -36,6 +36,7 @@ import { useApp } from '../context/AppContext';
 import Avatar from './Avatar';
 import TypingDots from './TypingDots';
 import ContactInfo from './ContactInfo';
+import EmojiPicker from './EmojiPicker';
 import { loadMediaWithCache } from '../../utils/mediaUploadHandler';
 import type { Message } from '../context/AppContext';
 import { Share } from '@capacitor/share';
@@ -60,7 +61,7 @@ export default function ChatWindow() {
     chats, contacts, messages, sendMessage, typingContacts, isOffline, isReconnecting, syncProgress,
     setActiveChatId, contactInfoOpen, setContactInfoOpen,
     replyTo, setReplyTo, reactToMessage, clearChat,
-    deleteMessage, addMessagesToChat, toggleStarMessage, editMessage, currentUser,
+    deleteMessage, deleteMessageForMe, forwardMessages, addMessagesToChat, toggleStarMessage, editMessage, currentUser,
     setDisappearingTimer, isDisappearingActive, getDisappearingRemaining, disappearingTimers,
     markAsRead
   } = useApp();
@@ -87,6 +88,11 @@ export default function ChatWindow() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(true);
   const [showTimerSheet, setShowTimerSheet] = useState(false);
+  const [showDeleteSheet, setShowDeleteSheet] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [showForwardSheet, setShowForwardSheet] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedMsgIds, setSelectedMsgIds] = useState<string[]>([]);
   
   // Message interaction state
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
@@ -588,6 +594,8 @@ export default function ChatWindow() {
     if (e.key === 'Escape') {
       if (editingMsgId) {
         cancelEditing();
+      } else if (isSelectionMode) {
+        exitSelectionMode();
       } else {
         setReplyTo(null);
         setShowEmojiPicker(false);
@@ -610,6 +618,49 @@ export default function ChatWindow() {
   const cancelEditing = () => {
     setEditingMsgId(null);
     setEditingText('');
+  };
+
+  const exitSelectionMode = () => {
+    setIsSelectionMode(false);
+    setSelectedMsgIds([]);
+  };
+
+  const toggleMessageSelection = (msgId: string) => {
+    setSelectedMsgIds(prev => {
+      if (prev.includes(msgId)) {
+        const next = prev.filter(id => id !== msgId);
+        if (next.length === 0) {
+          setIsSelectionMode(false);
+          return [];
+        }
+        return next;
+      }
+      return [...prev, msgId];
+    });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!chatId || selectedMsgIds.length === 0) return;
+    const myId = currentUser?.userId || 'me';
+    for (const msgId of selectedMsgIds) {
+      const msg = chatMessages.find(m => m.id === msgId);
+      if (msg && (msg.senderId === myId)) {
+        await deleteMessage(chatId, msgId);
+      } else {
+        await deleteMessageForMe(chatId, msgId);
+      }
+    }
+    exitSelectionMode();
+  };
+
+  const handleForwardSelected = async (targetChatId: string) => {
+    if (selectedMsgIds.length === 0) return;
+    const targetChat = chats.find(c => c.id === targetChatId);
+    const targetContact = targetChat ? contacts.find(c => c.id === targetChat.contactId) : null;
+    await forwardMessages(selectedMsgIds, targetChatId);
+    toast.success(`Forwarded to ${targetContact?.name || 'chat'}`);
+    setShowForwardSheet(false);
+    exitSelectionMode();
   };
 
   const handleEditSend = async () => {
@@ -866,24 +917,19 @@ export default function ChatWindow() {
                 >
                   <Copy size={18} className="text-wa-text-muted" /> Copy Text
                 </button>
-                {(() => {
-                  const activeMsg = chatMessages.find(m => m.id === activeMenuId);
-                  if (activeMsg?.senderId === 'me') {
-                    return (
-                      <button
-                        role="menuitem"
-                        onClick={() => {
-                          if (chatId && activeMenuId) deleteMessage(chatId, activeMenuId);
-                          setActiveMenuId(null);
-                        }}
-                        className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 text-wa-primary text-sm font-medium text-red-400"
-                      >
-                        <Trash2 size={18} className="text-red-400" /> Delete
-                      </button>
-                    );
-                  }
-                  return null;
-                })()}
+                <button 
+                  role="menuitem"
+                  onClick={() => {
+                    if (activeMenuId) {
+                      setDeleteTargetId(activeMenuId);
+                      setShowDeleteSheet(true);
+                    }
+                    setActiveMenuId(null);
+                  }}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 text-wa-primary text-sm font-medium text-red-400"
+                >
+                  <Trash2 size={18} className="text-red-400" /> Delete
+                </button>
               </div>
             </motion.div>
           </>
@@ -972,7 +1018,33 @@ export default function ChatWindow() {
         </AnimatePresence>
 
         <div className="relative z-30 flex items-center gap-3 px-3 py-2.5 pt-safe bg-wa-header/95 backdrop-blur-md shrink-0 border-b border-wa-border/10">
-          <button onClick={handleBack} className="text-wa-header-icon hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5 transition-colors duration-150" aria-label="Go back to chats"><ArrowLeft size={20} /></button>
+          {isSelectionMode ? (
+            <>
+              <button onClick={exitSelectionMode} className="text-wa-header-icon hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5 transition-colors duration-150" aria-label="Exit selection mode"><X size={20} /></button>
+              <span className="text-wa-primary flex-1" style={{ fontWeight: 600, fontSize: '0.95rem' }}>{selectedMsgIds.length} selected</span>
+              <div className="flex items-center gap-1">
+                <button onClick={handleDeleteSelected} disabled={selectedMsgIds.length === 0} className="p-2 rounded-full text-wa-header-icon hover:text-red-400 hover:bg-white/5 transition-colors duration-150 disabled:opacity-30" aria-label="Delete selected"><Trash2 size={20} /></button>
+                <button onClick={() => setShowForwardSheet(true)} disabled={selectedMsgIds.length === 0} className="p-2 rounded-full text-wa-header-icon hover:text-wa-primary hover:bg-white/5 transition-colors duration-150 disabled:opacity-30" aria-label="Forward selected"><Forward size={20} /></button>
+                <button onClick={() => {
+                  if (!chatId) return;
+                  const myId = currentUser?.userId || 'me';
+                  const allMine = selectedMsgIds.every(id => chatMessages.find(m => m.id === id)?.senderId === myId);
+                  if (allMine) {
+                    selectedMsgIds.forEach(id => toggleStarMessage(chatId, id));
+                  } else {
+                    toast.info('Can only star your own messages');
+                  }
+                }} disabled={selectedMsgIds.length === 0} className="p-2 rounded-full text-wa-header-icon hover:text-wa-star hover:bg-white/5 transition-colors duration-150 disabled:opacity-30" aria-label="Star selected"><Star size={20} /></button>
+                <button onClick={() => {
+                  const text = selectedMsgIds.map(id => chatMessages.find(m => m.id === id)?.content || '').join('\n');
+                  navigator.clipboard.writeText(text);
+                  toast.success('Messages copied');
+                }} disabled={selectedMsgIds.length === 0} className="p-2 rounded-full text-wa-header-icon hover:text-wa-primary hover:bg-white/5 transition-colors duration-150 disabled:opacity-30" aria-label="Copy selected"><Copy size={20} /></button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button onClick={handleBack} className="text-wa-header-icon hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5 transition-colors duration-150" aria-label="Go back to chats"><ArrowLeft size={20} /></button>
           <button onClick={() => setContactInfoOpen(!contactInfoOpen)} className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity duration-150">
             <div className="relative">
               <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={40} />
@@ -1004,6 +1076,8 @@ export default function ChatWindow() {
               )}
             </div>
           </div>
+            </>
+          )}
         </div>
 
         {/* Offline indicator bar */}
@@ -1105,6 +1179,15 @@ export default function ChatWindow() {
                   onContextMenu={(e) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); setActiveMenuId(msg.id); }}
                   isConsecutive={isConsecutive}
                   uploadProgress={uploadProgress[msg.id]}
+                  isSelectionMode={isSelectionMode}
+                  isSelected={selectedMsgIds.includes(msg.id)}
+                  onToggleSelection={() => toggleMessageSelection(msg.id)}
+                  onLongPress={() => {
+                    if (!isSelectionMode) {
+                      setIsSelectionMode(true);
+                      setSelectedMsgIds([msg.id]);
+                    }
+                  }}
                 />
               </React.Fragment>
             );
@@ -1149,10 +1232,8 @@ export default function ChatWindow() {
 
         <AnimatePresence>
           {showEmojiPicker && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2, ease: 'easeOut' }} className="bg-wa-header border-t border-wa-border/10 shrink-0 overflow-hidden">
-              <div className="px-3 py-2.5"><div className="grid grid-cols-10 gap-0.5">{EMOJI_LIST.map(emoji => (
-                <button key={emoji} onClick={() => appendEmoji(emoji)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-wa-secondary/60 transition-colors duration-100 active:scale-90" style={{ fontSize: '1.2rem' }}>{emoji}</button>
-              ))}</div></div>
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2, ease: 'easeOut' }} className="shrink-0 overflow-hidden">
+              <EmojiPicker onSelect={(emoji) => { appendEmoji(emoji); }} onClose={() => setShowEmojiPicker(false)} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -1255,7 +1336,7 @@ export default function ChatWindow() {
           )}
         </AnimatePresence>
 
-        <div className="relative flex items-end gap-2 px-3 py-2.5 bg-wa-header shrink-0 border-t border-wa-border/5">
+        {!isSelectionMode && <div className="relative flex items-end gap-2 px-3 py-2.5 bg-wa-header shrink-0 border-t border-wa-border/5">
           {sendError && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
@@ -1321,7 +1402,7 @@ export default function ChatWindow() {
             : text ? <motion.button key="send" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.6, opacity: 0 }} transition={{ type: 'spring', damping: 20, stiffness: 400 }} onClick={handleSend} disabled={isLoading} className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 shadow-[0_2px_8px_rgba(77,145,251,0.25)] active:scale-90 ${isLoading ? 'bg-wa-accent/40 cursor-not-allowed' : 'bg-wa-accent hover:bg-wa-accent/90'}`} aria-label="Send message"><Send size={18} className="text-white ml-0.5" /></motion.button>
             : <motion.button key="mic" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.6, opacity: 0 }} transition={{ type: 'spring', damping: 20, stiffness: 400 }} onClick={() => startAudioRecording()} className="w-11 h-11 bg-wa-accent rounded-full flex items-center justify-center shrink-0 hover:bg-wa-accent/90 transition-all duration-200 shadow-[0_2px_8px_rgba(77,145,251,0.25)] active:scale-90" aria-label="Record voice message"><Mic size={18} className="text-white" /></motion.button>}
           </AnimatePresence>
-        </div>
+        </div>}
       </div>
 
       <AnimatePresence>
@@ -1387,11 +1468,126 @@ export default function ChatWindow() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Delete Confirmation Sheet ── */}
+      <AnimatePresence>
+        {showDeleteSheet && deleteTargetId && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[200] flex items-end justify-center bg-black/40"
+            onClick={() => { setShowDeleteSheet(false); setDeleteTargetId(null); }}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="w-full bg-wa-menu-bg rounded-t-2xl p-5 pb-8"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Trash2 size={20} className="text-red-400" />
+                  <h3 className="text-wa-primary font-bold" style={{ fontSize: '1.1rem' }}>Delete message?</h3>
+                </div>
+                <button onClick={() => { setShowDeleteSheet(false); setDeleteTargetId(null); }} className="text-wa-text-muted p-1" aria-label="Close"><X size={20} /></button>
+              </div>
+              {(() => {
+                const targetMsg = chatMessages.find(m => m.id === deleteTargetId);
+                const myId = currentUser?.userId || 'me';
+                const isOwnMessage = targetMsg?.senderId === myId;
+                return (
+                  <>
+                    {targetMsg && (
+                      <p className="text-wa-text-muted mb-4 truncate" style={{ fontSize: '0.85rem' }}>
+                        {targetMsg.content || (targetMsg.type === 'image' ? '📷 Photo' : targetMsg.type === 'video' ? '🎥 Video' : 'Message')}
+                      </p>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (chatId && deleteTargetId) deleteMessageForMe(chatId, deleteTargetId);
+                        setShowDeleteSheet(false);
+                        setDeleteTargetId(null);
+                      }}
+                      className="w-full flex items-center justify-between px-4 py-3.5 rounded-xl mb-1 text-wa-primary hover:bg-wa-secondary/50 transition-colors"
+                    >
+                      <span style={{ fontSize: '0.95rem' }}>Delete for me</span>
+                      <Trash2 size={18} className="text-wa-text-muted" />
+                    </button>
+                    {isOwnMessage && (
+                      <button
+                        onClick={() => {
+                          if (chatId && deleteTargetId) deleteMessage(chatId, deleteTargetId);
+                          setShowDeleteSheet(false);
+                          setDeleteTargetId(null);
+                        }}
+                        className="w-full flex items-center justify-between px-4 py-3.5 rounded-xl mb-1 text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <span style={{ fontSize: '0.95rem', fontWeight: 500 }}>Delete for everyone</span>
+                        <Trash2 size={18} className="text-red-400" />
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Forward Chat Picker Sheet ── */}
+      <AnimatePresence>
+        {showForwardSheet && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[200] flex items-end justify-center bg-black/40"
+            onClick={() => setShowForwardSheet(false)}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="w-full bg-wa-menu-bg rounded-t-2xl max-h-[70vh] flex flex-col"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between p-5 pb-3">
+                <div className="flex items-center gap-2">
+                  <Forward size={20} className="text-wa-accent" />
+                  <h3 className="text-wa-primary font-bold" style={{ fontSize: '1.1rem' }}>Forward to</h3>
+                </div>
+                <button onClick={() => setShowForwardSheet(false)} className="text-wa-text-muted p-1" aria-label="Close"><X size={20} /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-3 pb-4">
+                {chats.map(c => {
+                  const cContact = contacts.find(ct => ct.id === c.contactId);
+                  if (!cContact) return null;
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => handleForwardSelected(c.id)}
+                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-wa-secondary/50 transition-colors"
+                    >
+                      <Avatar src={cContact.avatar} name={cContact.name} color={cContact.avatarColor} size={42} />
+                      <div className="text-left min-w-0 flex-1">
+                        <p className="text-wa-primary truncate" style={{ fontSize: '0.92rem', fontWeight: 500 }}>{cContact.name}</p>
+                        <p className="text-wa-text-muted truncate" style={{ fontSize: '0.75rem' }}>{c.lastMessage || 'Start conversation'}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
-
-// ─── Date Separator ─────────────────────────────────────────────────────────
 
 function formatDateSep(timestamp: any): string {
   let date: Date;
@@ -1417,7 +1613,7 @@ function formatDateSep(timestamp: any): string {
 
 // ─── MessageBubble ────────────────────────────────────────────────────────────
 
-function MessageBubble({ message, contact, contacts, showAvatar, showSenderName, isGroup, onReply, isSearchHighlight, isSearchActive, onImageClick, onVideoClick, onContextMenu, isConsecutive, uploadProgress }: {
+function MessageBubble({ message, contact, contacts, showAvatar, showSenderName, isGroup, onReply, isSearchHighlight, isSearchActive, onImageClick, onVideoClick, onContextMenu, isConsecutive, uploadProgress, isSelectionMode, isSelected, onToggleSelection, onLongPress }: {
   message: Message;
   contact: any;
   contacts: any[];
@@ -1432,6 +1628,10 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
   onContextMenu: (e: React.MouseEvent) => void;
   isConsecutive?: boolean;
   uploadProgress?: number;
+  isSelectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelection?: () => void;
+  onLongPress?: () => void;
 }) {
   const { currentUser } = useApp();
   const isMe = message.senderId === 'me' || message.senderId === currentUser?.userId;
@@ -1444,6 +1644,29 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
   const swipeScale = useTransform(x, [0, 40], [0.5, 1]);
   const rotateZ = useTransform(x, [0, 40], [0, 8]);
   const [swipeTriggered, setSwipeTriggered] = useState(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggeredRef = useRef(false);
+
+  const handlePointerDown = () => {
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      onLongPress?.();
+    }, 500);
+  };
+
+  const handlePointerUp = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    };
+  }, []);
 
   const handleDragEnd = (_: any, info: any) => {
     if (info.offset.x > 35 && !swipeTriggered) {
@@ -1483,6 +1706,17 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         <Reply size={14} className="text-white" />
       </motion.div>
 
+      {isSelectionMode && (
+        <div className="w-6 shrink-0 self-center flex items-center justify-center mb-1">
+          <div
+            onClick={(e) => { e.stopPropagation(); onToggleSelection?.(); }}
+            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-150 ${isSelected ? 'bg-wa-accent border-wa-accent' : 'border-wa-text-muted/40'}`}
+          >
+            {isSelected && <Check size={12} className="text-white" />}
+          </div>
+        </div>
+      )}
+
       {!isMe && isGroup && (
         <div className="w-7 shrink-0 self-end mb-0.5">
           {showAvatar && <Avatar src={displayContact.avatar} name={displayContact.name} color={displayContact.avatarColor} size={28} />}
@@ -1491,17 +1725,21 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
 
       <motion.div
         id={`msg-${message.id}`}
-        drag="x"
+        drag={isSelectionMode ? false : "x"}
         dragConstraints={{ left: -60, right: 0 }}
         dragElastic={0.4}
         dragSnapToOrigin
         transition={{ type: 'spring', damping: 20, stiffness: 300, mass: 0.8 }}
-        onDrag={(_: any, info: any) => x.set(info.offset.x)}
-        onDragEnd={handleDragEnd}
+        onDrag={isSelectionMode ? undefined : ((_: any, info: any) => x.set(info.offset.x))}
+        onDragEnd={isSelectionMode ? undefined : handleDragEnd}
+        onPointerDown={isSelectionMode ? undefined : handlePointerDown}
+        onPointerUp={isSelectionMode ? undefined : handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onClick={isSelectionMode ? (e) => { e.stopPropagation(); onToggleSelection?.(); } : undefined}
         initial={{ opacity: 0, x: isMe ? 40 : -40, scale: 0.92 }}
         animate={{ opacity: 1, x: 0, scale: 1 }}
         whileTap={{ scale: 0.995 }}
-        className={`relative max-w-[80%] rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-shadow duration-200 overflow-hidden break-all ${isMediaOnly ? 'p-0' : 'px-3 py-1.5'} ${isMe ? 'bg-wa-bubble-self text-wa-primary' : 'bg-wa-bubble-other text-wa-primary'} ${isSearchActive ? 'ring-2 ring-wa-accent' : isSearchHighlight ? 'ring-1 ring-wa-accent/40' : ''}`}
+        className={`relative max-w-[80%] rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-shadow duration-200 overflow-hidden break-all ${isMediaOnly ? 'p-0' : 'px-3 py-1.5'} ${isMe ? 'bg-wa-bubble-self text-wa-primary' : 'bg-wa-bubble-other text-wa-primary'} ${isSelected ? 'ring-2 ring-wa-accent bg-blue-500/10' : isSearchActive ? 'ring-2 ring-wa-accent' : isSearchHighlight ? 'ring-1 ring-wa-accent/40' : ''}`}
         style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
       >
         {!isMediaOnly && (isMe ? <div className="absolute bottom-0 right-0 w-0 h-0 border-l-[7px] border-l-transparent border-b-[7px] border-b-wa-bubble-self translate-x-1.5" /> : <div className="absolute bottom-0 left-0 w-0 h-0 border-r-[7px] border-r-transparent border-b-[7px] border-b-wa-bubble-other -translate-x-1.5" />)}
