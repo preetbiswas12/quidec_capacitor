@@ -382,6 +382,15 @@ export async function updateMessageStatus(
   schedulePersist();
 }
 
+export async function markChatMessagesRead(
+  _userUid: string,
+  chatId: string
+): Promise<void> {
+  if (!db) return;
+  db.run(`UPDATE messages SET status = 'read' WHERE chatId = ? AND senderId != ? AND status != 'read'`, [chatId, _userUid]);
+  schedulePersist();
+}
+
 export async function updateMessageStar(
   _userUid: string,
   _chatId: string,

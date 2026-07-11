@@ -2294,6 +2294,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const existing = chats.find(c => c.id === groupId);
       if (existing && existing.unreadCount === 0) return;
       await groupService.markGroupMessagesRead(groupId, currentUser.userId);
+      try {
+        const { markChatMessagesRead } = await import('../../utils/sqliteMessageStore');
+        await markChatMessagesRead(currentUser.userId, groupId);
+      } catch { /* ignore */ }
       setChats(prev => prev.map(c => c.id === groupId ? { ...c, unreadCount: 0 } : c));
     },
     [currentUser, chats]
@@ -2360,7 +2364,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await messageService.markAllMessagesAsRead(chatId, currentUser.userId, contactId);
 
         try {
-          const { loadMessages } = await import('../../utils/sqliteMessageStore');
+          const { loadMessages, markChatMessagesRead } = await import('../../utils/sqliteMessageStore');
+          await markChatMessagesRead(currentUser.userId, chatId);
           const localMsgs = await loadMessages(currentUser.userId, chatId);
           const unreadReceived = localMsgs.filter(
             (m: any) => m.senderId !== currentUser.userId && m.status !== 'delivered' && m.status !== 'read'
