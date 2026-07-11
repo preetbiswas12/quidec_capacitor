@@ -218,12 +218,8 @@ export default function Onboarding() {
     >
       <div />
       <div className="flex flex-col items-center gap-8">
-        <div className="w-36 h-36 bg-wa-accent/10 rounded-full flex items-center justify-center">
-          <svg viewBox="0 0 48 48" width="80" height="80" fill="none">
-            <circle cx="24" cy="24" r="24" fill="#4D91FB" />
-            <path d="M24 8C15.163 8 8 15.163 8 24c0 2.96.792 5.733 2.177 8.118L8 40l8.136-2.13A15.934 15.934 0 0024 40c8.837 0 16-7.163 16-16S32.837 8 24 8z" fill="white" />
-            <path d="M32.5 27.784c-.457-.228-2.702-1.33-3.12-1.483-.417-.152-.72-.228-.024.457-1.022.228-.993 1.71-1.22 2.39-.228.456-.457.516-.914.290-2.479-1.24-4.11-2.212-5.748-5.015-.434-.748.434-.694 1.239-2.308.152-.304.076-.57-.038-.798-.114-.228-1.022-2.462-1.4-3.37-.368-.884-.742-.762-1.022-.776-.264-.013-.57-.016-.874-.016-.304 0-.798.114-1.216.57-.417.457-1.596 1.558-1.596 3.8s1.634 4.408 1.862 4.712c.228.304 3.212 4.903 7.784 6.882 2.895 1.25 4.03 1.356 5.48 1.142.882-.132 2.702-1.105 3.083-2.174.38-1.069.38-1.985.266-2.174-.11-.19-.417-.304-.873-.532z" fill="#4D91FB" />
-          </svg>
+        <div className="w-36 h-36 bg-wa-accent/10 rounded-full flex items-center justify-center overflow-hidden">
+          <img src="/icon-512.png" alt="Veill" className="w-24 h-24 object-cover rounded-[24px]" />
         </div>
         <div className="text-center">
           <h1 className="text-wa-primary mb-3" style={{ fontSize: '1.75rem', fontWeight: 700 }}>Welcome to Veill</h1>
