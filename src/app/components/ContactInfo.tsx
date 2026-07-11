@@ -174,7 +174,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
             </div>
           )}
           {!contact.isGroup && (
-            <p className="text-wa-text-muted mt-1 font-medium" style={{ fontSize: '1rem' }}>{contact.userId}</p>
+            <p className="text-wa-text-muted mt-1 font-medium" style={{ fontSize: '1rem' }}>@{contact.userId}</p>
           )}
           {contact.isGroup && !editingGroupName && (
             <p className="text-wa-accent mt-1 font-bold" style={{ fontSize: '0.85rem' }}>

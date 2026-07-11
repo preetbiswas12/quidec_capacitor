@@ -1966,7 +1966,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ─── Helper: Convert raw contact to UI Contact ────────────────────────────
 
   const normalizeContact = useCallback((rawContact: any, index: number): Contact => {
-    const name = rawContact.name || rawContact.username || rawContact.displayName || `User ${index}`;
+    const name = rawContact.displayName || rawContact.name || rawContact.username || `User ${index}`;
     const contactHandle = rawContact.handle || rawContact.id || rawContact.username || `user${index}`;
     const userId = contactHandle;
     
