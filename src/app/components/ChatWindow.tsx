@@ -1046,7 +1046,7 @@ export default function ChatWindow() {
             <>
               <button onClick={handleBack} className="text-wa-header-icon hover:text-wa-primary p-1.5 rounded-full hover:bg-white/5 transition-colors duration-150" aria-label="Go back to chats"><ArrowLeft size={20} /></button>
           <button onClick={() => setContactInfoOpen(!contactInfoOpen)} className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity duration-150">
-            <div className="relative">
+      <div className="relative w-fit">
               <Avatar src={contact.avatar} name={contact.name} color={contact.avatarColor} size={40} />
               {contact.isOnline && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 20, stiffness: 400 }} className="absolute bottom-0.5 right-0.5 w-2.5 h-2.5 rounded-full bg-wa-accent border-2 border-wa-header" />}
             </div>
@@ -1723,7 +1723,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         </div>
       )}
 
-      <div className={`relative inline-flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+      <div className={`max-w-[80%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
       <motion.div
         id={`msg-${message.id}`}
         drag={isSelectionMode ? false : "x"}
@@ -1740,7 +1740,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         initial={{ opacity: 0, x: isMe ? 40 : -40, scale: 0.92 }}
         animate={{ opacity: 1, x: 0, scale: 1 }}
         whileTap={{ scale: 0.995 }}
-        className={`relative max-w-[80%] rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-shadow duration-200 overflow-hidden break-all ${isMediaOnly ? 'p-0' : 'px-3 py-1.5'} ${isMe ? 'bg-wa-bubble-self text-wa-primary' : 'bg-wa-bubble-other text-wa-primary'} ${isSelected ? 'ring-2 ring-wa-accent bg-blue-500/10' : isSearchActive ? 'ring-2 ring-wa-accent' : isSearchHighlight ? 'ring-1 ring-wa-accent/40' : ''}`}
+        className={`relative rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-shadow duration-200 overflow-hidden break-all ${isMediaOnly ? 'p-0' : 'px-3 py-1.5'} ${isMe ? 'bg-wa-bubble-self text-wa-primary' : 'bg-wa-bubble-other text-wa-primary'} ${isSelected ? 'ring-2 ring-wa-accent bg-blue-500/10' : isSearchActive ? 'ring-2 ring-wa-accent' : isSearchHighlight ? 'ring-1 ring-wa-accent/40' : ''}`}
         style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
       >
         {!isMediaOnly && (isMe ? <div className="absolute bottom-0 right-0 w-0 h-0 border-l-[7px] border-l-transparent border-b-[7px] border-b-wa-bubble-self translate-x-1.5" /> : <div className="absolute bottom-0 left-0 w-0 h-0 border-r-[7px] border-r-transparent border-b-[7px] border-b-wa-bubble-other -translate-x-1.5" />)}
@@ -1876,10 +1876,10 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         )}
       </motion.div>
 
-      {/* Reaction bubble — separate from message bubble, like WhatsApp */}
+      {/* Reaction bubble — WhatsApp-style */}
       {message.reactions && message.reactions.length > 0 && (
-        <div className={`flex items-center ${isMe ? 'justify-end' : 'justify-start'} -mt-1 mb-0.5`}>
-          <div className="flex items-center bg-wa-menu-bg border border-wa-border/40 rounded-full px-2 py-0.5 shadow-sm z-20">
+        <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} -mt-1 mb-0.5`}>
+          <div className="flex items-center bg-wa-menu-bg border border-wa-border/40 rounded-full px-2 py-0.5 shadow-sm">
             {message.reactions.map((r, i) => <span key={i} className="text-base leading-none">{r.emoji}</span>)}
             {message.reactions.length > 1 && <span className="text-[10px] text-wa-text-muted font-bold ml-1">{message.reactions.length}</span>}
           </div>
