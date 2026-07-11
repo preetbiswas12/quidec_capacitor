@@ -353,9 +353,15 @@ export async function loadAllChats(userUid: string, chatIds: string[]): Promise<
   }
 
   const out: Record<string, StoredMessage[]> = {};
-  await Promise.all(allResults.map(async ({ cid, values }) => {
-    out[cid] = await Promise.all(values.map(row => rowToMessage(row, userUid)));
-  }));
+  for (const cid of chatIds) {
+    const found = allResults.find(r => r.cid === cid);
+    if (found) {
+      const { cid: _, values } = found;
+      out[cid] = await Promise.all(values.map(row => rowToMessage(row, userUid)));
+    } else {
+      out[cid] = [];
+    }
+  }
   return out;
 }
 
