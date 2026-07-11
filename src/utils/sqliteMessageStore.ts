@@ -339,15 +339,23 @@ export async function loadMessages(userUid: string, chatId: string): Promise<Sto
 
 export async function loadAllChats(userUid: string, chatIds: string[]): Promise<Record<string, StoredMessage[]>> {
   const d = await initDatabase(userUid);
-  const out: Record<string, StoredMessage[]> = {};
+  
+  const allResults: { cid: string; values: (string | number | null)[][] }[] = [];
   for (const cid of chatIds) {
     const results = d.exec(
       `SELECT id, chatId, senderId, content, encryptedContent, type, timestamp, status, reactions, isStarred, replyToId, replyToContent, replyToSender, mediaPath, expiresAt, isEdited, keyVersion, hmac
        FROM messages WHERE chatId = ? ORDER BY timestamp ASC`,
       [cid]
     );
-    out[cid] = results.length ? await Promise.all(results[0].values.map(row => rowToMessage(row, userUid))) : [];
+    if (results.length && results[0].values.length > 0) {
+      allResults.push({ cid, values: results[0].values });
+    }
   }
+
+  const out: Record<string, StoredMessage[]> = {};
+  await Promise.all(allResults.map(async ({ cid, values }) => {
+    out[cid] = await Promise.all(values.map(row => rowToMessage(row, userUid)));
+  }));
   return out;
 }
 

@@ -698,10 +698,11 @@ export const messageService = {
       conversationId,
       'messages'
     );
-    const q = query(messagesRef, orderBy('timestamp', 'asc'));
+    const q = query(messagesRef, orderBy('timestamp', 'desc'), limit(100));
 
     const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const messages = await Promise.all(snapshot.docs.map(async (doc) => {
+      const docs = [...snapshot.docs].reverse();
+      const messages = await Promise.all(docs.map(async (doc) => {
         const data = doc.data();
         let decryptedContent = data.content;
 
