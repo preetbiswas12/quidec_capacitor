@@ -54,6 +54,18 @@ const EMOJI_LIST = [
   '😀','😂','😊','😍','🥰','😜','😭','🥺','🤔','👍','❤️','🔥','✨','🙏','✅'
 ];
 
+const STICKER_CATEGORIES: Record<string, string[]> = {
+  'Smileys': ['😀','😃','😄','😁','😆','🥹','😅','🤣','😂','🙂','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🫢','🫣','🤫','🤔','🫡','🤐','🤨','😐','😑','😶','🫥','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐'],
+  'Gestures': ['👋','🤚','🖐️','✋','🖖','🫱','🫲','🫳','🫴','👌','🤌','🤏','✌️','🤞','🫰','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','🫵','👍','👎','✊','👊','🤛','🤜','👏','🙌','🫶','👐','🤲','🤝','🙏','💪'],
+  'Hearts': ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','❣️','💕','💞','💓','💗','💖','💘','💝','💟'],
+  'Animals': ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐻‍❄️','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🙈','🙉','🙊','🐒','🐔','🐧','🐦','🐤','🐣','🐥','🦆','🦅','🦉','🦇','🐺','🐗','🐴','🦄','🐝','🪱','🐛','🦋','🐌','🐞','🐜','🪳','🦟','🦗','🕷️','🐢','🐍','🦎','🦂'],
+  'Food': ['🍎','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥','🥝','🍅','🍆','🥑','🥦','🥬','🥒','🌶️','🫑','🌽','🥕','🫒','🧄','🧅','🥔','🍠','🥐','🥖','🍞','🥨','🥯','🧀','🥚','🍳','🧈','🥞','🧇','🥓','🥩','🍗','🍖','🌭','🍔','🍟','🍕','🫓','🥪','🥙','🧆','🌮','🌯'],
+  'Activities': ['⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🪀','🏓','🏸','🏒','🥅','⛳','🪁','🏹','🎣','🤿','🥊','🥋','🎽','🛹','🛼','🛷','⛸️','🥌','🎿','🎯','🪀','🪁','🎮','🕹️','🎲','🧩','🎭','🎨','🧵','🧶','🎪','🎬','🎤','🎧','🎼','🎹','🥁','🪘','🎷','🎺','🪗','🎸','🪕','🎻'],
+  'Objects': ['⌚','📱','📲','💻','⌨️','🖥️','🖨️','🖱️','🖲️','💾','💿','📀','📼','📷','📸','📹','🎥','📽️','🎞️','📞','☎️','📟','📠','📺','📻','🎙️','🎚️','🎛️','🧭','⏱️','⏲️','⏰','🕰️','💡','🔦','🕯️','🪔','💰','💵','💴','💶','💷','🪙','💸','💳','🧾','💹','✉️','📧','📨','📩','📤','📥','📦','📫','📪','📬','📭','📮'],
+};
+
+const STICKER_SEND_LIST = Object.values(STICKER_CATEGORIES).flat();
+
 export default function ChatWindow() {
   const { id: chatId } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -91,6 +103,7 @@ export default function ChatWindow() {
   const [showDeleteSheet, setShowDeleteSheet] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [showForwardSheet, setShowForwardSheet] = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedMsgIds, setSelectedMsgIds] = useState<string[]>([]);
   
@@ -109,6 +122,7 @@ export default function ChatWindow() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
+  const reactionEmojiInputRef = useRef<HTMLInputElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -811,6 +825,23 @@ export default function ChatWindow() {
       <input ref={cameraInputRef} type="file" accept="image/*,video/*" capture="environment" className="hidden" onChange={handlePhotoSelect} />
       <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleVideoSelect} />
       <input ref={docInputRef} type="file" accept=".pdf,.doc,.docx,.xlsx,.xls,.txt,.ppt,.pptx,.zip" className="hidden" onChange={handleDocumentSelect} />
+      <input
+        ref={reactionEmojiInputRef}
+        type="text"
+        inputMode="text"
+        className="fixed top-0 left-0 w-px h-px opacity-0 pointer-events-none"
+        style={{ zIndex: -1 }}
+        maxLength={1}
+        onInput={(e) => {
+          const val = (e.target as HTMLInputElement).value;
+          if (val && activeMenuId) {
+            reactToMessage(chatId!, activeMenuId, val);
+            setActiveMenuId(null);
+            setIsSelectionMode(false);
+          }
+          (e.target as HTMLInputElement).value = '';
+        }}
+      />
 
       {/* Action Menu / Reaction Picker Overlay */}
       <AnimatePresence>
@@ -843,6 +874,13 @@ export default function ChatWindow() {
                     {e}
                   </button>
                 ))}
+                <button 
+                  onClick={() => { reactionEmojiInputRef.current?.focus(); }}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-all p-1 active:scale-90 shrink-0"
+                  aria-label="Pick any emoji"
+                >
+                  <span className="text-lg leading-none">＋</span>
+                </button>
               </div>
               {/* Actions List */}
               <div className="flex flex-col" role="menu">
@@ -1239,6 +1277,19 @@ export default function ChatWindow() {
         </AnimatePresence>
 
         <AnimatePresence>
+          {showStickerPicker && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2, ease: 'easeOut' }} className="shrink-0 overflow-hidden">
+              <StickerPicker onSelect={(sticker) => {
+                if (chatId) {
+                  sendMessage(chatId, sticker, 'sticker');
+                  setShowStickerPicker(false);
+                }
+              }} onClose={() => setShowStickerPicker(false)} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
           {showAttachSheet && (
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 350 }} className="bg-wa-header border-t border-wa-border/10 shrink-0 overflow-hidden">
               {showLinkInput ? (
@@ -1254,6 +1305,7 @@ export default function ChatWindow() {
                   { icon: Video, label: 'Video', color: '#d32f2f', onClick: () => videoInputRef.current?.click() },
                   { icon: Mic, label: 'Audio', color: '#ff8f00', onClick: () => startAudioRecording() },
                   { icon: Link, label: 'Link', color: '#fb8c00', onClick: () => setShowLinkInput(true) },
+                  { icon: Smile, label: 'Sticker', color: '#00a884', onClick: () => { setShowStickerPicker(true); setShowAttachSheet(false); } },
                   { icon: User, label: 'Contact', color: '#43a047', onClick: () => toast('Contact sharing coming soon') },
                   { icon: MapPin, label: 'Location', color: '#e53935', onClick: () => toast('Location sharing coming soon') },
                 ].map(item => (
@@ -1818,6 +1870,12 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
 
         {message.type === 'audio' && message.content && <p className="text-wa-primary leading-relaxed mt-1" style={{ fontSize: '0.88rem', paddingRight: '68px' }}>{message.content}</p>}
 
+        {message.type === 'sticker' && (
+          <div className="flex items-center justify-center py-1">
+            <span className="text-6xl leading-none select-none" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))' }}>{message.content}</span>
+          </div>
+        )}
+
         {message.type === 'link' && (
           <a href={sanitizeUrl(message.linkUrl)} target="_blank" rel="noopener noreferrer" className="block" onClick={e => e.stopPropagation()}>
             <div className={`rounded-xl overflow-hidden border transition-colors duration-200 ${isMe ? 'border-wa-accent/25 hover:border-wa-accent/40' : 'border-wa-border/60 hover:border-wa-border'}`}>
@@ -2050,5 +2108,46 @@ function LocalMedia({ fileId, mediaType, senderId, contactId, isImageOnly, messa
       )}
 
     </>
+  );
+}
+
+// ─── StickerPicker ────────────────────────────────────────────────────────────
+
+function StickerPicker({ onSelect, onClose }: { onSelect: (sticker: string) => void; onClose: () => void }) {
+  const [activeCategory, setActiveCategory] = useState(Object.keys(STICKER_CATEGORIES)[0]);
+  const categories = Object.keys(STICKER_CATEGORIES);
+
+  return (
+    <div className="bg-wa-header border-t border-wa-border/10">
+      <div className="flex items-center justify-between px-4 py-2.5">
+        <h3 className="text-wa-primary font-semibold" style={{ fontSize: '0.9rem' }}>Stickers</h3>
+        <button onClick={onClose} className="text-wa-text-muted hover:text-wa-primary p-1 rounded-full transition-colors duration-150" aria-label="Close sticker picker"><X size={18} /></button>
+      </div>
+      <div className="flex gap-1 px-3 pb-2 overflow-x-auto no-scrollbar">
+        {categories.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setActiveCategory(cat)}
+            className={`px-3 py-1.5 rounded-full whitespace-nowrap transition-all duration-150 ${activeCategory === cat ? 'bg-wa-accent text-white font-semibold' : 'bg-wa-secondary/50 text-wa-text-muted hover:bg-wa-secondary/80'}`}
+            style={{ fontSize: '0.72rem' }}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+      <div className="px-3 pb-3 h-48 overflow-y-auto">
+        <div className="grid grid-cols-6 gap-1">
+          {STICKER_CATEGORIES[activeCategory]?.map((sticker, i) => (
+            <button
+              key={`${activeCategory}-${i}`}
+              onClick={() => onSelect(sticker)}
+              className="w-full aspect-square flex items-center justify-center text-3xl rounded-xl hover:bg-wa-secondary/40 active:scale-90 transition-all duration-150"
+            >
+              {sticker}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

@@ -33,7 +33,7 @@ export interface StoredMessage {
   chatId: string;
   senderId: string;
   content: string;
-  type: 'text' | 'image' | 'audio' | 'video' | 'document' | 'system' | 'link';
+  type: 'text' | 'image' | 'audio' | 'video' | 'document' | 'system' | 'link' | 'sticker';
   timestamp: string;
   status: 'sent' | 'delivered' | 'read';
   reactions?: { emoji: string; count: number }[];

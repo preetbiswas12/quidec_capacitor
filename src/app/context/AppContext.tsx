@@ -57,7 +57,7 @@ export interface Message {
   id: string;
   chatId: string;
   content: string;
-  type: 'text' | 'image' | 'audio' | 'video' | 'system' | 'document' | 'link';
+  type: 'text' | 'image' | 'audio' | 'video' | 'system' | 'document' | 'link' | 'sticker';
   senderId: string;
   timestamp: string;
   status: 'sent' | 'delivered' | 'read';
