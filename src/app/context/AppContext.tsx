@@ -1685,6 +1685,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (activeChatIdRef.current === chatId && currentUser) {
         try {
           await messageService.markAllMessagesAsRead(chatId, currentUser.userId, msg.fromUid);
+          const { markChatMessagesRead } = await import('../../utils/sqliteMessageStore');
+          await markChatMessagesRead(currentUser.userId, chatId);
         } catch (err) {
           console.warn('⚠️ Failed to send immediate read receipts:', err);
         }
