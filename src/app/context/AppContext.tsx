@@ -144,7 +144,7 @@ export interface AppSettings {
   mediaAutoDownload: boolean;
   fontSize: 'small' | 'medium' | 'large';
   enterSendsMessage: boolean;
-  theme: 'dark' | 'light';
+  theme: 'dark' | 'light' | 'system';
   notificationTone: string;
   vibrationType: string;
 }
@@ -273,7 +273,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   mediaAutoDownload: true,
   fontSize: 'medium',
   enterSendsMessage: true,
-  theme: 'dark',
+  theme: 'system',
   notificationTone: 'default',
   vibrationType: 'default',
 };
@@ -397,10 +397,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   
   // Apply theme to document
   useEffect(() => {
-    if (settings.theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    const mq = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    const apply = () => {
+      const isDark = settings.theme === 'dark' || (settings.theme === 'system' && mq?.matches === true);
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    };
+    apply();
+    if (settings.theme === 'system' && mq) {
+      mq.addEventListener('change', apply);
+      return () => mq.removeEventListener('change', apply);
     }
   }, [settings.theme]);
 
@@ -2468,8 +2477,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ─── Theme & Appearance Management ───────────────────────────────────────
   useEffect(() => {
+    const mq = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
     const applyTheme = async () => {
-      const isDark = settings.theme === 'dark';
+      const isDark = settings.theme === 'dark' || (settings.theme === 'system' && mq?.matches === true);
       
       // 1. DOM class
       if (isDark) {
@@ -2489,6 +2499,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     applyTheme();
+    if (settings.theme === 'system' && mq) {
+      mq.addEventListener('change', applyTheme);
+      return () => mq.removeEventListener('change', applyTheme);
+    }
   }, [settings.theme]);
 
   const updateSettings = useCallback((updates: Partial<AppSettings>) => {

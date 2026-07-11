@@ -29,7 +29,7 @@ export interface AppSettings {
   mediaAutoDownload: boolean;
   
   // Appearance
-  theme: 'dark' | 'light';
+  theme: 'dark' | 'light' | 'system';
   fontSize: 'small' | 'medium' | 'large';
   
   // Linked Devices
@@ -60,7 +60,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   profilePhotoVisibility: 'contacts',
   enterSendsMessage: false,
   mediaAutoDownload: true,
-  theme: 'dark',
+  theme: 'system',
   fontSize: 'medium',
   linkedDevices: [],
 };

@@ -4,7 +4,7 @@
   --wa-bg-secondary: #F0F2F5;
   --wa-bg-header: #F0F2F5;
   --wa-bg-chat: #EFEAE2;
-  --wa-bg-bubble-self: #D9FDD3;
+  --wa-bg-bubble-self: #D3E8FD;
   --wa-bg-bubble-other: #FFFFFF;
   --wa-text-primary: #111B21;
   --wa-text-secondary: #667781;
@@ -13,7 +13,7 @@
   --wa-accent: #4d91fb;
   --wa-header-icon: #54656F;
   --wa-input-bg: #FFFFFF;
-  --wa-online-green: #25D366;
+  --wa-online-green: #4d91fb;
   --wa-read-blue: #53bdeb;
   --wa-star-yellow: #f9a825;
   --wa-menu-bg: #FFFFFF;
@@ -57,11 +57,11 @@
 
 .dark {
   /* WhatsApp Dark Theme */
-  --wa-bg-main: #0B141A;
+  --wa-bg-main: #000000;
   --wa-bg-secondary: #111B21;
   --wa-bg-header: #1F2C34;
-  --wa-bg-chat: #0B141A;
-  --wa-bg-bubble-self: #005C4B;
+  --wa-bg-chat: #000000;
+  --wa-bg-bubble-self: #005C8B;
   --wa-bg-bubble-other: #1F2C34;
   --wa-text-primary: #E9EDEF;
   --wa-text-secondary: #D1D7DB;
@@ -70,7 +70,7 @@
   --wa-accent: #4d91fb;
   --wa-header-icon: #AEBAC1;
   --wa-input-bg: #1F2C34;
-  --wa-online-green: #25D366;
+  --wa-online-green: #4d91fb;
   --wa-read-blue: #53bdeb;
   --wa-star-yellow: #f9a825;
   --wa-menu-bg: #233138;

@@ -6,7 +6,7 @@ import {
   User, Bell, Lock, MessageSquare, Palette, HelpCircle, LogOut,
   ChevronRight, Star, Download, Globe, Smartphone, ArrowLeft,
   Edit3, Check, Mail, Eye, Trash2, AlertTriangle,
-  Database, HardDrive, Volume2, VolumeX, Moon, Sun, AtSign, Copy, Camera, X,
+  Database, HardDrive, Volume2, VolumeX, Moon, Sun, Monitor, AtSign, Copy, Camera, X,
   Shield, Phone, LogOut as LogOutIcon,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
@@ -945,24 +945,24 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
               <div className="px-4 py-3">
                 <p className="text-wa-primary mb-3" style={{ fontSize: '0.95rem', fontWeight: 500 }}>App theme</p>
                 <div className="flex gap-3">
-                  {(['dark', 'light'] as const).map(t => (
+                  {([
+                    { key: 'system' as const, icon: Monitor, label: 'System' },
+                    { key: 'dark' as const, icon: Moon, label: 'Dark' },
+                    { key: 'light' as const, icon: Sun, label: 'Light' },
+                  ]).map(t => (
                     <button
-                      key={t}
-                      onClick={() => updateSettings({ theme: t })}
+                      key={t.key}
+                      onClick={() => updateSettings({ theme: t.key })}
                       className={`flex-1 py-3 rounded-xl border-2 transition-all duration-200 shadow-sm hover:shadow-md active:scale-[0.98] ${
-                        settings.theme === t 
-                          ? 'border-wa-accent bg-wa-accent/10 ring-1 ring-wa-accent/20' 
+                        settings.theme === t.key
+                          ? 'border-wa-accent bg-wa-accent/10 ring-1 ring-wa-accent/20'
                           : 'border-wa-border bg-wa-secondary/40'
                       }`}
                     >
                       <div className="flex flex-col items-center">
-                        {t === 'dark' ? (
-                          <Moon size={20} className={`mb-1.5 ${settings.theme === t ? 'text-wa-accent' : 'text-wa-text-muted'}`} />
-                        ) : (
-                          <Sun size={20} className={`mb-1.5 ${settings.theme === t ? 'text-wa-accent' : 'text-wa-text-muted'}`} />
-                        )}
-                        <p className={`font-medium ${settings.theme === t ? 'text-wa-accent' : 'text-wa-primary'}`} style={{ fontSize: '0.8rem' }}>
-                          {t.charAt(0).toUpperCase() + t.slice(1)}
+                        <t.icon size={20} className={`mb-1.5 ${settings.theme === t.key ? 'text-wa-accent' : 'text-wa-text-muted'}`} />
+                        <p className={`font-medium ${settings.theme === t.key ? 'text-wa-accent' : 'text-wa-primary'}`} style={{ fontSize: '0.8rem' }}>
+                          {t.label}
                         </p>
                       </div>
                     </button>

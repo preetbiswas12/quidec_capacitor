@@ -81,7 +81,7 @@ describe('settingsPersistence', () => {
 
     it('has sensible defaults', () => {
       expect(DEFAULT_SETTINGS.notifications).toBe(true);
-      expect(DEFAULT_SETTINGS.theme).toBe('dark');
+      expect(DEFAULT_SETTINGS.theme).toBe('system');
       expect(DEFAULT_SETTINGS.fontSize).toBe('medium');
       expect(DEFAULT_SETTINGS.readReceipts).toBe(true);
     });
