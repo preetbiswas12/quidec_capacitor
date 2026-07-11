@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
+import { App as CapacitorApp } from '@capacitor/app';
 import { toast } from 'sonner';
 import services, { sanitizePathComponent } from '../../utils/firebaseServices';
 const { messageService, authService, presenceService, friendRequestService, typingService, userService, groupService, statusService, callService, conversationService } = services;
@@ -335,6 +336,7 @@ function mapFirestoreMessage(raw: any, chatId: string): Message {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [isOnboarded, setIsOnboarded] = useState(false);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | null>(null);
@@ -1923,6 +1925,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       presenceService.setUserOffline(uid);
     };
   }, [currentUser, isOnboarded, navigate]);
+
+  // ─── Android Back Button Handler ──────────────────────────────────────────
+
+  useEffect(() => {
+    let handler: any;
+    CapacitorApp.addListener('backButton', () => {
+      const path = location.pathname;
+
+      // If on a sub-route (chat, group, call), navigate back via router
+      if (path !== '/app' && path !== '/') {
+        navigate(-1);
+        return;
+      }
+
+      // If on /app but not on chats tab, go back to chats tab
+      if (activeTab !== 'chats') {
+        setActiveTab('chats');
+        return;
+      }
+
+      // Already on chats tab with no sub-route — minimize the app
+      CapacitorApp.minimizeApp();
+    }).then((handle: any) => { handler = handle; });
+
+    return () => { handler?.remove?.(); };
+  }, [activeTab, location.pathname, navigate]);
 
   // ─── Friend Status Listeners (reacts to contacts changes) ─────────────────
 
