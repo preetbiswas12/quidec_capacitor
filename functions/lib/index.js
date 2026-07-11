@@ -80,58 +80,42 @@ exports.cleanupOrphanedCloudinaryChunks = functions.pubsub
     .schedule('every 24 hours')
     .onRun(async () => {
     console.log('Running scheduled Cloudinary chunk cleanup...');
-    // Query Firestore for mediaChunks older than 24 hours
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    const db = admin.firestore();
+    // NOTE: With the removal of the mediaChunks Firestore collection,
+    // this cleanup now relies on Cloudinary's own resource listing API.
+    // We use the Cloudinary Admin API to find and delete old resources.
+    if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
+        console.log('Cloudinary not configured, skipping cleanup');
+        return null;
+    }
     try {
-        const oldChunks = await db
-            .collection('mediaChunks')
-            .where('uploadedAt', '<', admin.firestore.Timestamp.fromMillis(cutoff))
-            .limit(500)
-            .get();
-        if (oldChunks.empty) {
+        // List resources in the quidec-relay folder older than 24 hours
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        const params_to_sign = `max_results=500&prefix=quidec-relay/&timestamp=${timestamp}${CLOUDINARY_API_SECRET}`;
+        const signature = crypto.createHash('sha1').update(params_to_sign).digest('hex');
+        const listUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/resources/raw/upload?prefix=quidec-relay/&max_results=500&timestamp=${timestamp}&api_key=${CLOUDINARY_API_KEY}&signature=${signature}`;
+        const response = await fetch(listUrl);
+        if (!response.ok) {
+            console.warn(`Cloudinary list failed: ${response.status}`);
+            return null;
+        }
+        const data = await response.json();
+        const resources = data.resources || [];
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        const oldResources = resources.filter((r) => {
+            const created = new Date(r.created_at).getTime();
+            return created < cutoff;
+        });
+        if (oldResources.length === 0) {
             console.log('No orphaned chunks found');
             return null;
         }
-        // Group by fileId
-        const fileMap = new Map();
-        for (const doc of oldChunks.docs) {
-            const data = doc.data();
-            const fileId = data.fileId;
-            if (fileId) {
-                fileMap.set(fileId, (fileMap.get(fileId) || 0) + 1);
-            }
-        }
         let totalDeleted = 0;
-        for (const [fileId, count] of fileMap) {
+        for (const resource of oldResources) {
             try {
-                // Delete from Cloudinary
-                for (let i = 0; i < count; i++) {
-                    try {
-                        const publicId = `${CLOUDINARY_FOLDER}/${fileId}/chunk_${i}`;
-                        await deleteCloudinaryResource(publicId);
-                        totalDeleted++;
-                    }
-                    catch ( /* chunk may already be deleted */_a) { /* chunk may already be deleted */ }
-                }
-                // Delete metadata
-                try {
-                    const metaId = `${CLOUDINARY_FOLDER}/${fileId}/_metadata`;
-                    await deleteCloudinaryResource(metaId);
-                }
-                catch ( /* ok */_b) { /* ok */ }
-                // Also delete Firestore docs for this file
-                const batch = db.batch();
-                for (const doc of oldChunks.docs) {
-                    if (doc.data().fileId === fileId) {
-                        batch.delete(doc.ref);
-                    }
-                }
-                await batch.commit();
+                await deleteCloudinaryResource(resource.public_id);
+                totalDeleted++;
             }
-            catch (err) {
-                console.warn(`Failed to cleanup ${fileId}: ${err.message}`);
-            }
+            catch ( /* chunk may already be deleted */_a) { /* chunk may already be deleted */ }
         }
         console.log(`Scheduled cleanup complete: ${totalDeleted} chunks deleted`);
     }
