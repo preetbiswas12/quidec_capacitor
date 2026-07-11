@@ -254,7 +254,7 @@ export default function ContactInfo({ contactId, chatId, onClose, onSearchChat }
             <p className="text-wa-primary leading-relaxed" style={{ fontSize: '1rem' }}>{contact.about || 'No description provided.'}</p>
             {!contact.isGroup && (
               <p className="text-wa-text-muted mt-2" style={{ fontSize: '0.8rem' }}>
-                {contact.isOnline ? 'Active now' : `Last seen ${contact.lastSeen}`}
+                {contact.isOnline ? 'Active now' : contact.lastSeen}
               </p>
             )}
           </>

@@ -1551,9 +1551,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             lastSeen: status.online ? 'online' : `last seen ${(() => {
               const ls = status.lastSeen;
               if (!ls) return 'offline';
-              if (typeof ls?.toDate === 'function') return ls.toDate().toLocaleTimeString();
-              if (typeof ls?.seconds === 'number') return new Date(ls.seconds * 1000).toLocaleTimeString();
-              try { const d = new Date(ls); return isNaN(d.getTime()) ? 'offline' : d.toLocaleTimeString(); } catch { return 'offline'; }
+              const fmt = { hour: '2-digit', minute: '2-digit' } as const;
+              if (typeof ls?.toDate === 'function') return ls.toDate().toLocaleTimeString([], fmt);
+              if (typeof ls?.seconds === 'number') return new Date(ls.seconds * 1000).toLocaleTimeString([], fmt);
+              try { const d = new Date(ls); return isNaN(d.getTime()) ? 'offline' : d.toLocaleTimeString([], fmt); } catch { return 'offline'; }
             })()}`,
           };
         }
@@ -1969,10 +1970,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       lastSeen: (() => {
         const ls = rawContact.lastSeen;
         if (!ls) return 'offline';
-        if (typeof ls === 'string') return ls;
-        if (typeof ls?.toDate === 'function') return `last seen ${ls.toDate().toLocaleTimeString()}`;
-        if (typeof ls?.seconds === 'number') return `last seen ${new Date(ls.seconds * 1000).toLocaleTimeString()}`;
-        try { return `last seen ${new Date(ls).toLocaleTimeString()}`; } catch { return 'offline'; }
+        if (typeof ls === 'string') {
+          const d = new Date(ls);
+          return isNaN(d.getTime()) ? ls : `last seen ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        }
+        if (typeof ls?.toDate === 'function') return `last seen ${ls.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        if (typeof ls?.seconds === 'number') return `last seen ${new Date(ls.seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        try { const d = new Date(ls); return isNaN(d.getTime()) ? 'offline' : `last seen ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`; } catch { return 'offline'; }
       })(),
       about: rawContact.about || '',
     };
