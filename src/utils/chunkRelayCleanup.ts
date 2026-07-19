@@ -18,6 +18,9 @@ const MEDIA_PATHS = {
   METADATA: 'media/metadata',
 };
 
+// Track files already attempted for cleanup to avoid repeated attempts
+const cleanedUpFiles = new Set<string>();
+
 /**
  * Verify that chunks exist in local SQLite/FileSystem before cleanup.
  * Returns true if at least one chunk is confirmed cached locally.
@@ -57,6 +60,11 @@ export async function confirmAndCleanup(
   totalChunks: number,
   userId: string
 ): Promise<{ success: boolean; reason: string }> {
+  // Skip if already attempted cleanup for this file
+  if (cleanedUpFiles.has(fileId)) {
+    return { success: true, reason: 'already_attempted' };
+  }
+
   try {
     // 1. Verify local cache exists
     const isCached = await verifyLocalCache(fileId, totalChunks);
@@ -64,6 +72,9 @@ export async function confirmAndCleanup(
       console.warn(`⚠️ Cleanup skipped for ${fileId}: local cache not confirmed`);
       return { success: false, reason: 'local_cache_not_confirmed' };
     }
+
+    // Mark as attempted before Cloudinary call (avoids repeated attempts on re-render)
+    cleanedUpFiles.add(fileId);
 
     console.log(`🧹 Cleanup confirmed for ${fileId}: local cache verified, deleting from Cloudinary`);
 

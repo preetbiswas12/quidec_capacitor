@@ -198,9 +198,9 @@ export function validateMediaSize(
   mediaType: 'image' | 'video' | 'audio' = 'image'
 ): string {
   const limits = {
-    image: 5 * 1024 * 1024, // 5MB
+    image: 50 * 1024 * 1024, // 50MB
     video: 50 * 1024 * 1024, // 50MB
-    audio: 10 * 1024 * 1024, // 10MB
+    audio: 50 * 1024 * 1024, // 50MB
   };
 
   const limit = limits[mediaType];

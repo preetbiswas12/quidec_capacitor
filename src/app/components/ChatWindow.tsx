@@ -159,8 +159,8 @@ export default function ChatWindow() {
   }, [chatId]); // Removed markAsRead from deps — use ref instead
 
   useEffect(() => {
-    if (!showSearch) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages, isTyping, showSearch]);
+    if (!showSearch && isNearBottom) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages, isTyping, showSearch, isNearBottom]);
 
   useEffect(() => {
     if (!lightboxImage) { setResolvedLightboxUrl(null); return; }
@@ -298,9 +298,12 @@ export default function ChatWindow() {
         ? { replyToId: replyTo.id, replyToContent: getMessagePreview(replyTo), replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
         : {};
       
-      await sendMessage(chatId, validatedText, 'text', extra);
+      // Capture reply state before clearing (async gap)
+      const replySnapshot = replyTo;
       setText('');
       setReplyTo(null);
+      
+      await sendMessage(chatId, validatedText, 'text', extra);
       setShowEmojiPicker(false);
       if (navigator.vibrate) navigator.vibrate(15);
       // Clear typing indicator on send
@@ -330,6 +333,7 @@ export default function ChatWindow() {
     const linkReplyExtra = replyTo
       ? { replyToId: replyTo.id, replyToContent: getMessagePreview(replyTo), replyToSender: replyTo.senderId === 'me' ? 'You' : contact?.name }
       : {};
+    setReplyTo(null);
 
     // Try to fetch page metadata (title, description, image)
     let linkTitle = '';
@@ -822,7 +826,7 @@ export default function ChatWindow() {
   return (
     <div className="h-full relative flex flex-col bg-wa-chat overflow-hidden transition-colors duration-200">
       <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoSelect} />
-      <input ref={cameraInputRef} type="file" accept="image/*,video/*" capture="environment" className="hidden" onChange={handlePhotoSelect} />
+      <input ref={cameraInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handlePhotoSelect} />
       <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleVideoSelect} />
       <input ref={docInputRef} type="file" accept=".pdf,.doc,.docx,.xlsx,.xls,.txt,.ppt,.pptx,.zip" className="hidden" onChange={handleDocumentSelect} />
       <input
@@ -1792,7 +1796,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
         initial={{ opacity: 0, x: isMe ? 40 : -40, scale: 0.92 }}
         animate={{ opacity: 1, x: 0, scale: 1 }}
         whileTap={{ scale: 0.995 }}
-        className={`relative rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-shadow duration-200 overflow-hidden break-all ${isMediaOnly ? 'p-0' : 'px-3 py-1.5'} ${isMe ? 'bg-wa-bubble-self text-wa-primary' : 'bg-wa-bubble-other text-wa-primary'} ${isSelected ? 'ring-2 ring-wa-accent bg-blue-500/10' : isSearchActive ? 'ring-2 ring-wa-accent' : isSearchHighlight ? 'ring-1 ring-wa-accent/40' : ''}`}
+        className={`relative rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-shadow duration-200 overflow-hidden break-words ${isMediaOnly ? 'p-0' : 'px-3 py-1.5'} ${isMe ? 'bg-wa-bubble-self text-wa-primary' : 'bg-wa-bubble-other text-wa-primary'} ${isSelected ? 'ring-2 ring-wa-accent bg-blue-500/10' : isSearchActive ? 'ring-2 ring-wa-accent' : isSearchHighlight ? 'ring-1 ring-wa-accent/40' : ''}`}
         style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
       >
         {!isMediaOnly && (isMe ? <div className="absolute bottom-0 right-0 w-0 h-0 border-l-[7px] border-l-transparent border-b-[7px] border-b-wa-bubble-self translate-x-1.5" /> : <div className="absolute bottom-0 left-0 w-0 h-0 border-r-[7px] border-r-transparent border-b-[7px] border-b-wa-bubble-other -translate-x-1.5" />)}

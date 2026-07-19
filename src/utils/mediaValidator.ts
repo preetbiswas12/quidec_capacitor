@@ -29,7 +29,7 @@ export interface ValidationResult {
 // File type constraints
 const FILE_CONSTRAINTS = {
   image: {
-    maxSize: 10 * 1024 * 1024, // 10MB
+    maxSize: 50 * 1024 * 1024, // 50MB
     mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
     extensions: ['jpg', 'jpeg', 'png', 'webp'],
     maxDimensions: { width: 8000, height: 8000 },
@@ -40,7 +40,7 @@ const FILE_CONSTRAINTS = {
     extensions: ['mp4', 'webm'],
   },
   audio: {
-    maxSize: 20 * 1024 * 1024, // 20MB
+    maxSize: 50 * 1024 * 1024, // 50MB
     mimeTypes: ['audio/mpeg', 'audio/wav', 'audio/ogg'],
     extensions: ['mp3', 'wav', 'ogg'],
   },
