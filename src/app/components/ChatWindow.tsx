@@ -415,9 +415,9 @@ export default function ChatWindow() {
     if (!file || !chatId) return;
 
     try {
-      const maxFileSize = 100 * 1024 * 1024;
+      const maxFileSize = 1024 * 1024 * 1024;
       if (file.size > maxFileSize) {
-        setSendError(`File too large. Maximum size is ${maxFileSize / 1024 / 1024}MB`);
+        setSendError(`File too large. Maximum size is 1GB`);
         setTimeout(() => setSendError(null), 4000);
         return;
       }
@@ -436,9 +436,9 @@ export default function ChatWindow() {
     if (!file || !chatId) return;
 
     try {
-      const maxFileSize = 50 * 1024 * 1024;
+      const maxFileSize = 1024 * 1024 * 1024;
       if (file.size > maxFileSize) {
-        setSendError(`File too large. Maximum size is ${maxFileSize / 1024 / 1024}MB`);
+        setSendError(`File too large. Maximum size is 1GB`);
         setTimeout(() => setSendError(null), 4000);
         return;
       }

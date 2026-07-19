@@ -148,16 +148,16 @@ describe('validateConversationId', () => {
 });
 
 describe('validateMediaSize', () => {
-  it('accepts image under 50MB', () => {
-    expect(validateMediaSize(49 * 1024 * 1024, 'image')).toBe('Valid image');
+  it('accepts image under 1GB', () => {
+    expect(validateMediaSize(500 * 1024 * 1024, 'image')).toBe('Valid image');
   });
 
-  it('rejects image over 50MB', () => {
-    expect(() => validateMediaSize(51 * 1024 * 1024, 'image')).toThrow('exceeds 50MB limit');
+  it('rejects image over 1GB', () => {
+    expect(() => validateMediaSize(1025 * 1024 * 1024, 'image')).toThrow('exceeds 1024MB limit');
   });
 
-  it('rejects video over 50MB', () => {
-    expect(() => validateMediaSize(51 * 1024 * 1024, 'video')).toThrow('exceeds 50MB limit');
+  it('rejects video over 1GB', () => {
+    expect(() => validateMediaSize(1025 * 1024 * 1024, 'video')).toThrow('exceeds 1024MB limit');
   });
 });
 
