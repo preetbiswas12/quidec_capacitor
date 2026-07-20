@@ -48,15 +48,23 @@ export async function initializePushNotifications(userId, key) {
   encryptionKey = key;
 
   // Step 1: Request permissions via PushNotifications API
-  // On Android 13+ (API 33+), POST_NOTIFICATIONS is handled by the safe
-  // LocalNotifications path in notificationSettingsManager.ts — skip here
-  // to avoid the known crash (see permissionManager.ts).
+  // On Android 13+ (API 33+), POST_NOTIFICATIONS must be granted before
+  // PushNotifications.register() will succeed. We request via LocalNotifications
+  // API which is the safe path (see permissionManager.ts).
   try {
     const { Device } = await import('@capacitor/device');
     const info = await Device.getInfo();
     const apiLevel = info.androidSDKVersion || 0;
     if (apiLevel >= 33) {
-      console.log('📱 Android 13+: notification permission handled by LocalNotifications API');
+      console.log('📱 Android 13+: requesting POST_NOTIFICATIONS via LocalNotifications');
+      const { LocalNotifications } = await import('@capacitor/local-notifications');
+      const existing = await LocalNotifications.checkPermissions();
+      if (existing.display !== 'granted') {
+        const result = await LocalNotifications.requestPermissions();
+        console.log(`📱 POST_NOTIFICATIONS permission: ${result.display}`);
+      } else {
+        console.log('✅ POST_NOTIFICATIONS already granted');
+      }
     } else {
       await PushNotifications.requestPermissions();
       console.log('✅ Push notification permissions requested');

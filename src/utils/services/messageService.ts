@@ -450,12 +450,7 @@ export const messageService = {
 
       const { messageId, conversationId } = result;
 
-      // Send FCM push notification to recipient (fire-and-forget)
-      this.sendPushNotification(toUid, fromUid, content, messageType).catch(() => {
-        // Non-critical: message was already saved
-      });
-
-      // Also try Render FCM relay as fallback (fire-and-forget, non-blocking)
+      // Notify recipient via Render FCM relay (fire-and-forget, non-blocking)
       const notifyUrl = import.meta.env.VITE_NOTIFY_URL;
       if (notifyUrl) {
         // Determine notification type (messageType: 'text' | 'image' | 'video' | 'audio')
