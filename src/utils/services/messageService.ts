@@ -245,56 +245,6 @@ export const messageService = {
   },
 
   /**
-   * Send push notification to recipient via FCM
-   * This is the ONLY Firebase cloud function for messages - notifications only!
-   */
-  async sendPushNotification(toUid: string, fromUid: string, content: string, messageType: string) {
-    try {
-      // Get recipient's FCM token from their user document
-      const userDoc = await getDoc(doc(db, 'users', toUid));
-      if (!userDoc.exists()) {
-        console.warn('⚠️ Recipient user not found for notification');
-        return false;
-      }
-
-      const userData = userDoc.data();
-      const decrypted = await decryptUserData(toUid, userData).catch(() => userData);
-      const fcmToken = decrypted.fcmToken || userData.fcmToken;
-
-      if (!fcmToken) {
-        console.warn('⚠️ Recipient has no FCM token');
-        return false;
-      }
-
-      // Get sender name for notification
-      const senderDoc = await getDoc(doc(db, 'users', fromUid));
-      const senderName = senderDoc.exists() ? senderDoc.data().displayName || 'Someone' : 'Someone';
-
-      // Build notification payload
-      const notificationBody = messageType === 'text'
-        ? content.substring(0, 50) + (content.length > 50 ? '...' : '')
-        : `Sent a ${messageType}`;
-
-      // Store notification request in RTDB (transient, not persisted)
-      const notificationRef = ref(realtimeDb, `notifications/${sanitizePathComponent(toUid)}/${Date.now()}`);
-      await set(notificationRef, {
-        type: 'new_message',
-        fromUid,
-        fromName: senderName,
-        body: notificationBody,
-        messageType,
-        timestamp: Date.now(),
-      });
-
-      console.log(`📬 Push notification queued for ${toUid}`);
-      return true;
-    } catch (err) {
-      console.error('❌ Failed to send push notification:', err);
-      return false;
-    }
-  },
-
-  /**
    * Handle incoming encrypted message from WebSocket
    * Decrypts, saves to local .bin, returns decrypted message for UI
    */
