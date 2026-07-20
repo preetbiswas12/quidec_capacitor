@@ -61,7 +61,7 @@ export interface Message {
   type: 'text' | 'image' | 'audio' | 'video' | 'system' | 'document' | 'link' | 'sticker';
   senderId: string;
   timestamp: string;
-  status: 'sent' | 'delivered' | 'read';
+  status: 'sending' | 'sent' | 'delivered' | 'read';
   reactions?: { emoji: string; count: number }[];
   isStarred?: boolean;
   replyToId?: string;
@@ -379,6 +379,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // UI State
   const [activeTab, setActiveTab] = useState<'chats' | 'calls' | 'status' | 'settings'>('chats');
+  const activeTabRef = useRef<'chats' | 'calls' | 'status' | 'settings'>('chats');
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const activeChatIdRef = useRef<string | null>(null);
   useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
@@ -1204,7 +1206,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           content: raw.content || '',
           type: raw.messageType || 'text',
           timestamp: normalizeFirestoreTimestamp(raw.timestamp),
-          status: 'sent',
+        status: 'sending',
           imageUrl: raw.mediaUrl || undefined,
           replyToId: raw.replyToId || undefined,
           replyToContent: raw.replyToContent || undefined,
@@ -1921,20 +1923,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [currentUser, isOnboarded, navigate]);
 
   // ─── Android Back Button Handler ──────────────────────────────────────────
+  // Register ONCE on mount — uses refs to read current state without re-registering.
 
   useEffect(() => {
     let handler: any;
     CapacitorApp.addListener('backButton', () => {
-      const path = location.pathname;
+      const path = window.location.hash.replace(/^#/, '') || window.location.pathname;
 
       // If on a sub-route (chat, group, call), navigate back via router
-      if (path !== '/app' && path !== '/') {
+      if (path !== '/app' && path !== '/' && path !== '') {
         navigate(-1);
         return;
       }
 
       // If on /app but not on chats tab, go back to chats tab
-      if (activeTab !== 'chats') {
+      if (activeTabRef.current !== 'chats') {
         setActiveTab('chats');
         return;
       }
@@ -1944,7 +1947,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }).then((handle: any) => { handler = handle; });
 
     return () => { handler?.remove?.(); };
-  }, [activeTab, location.pathname, navigate]);
+  }, []); // Empty deps — register once, read refs inside
 
   // ─── Friend Status Listeners (reacts to contacts changes) ─────────────────
 
@@ -2207,6 +2210,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         toast.info('Message will be sent when you\'re back online');
       } else {
         console.log('📤 Message delivered via RTDB transient pipe');
+        // Update status from 'sending' to 'sent'
+        setMessages((prev) => ({
+          ...prev,
+          [chatId]: (prev[chatId] || []).map(m =>
+            m.id === msgId ? { ...m, status: 'sent' as const } : m
+          ),
+        }));
       }
 
       // 4. Push notification to recipient via Render FCM relay (fire-and-forget)

@@ -1669,7 +1669,7 @@ function formatDateSep(timestamp: any): string {
 
 // ─── MessageBubble ────────────────────────────────────────────────────────────
 
-function MessageBubble({ message, contact, contacts, showAvatar, showSenderName, isGroup, onReply, isSearchHighlight, isSearchActive, onImageClick, onVideoClick, onContextMenu, isConsecutive, uploadProgress, isSelectionMode, isSelected, onToggleSelection, onLongPress }: {
+interface MessageBubbleProps {
   message: Message;
   contact: any;
   contacts: any[];
@@ -1688,7 +1688,9 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
   isSelected?: boolean;
   onToggleSelection?: () => void;
   onLongPress?: () => void;
-}) {
+}
+
+const MessageBubble = React.memo(function MessageBubble({ message, contact, contacts, showAvatar, showSenderName, isGroup, onReply, isSearchHighlight, isSearchActive, onImageClick, onVideoClick, onContextMenu, isConsecutive, uploadProgress, isSelectionMode, isSelected, onToggleSelection, onLongPress }: MessageBubbleProps) {
   const { currentUser } = useApp();
   const isMe = message.senderId === 'me' || message.senderId === currentUser?.userId;
   const isSystem = message.senderId === 'system';
@@ -1908,6 +1910,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
             <span className="text-wa-text-muted" style={{ fontSize: '0.62rem' }}>{toTimeStr(message.timestamp)}</span>
             {isMe && (
               <>
+                {message.status === 'sending' && <Clock size={12} className="text-wa-text-muted animate-pulse" />}
                 {message.status === 'sent' && <Check size={12} className="text-wa-text-muted" />}
                 {message.status === 'delivered' && <CheckCheck size={12} className="text-wa-text-muted" />}
                 {message.status === 'read' && <CheckCheck size={12} className="text-wa-read" />}
@@ -1950,7 +1953,7 @@ function MessageBubble({ message, contact, contacts, showAvatar, showSenderName,
       </div>
     </div>
   );
-}
+});
 
 // ─── Reply Preview Helpers ────────────────────────────────────────────────────
 
@@ -2086,6 +2089,7 @@ function LocalMedia({ fileId, mediaType, senderId, contactId, isImageOnly, messa
             <span style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,0.92)' }}>{toTimeStr(message.timestamp)}</span>
             {isMe && (
               <>
+                {message.status === 'sending' && <Clock size={11} style={{ color: 'rgba(255,255,255,0.8)' }} className="animate-pulse" />}
                 {message.status === 'sent' && <Check size={11} style={{ color: 'rgba(255,255,255,0.8)' }} />}
                 {message.status === 'delivered' && <CheckCheck size={11} style={{ color: 'rgba(255,255,255,0.8)' }} />}
                 {message.status === 'read' && <CheckCheck size={11} className="text-wa-read" />}
@@ -2103,6 +2107,7 @@ function LocalMedia({ fileId, mediaType, senderId, contactId, isImageOnly, messa
           <span style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,0.92)' }}>{toTimeStr(message.timestamp)}</span>
           {isMe && (
             <>
+              {message.status === 'sending' && <Clock size={11} style={{ color: 'rgba(255,255,255,0.8)' }} className="animate-pulse" />}
               {message.status === 'sent' && <Check size={11} style={{ color: 'rgba(255,255,255,0.8)' }} />}
               {message.status === 'delivered' && <CheckCheck size={11} style={{ color: 'rgba(255,255,255,0.8)' }} />}
               {message.status === 'read' && <CheckCheck size={11} className="text-wa-read" />}

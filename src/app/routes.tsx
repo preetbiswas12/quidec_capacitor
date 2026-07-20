@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { createBrowserRouter, Outlet, Navigate } from 'react-router';
+import { createHashRouter, Outlet, Navigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppProvider, useApp } from './context/AppContext';
 import MobileFrame from './components/MobileFrame';
@@ -149,7 +149,7 @@ function LazyRoute({ children }: { children: React.ReactNode }) {
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 
-export const router = createBrowserRouter([
+export const router = createHashRouter([
   {
     element: <Root />,
     children: [

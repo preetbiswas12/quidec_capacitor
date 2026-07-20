@@ -37,7 +37,7 @@ export interface StoredMessage {
   content: string;
   type: 'text' | 'image' | 'audio' | 'video' | 'document' | 'system' | 'link';
   timestamp: string;
-  status: 'sent' | 'delivered' | 'read';
+  status: 'sending' | 'sent' | 'delivered' | 'read';
   reactions?: { emoji: string; count: number }[];
   isStarred?: boolean;
   replyToId?: string;

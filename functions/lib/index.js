@@ -9,9 +9,9 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
 admin.initializeApp();
-const CLOUDINARY_CLOUD_NAME = 'yrclkuaq';
-const CLOUDINARY_API_KEY = '339257421286331';
-const CLOUDINARY_API_SECRET = 'jpWuE3UE6oZhQFbMTMqC14maFpo';
+const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || '';
+const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || '';
+const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || '';
 const CLOUDINARY_FOLDER = 'quidec-relay';
 /**
  * Delete encrypted chunks from Cloudinary after recipient downloads.

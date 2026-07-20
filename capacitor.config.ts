@@ -33,10 +33,10 @@ const config: CapacitorConfig = {
   
   android: {
     allowMixedContent: false,
-    buildOptions: {
-      releaseSigningKeyPath: 'my-release-key.keystore',
-      releaseSigningKeyAlias: 'my-release-alias',
-    },
+    // buildOptions: {
+    //   releaseSigningKeyPath: process.env.ANDROID_KEYSTORE_PATH || '',
+    //   releaseSigningKeyAlias: process.env.ANDROID_KEY_ALIAS || '',
+    // },
   },
   
   plugins: {

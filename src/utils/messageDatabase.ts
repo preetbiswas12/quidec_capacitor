@@ -14,7 +14,7 @@ export interface EncryptedMessageRecord {
   content: string
   attachmentFileIds: string[] // References to encrypted media chunks
   timestamp: number
-  status: 'sent' | 'delivered' | 'read' | 'failed'
+  status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
   encryptedChunkId: string // Reference to encrypted message chunks
   totalChunks: number
   messageHash: string
@@ -162,7 +162,7 @@ class EncryptedMessageDatabase {
    */
   async updateMessageStatus(
     messageId: string,
-    status: 'sent' | 'delivered' | 'read' | 'failed'
+  status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
   ): Promise<void> {
     if (!this.db) await this.initialize()
 
