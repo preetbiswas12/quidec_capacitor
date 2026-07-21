@@ -8,7 +8,7 @@
 
 import { Preferences } from '@capacitor/preferences';
 import { db } from './firebase';
-import { doc, setDoc, getDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, serverTimestamp, Timestamp, onSnapshot } from 'firebase/firestore';
 import logger from './logger';
 
 export interface AppSettings {
@@ -261,4 +261,24 @@ export async function unregisterLinkedDevice(uid: string, deviceId: string): Pro
   } catch (error) {
     logger.error('Settings', 'Failed to unregister device', error);
   }
+}
+
+/**
+ * Listen to real-time settings changes from other devices.
+ * When Firestore settings document changes, updates local storage and calls callback.
+ */
+export function listenToSettingsChanges(
+  uid: string,
+  callback: (settings: AppSettings) => void
+): () => void {
+  const settingsRef = doc(db, 'users', uid, 'settings', 'config');
+  return onSnapshot(settingsRef, async (snapshot) => {
+    if (!snapshot.exists()) return;
+    const remoteSettings = snapshot.data() as AppSettings;
+    // Update local native storage
+    await saveSettingsToNative(remoteSettings);
+    callback(remoteSettings);
+  }, (err) => {
+    logger.warn('Settings', 'Settings listener error', err);
+  });
 }
