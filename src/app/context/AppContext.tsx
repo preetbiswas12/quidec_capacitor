@@ -1983,6 +1983,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ─── Friend Status Listeners (reacts to contacts changes) ─────────────────
 
+  const MAX_STATUS_LISTENERS = 50;
+
   const setupFriendStatusListeners = useCallback((friendsList: string[]) => {
     if (!currentUser) return;
     const uid = currentUser.userId;
@@ -1993,8 +1995,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
         delete statusListenersRef.current[friendUid];
       }
     });
+    // Cap at MAX_STATUS_LISTENERS — sort by lastSeen descending (most recently active first)
+    const capped = friendsList.length > MAX_STATUS_LISTENERS
+      ? [...friendsList].sort((a, b) => {
+          const ca = contacts.find(c => c.id === a);
+          const cb = contacts.find(c => c.id === b);
+          const ta = ca?.lastSeen ? new Date(ca.lastSeen).getTime() : 0;
+          const tb = cb?.lastSeen ? new Date(cb.lastSeen).getTime() : 0;
+          return tb - ta;
+        }).slice(0, MAX_STATUS_LISTENERS)
+      : friendsList;
+    // Remove listeners for friends now beyond the cap
+    Object.keys(statusListenersRef.current).forEach(friendUid => {
+      if (!capped.includes(friendUid)) {
+        statusListenersRef.current[friendUid]?.();
+        delete statusListenersRef.current[friendUid];
+      }
+    });
     // Add listeners for new friends
-    friendsList.forEach(friendUid => {
+    capped.forEach(friendUid => {
       if (statusListenersRef.current[friendUid]) return; // already listening
       statusListenersRef.current[friendUid] = statusService.listenToUserStatuses(friendUid, (rawStatuses) => {
         const mapped: Status[] = rawStatuses.map((s: any) => ({
@@ -2013,7 +2032,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
       });
     });
-  }, [currentUser]);
+  }, [currentUser, contacts]);
 
   // Whenever contacts list changes, (re-)attach status listeners for all friends
   useEffect(() => {
