@@ -1457,6 +1457,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.warn('⚠️ Notification init failed (non-fatal):', err);
       }
 
+      // 0.0.1 Web push fallback: on web, fcm.js exits early — use Firebase Messaging SDK
+      if (!(window as any).Capacitor?.isNativePlatform?.()) {
+        try {
+          const { initializePushNotifications: initWebPush, getFCMToken, setupForegroundMessageHandler } = await import('../../utils/firebase');
+          await initWebPush((payload) => {
+            console.log('📬 Web foreground message:', payload);
+          });
+          const token = await getFCMToken();
+          if (token) {
+            console.log('✅ Web FCM token obtained');
+          }
+        } catch (err) {
+          console.warn('⚠️ Web push init failed (non-fatal):', err);
+        }
+      }
+
       // 0.1 Initialize notification channels (Android 8+)
       try {
         await initializeNotificationChannels();
