@@ -509,14 +509,14 @@ export const messageService = {
    * Receipts are transient - immediately consumed and deleted
    */
   listenToReceipts(uid: string, callback: (receipt: { type: 'delivered' | 'read', messageId: string, conversationId: string }) => void) {
-    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+    const STALE_RECEIPT_MS = 24 * 60 * 60 * 1000; // 24 hours — receipts are transient and self-cleaning
     const processedDelivered = new Set<string>();
     const processedRead = new Set<string>();
 
     // Helper to process a delivery receipt
     const processDeliveryReceipt = (key: string, data: any) => {
       if (processedDelivered.has(key)) return;
-      if (data.deliveredAt && Date.now() - data.deliveredAt > FIVE_MINUTES_MS) {
+      if (data.deliveredAt && Date.now() - data.deliveredAt > STALE_RECEIPT_MS) {
         remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered/${key}`)).catch(() => {});
         return;
       }
@@ -528,7 +528,7 @@ export const messageService = {
     // Helper to process a read receipt
     const processReadReceipt = (key: string, data: any) => {
       if (processedRead.has(key)) return;
-      if (data.readAt && Date.now() - data.readAt > FIVE_MINUTES_MS) {
+      if (data.readAt && Date.now() - data.readAt > STALE_RECEIPT_MS) {
         remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read/${key}`)).catch(() => {});
         return;
       }
