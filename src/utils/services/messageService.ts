@@ -41,6 +41,7 @@ import { uploadMediaWithProgress } from '../mediaUploadHandler';
 import { presenceService } from './presenceService';
 import { idbPaginator } from '../idbPaginator';
 import { decryptUserData } from '../e2ee';
+import { withRetry } from '../networkRetry';
 
 // Helper to generate conversation ID consistently for both directions
 const getConversationId = (uid1: string, uid2: string) => {
@@ -128,15 +129,17 @@ export const messageService = {
       const deliveryRef = ref(realtimeDb, `delivery/${sanitizePathComponent(toUid)}/${messageId}`);
 
       try {
-        await set(deliveryRef, {
-          ...messageData,
-          fromUid,
-          conversationId,
-          _createdAt: rtdbServerTimestamp(),
-        });
+        await withRetry(async () => {
+          await set(deliveryRef, {
+            ...messageData,
+            fromUid,
+            conversationId,
+            _createdAt: rtdbServerTimestamp(),
+          });
+        }, { operation: 'recordMessage:RTDB_delivery', maxRetries: 3, baseDelayMs: 500 });
         logger.info('recordMessage', `RTDB pipe write OK → delivery/${sanitizePathComponent(toUid)}/${messageId}`);
       } catch (rtdbErr) {
-        logger.error('recordMessage', `RTDB delivery FAILED: ${rtdbErr}`);
+        logger.error('recordMessage', `RTDB delivery FAILED after retries: ${rtdbErr}`);
       }
 
       // Save to local persistence - This is our ONLY permanent store
@@ -459,12 +462,14 @@ export const messageService = {
     try {
       // Send delivery receipt via RTDB transient pipe (sanitize UID for RTDB path)
       const receiptRef = ref(realtimeDb, `receipts/${sanitizePathComponent(recipientUid)}/delivered/${messageId}`);
-      await set(receiptRef, {
-        messageId,
-        conversationId,
-        deliveredAt: Date.now(),
-        timestamp: rtdbServerTimestamp(),
-      });
+      await withRetry(async () => {
+        await set(receiptRef, {
+          messageId,
+          conversationId,
+          deliveredAt: Date.now(),
+          timestamp: rtdbServerTimestamp(),
+        });
+      }, { operation: 'markMessageDelivered', maxRetries: 2, baseDelayMs: 300 });
 
       console.log(`📨 Delivery receipt sent (📨 Double tick): ${messageId}`);
     } catch (error: any) {
@@ -484,12 +489,14 @@ export const messageService = {
     try {
       // Send read receipt via RTDB transient pipe (sanitize UID for RTDB path)
       const receiptRef = ref(realtimeDb, `receipts/${sanitizePathComponent(readerUid)}/read/${messageId}`);
-      await set(receiptRef, {
-        messageId,
-        conversationId,
-        readAt: Date.now(),
-        timestamp: rtdbServerTimestamp(),
-      });
+      await withRetry(async () => {
+        await set(receiptRef, {
+          messageId,
+          conversationId,
+          readAt: Date.now(),
+          timestamp: rtdbServerTimestamp(),
+        });
+      }, { operation: 'markMessageRead', maxRetries: 2, baseDelayMs: 300 });
 
       console.log(`💙 Read receipt sent (💙 Double blue tick): ${messageId}`);
     } catch (error: any) {
@@ -503,39 +510,66 @@ export const messageService = {
    */
   listenToReceipts(uid: string, callback: (receipt: { type: 'delivered' | 'read', messageId: string, conversationId: string }) => void) {
     const FIVE_MINUTES_MS = 5 * 60 * 1000;
+    const processedDelivered = new Set<string>();
+    const processedRead = new Set<string>();
+
+    // Helper to process a delivery receipt
+    const processDeliveryReceipt = (key: string, data: any) => {
+      if (processedDelivered.has(key)) return;
+      if (data.deliveredAt && Date.now() - data.deliveredAt > FIVE_MINUTES_MS) {
+        remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered/${key}`)).catch(() => {});
+        return;
+      }
+      processedDelivered.add(key);
+      callback({ type: 'delivered', messageId: key, conversationId: data.conversationId });
+      remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered/${key}`)).catch(() => {});
+    };
+
+    // Helper to process a read receipt
+    const processReadReceipt = (key: string, data: any) => {
+      if (processedRead.has(key)) return;
+      if (data.readAt && Date.now() - data.readAt > FIVE_MINUTES_MS) {
+        remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read/${key}`)).catch(() => {});
+        return;
+      }
+      processedRead.add(key);
+      callback({ type: 'read', messageId: key, conversationId: data.conversationId });
+      remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read/${key}`)).catch(() => {});
+    };
+
+    // Catch-up: fetch any receipts that arrived while the listener was detached
+    const deliveredRef = ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered`);
+    get(deliveredRef).then((snap) => {
+      if (!snap.exists()) return;
+      const children = snap.val();
+      if (!children || typeof children !== 'object') return;
+      Object.entries(children).forEach(([key, data]) => processDeliveryReceipt(key, data as any));
+    }).catch(() => {});
+
+    const readRef = ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read`);
+    get(readRef).then((snap) => {
+      if (!snap.exists()) return;
+      const children = snap.val();
+      if (!children || typeof children !== 'object') return;
+      Object.entries(children).forEach(([key, data]) => processReadReceipt(key, data as any));
+    }).catch(() => {});
 
     // Listen to delivery receipts (sanitize UID for RTDB path)
-    const deliveredRef = ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered`);
     const unsubDelivered = onChildAdded(deliveredRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
-
-      // Guard: ignore stale receipts from previous sessions
-      if (data.deliveredAt && Date.now() - data.deliveredAt > FIVE_MINUTES_MS) {
-        remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered/${snapshot.key}`)).catch(() => {});
-        return;
-      }
-
-      callback({ type: 'delivered', messageId: snapshot.key!, conversationId: data.conversationId });
-
-      remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/delivered/${snapshot.key}`)).catch(() => {});
+      processDeliveryReceipt(snapshot.key!, data);
+    }, (err) => {
+      console.error('❌ Error listening to delivery receipts:', err);
     });
 
     // Listen to read receipts (sanitize UID for RTDB path)
-    const readRef = ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read`);
     const unsubRead = onChildAdded(readRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
-
-      // Guard: ignore stale receipts from previous sessions
-      if (data.readAt && Date.now() - data.readAt > FIVE_MINUTES_MS) {
-        remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read/${snapshot.key}`)).catch(() => {});
-        return;
-      }
-
-      callback({ type: 'read', messageId: snapshot.key!, conversationId: data.conversationId });
-
-      remove(ref(realtimeDb, `receipts/${sanitizePathComponent(uid)}/read/${snapshot.key}`)).catch(() => {});
+      processReadReceipt(snapshot.key!, data);
+    }, (err) => {
+      console.error('❌ Error listening to read receipts:', err);
     });
 
     return () => {
@@ -612,21 +646,41 @@ export const messageService = {
    */
   listenToIncomingMessages(uid: string, callback: (message: any) => void) {
     const deliveryRef = ref(realtimeDb, `delivery/${sanitizePathComponent(uid)}`);
+    const processedIds = new Set<string>();
 
-    // Use onChildAdded so we get each message one by one
+    // Catch-up: fetch any messages that arrived while the listener was detached
+    get(deliveryRef).then((snapshot) => {
+      if (!snapshot.exists()) return;
+      const children = snapshot.val();
+      if (!children || typeof children !== 'object') return;
+      Object.entries(children).forEach(([key, data]) => {
+        if (processedIds.has(key)) return;
+        processedIds.add(key);
+        Promise.resolve(callback({ id: key, ...(data as any) })).catch(() => {});
+        // Delete after processing
+        remove(ref(realtimeDb, `delivery/${sanitizePathComponent(uid)}/${key}`))
+          .then(() => console.log(`🗑️ Message ${key} wiped from server after catch-up`))
+          .catch(() => {});
+      });
+    }).catch(() => {});
+
+    // Use onChildAdded so we get each new message one by one
     const unsubscribe = onChildAdded(deliveryRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
+      const key = snapshot.key!;
+      if (processedIds.has(key)) return;
+      processedIds.add(key);
 
       // 1. Trigger the callback for the UI/Store (may be async)
       Promise.resolve(callback({
-        id: snapshot.key,
+        id: key,
         ...data
       })).catch(() => {});
 
       // 2. IMMEDIATELY DELETE from server
-      remove(ref(realtimeDb, `delivery/${sanitizePathComponent(uid)}/${snapshot.key}`))
-        .then(() => console.log(`🗑️ Message ${snapshot.key} wiped from server after delivery`))
+      remove(ref(realtimeDb, `delivery/${sanitizePathComponent(uid)}/${key}`))
+        .then(() => console.log(`🗑️ Message ${key} wiped from server after delivery`))
         .catch(() => {});
     });
 
