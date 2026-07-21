@@ -12,6 +12,8 @@
 
 import { messageQueue } from './persistentMessageQueue';
 import { messageService } from './services/messageService';
+import { db } from './firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import logger from './logger';
 import { reportError } from './errorMonitoring';
 
@@ -23,6 +25,26 @@ export interface SendMessageResult {
 
 let isFlushInProgress = false;
 let flushTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Send push notification via Render FCM relay (fire-and-forget).
+ */
+function sendPushNotification(fromUid: string, toUid: string, messageType: string): void {
+  const notifyUrl = import.meta.env.VITE_NOTIFY_URL;
+  if (!notifyUrl) return;
+  const notifyType = (messageType === 'image' || messageType === 'video' || messageType === 'audio')
+    ? messageType : 'text';
+  getDoc(doc(db, 'users', fromUid))
+    .then(senderDoc => {
+      const senderName = senderDoc.data()?.displayName || 'Someone';
+      return fetch(`${notifyUrl}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: toUid, fromName: senderName, type: notifyType }),
+      });
+    })
+    .catch(() => {}); // non-critical
+}
 
 /**
  * Queue a read receipt for delivery when online.
@@ -265,6 +287,9 @@ export async function flushMessageQueue(_fromUid: string): Promise<{ sent: numbe
         replyToSender: msg.replyToSender,
         expiresAt: msg.expiresAt,
       });
+
+      // Send push notification to recipient (fire-and-forget)
+      sendPushNotification(msg.fromUid, msg.toUid, msg.messageType || 'text');
 
       messageQueue.removeMessage(msg.id);
       sent++;
