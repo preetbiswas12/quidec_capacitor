@@ -492,6 +492,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const callHistoryUnsubscribeRef = useRef<(() => void) | null>(null);
   const incomingCallUnsubscribeRef = useRef<(() => void) | null>(null);
   const deviceSessionUnsubscribeRef = useRef<(() => void) | null>(null);
+  const groupMessageListenersRef = useRef<Record<string, () => void>>({});
 
   // ─── Helper: merge messages into a chat (used by pagination/local store)
   const addMessagesToChat = useCallback((chatId: string, items: Message[]) => {
@@ -1917,6 +1918,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       unsubscribeSignaling();
       unsubscribeGroups();
       deviceSessionUnsubscribeRef.current?.();
+      Object.values(groupMessageListenersRef.current).forEach(unsub => unsub());
+      groupMessageListenersRef.current = {};
       // Mark offline on cleanup (logout, navigate away)
       presenceService.setUserOffline(uid);
     };
@@ -1989,6 +1992,80 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const friendUids = contacts.map(c => c.id);
     setupFriendStatusListeners(friendUids);
   }, [contacts, currentUser, setupFriendStatusListeners]);
+
+  // ─── Global Group Message Listeners (real-time chat list updates) ──────────
+  // When any group receives a new message, update the chat list preview and
+  // unread count so the user sees it without opening the group chat.
+  useEffect(() => {
+    if (!currentUser || groups.length === 0) return;
+
+    // Unsubscribe from old listeners for groups no longer in the list
+    const currentGroupIds = new Set(groups.map((g: any) => g.groupId));
+    Object.keys(groupMessageListenersRef.current).forEach(gid => {
+      if (!currentGroupIds.has(gid)) {
+        groupMessageListenersRef.current[gid]();
+        delete groupMessageListenersRef.current[gid];
+      }
+    });
+
+    // Attach listeners for new groups
+    groups.forEach((g: any) => {
+      if (groupMessageListenersRef.current[g.groupId]) return; // already listening
+
+      groupMessageListenersRef.current[g.groupId] = groupService.listenToGroupMessages(g.groupId, (msgs) => {
+        if (msgs.length === 0) return;
+        const lastMsg = msgs[msgs.length - 1];
+        const senderId = lastMsg.senderId || lastMsg.fromUid || '';
+        const isMyMessage = senderId === currentUser.userId;
+
+        // Update chat list preview
+        setChats(prev => {
+          const existing = prev.find(c => c.id === g.groupId);
+          if (existing) {
+            return prev.map(c => c.id === g.groupId ? {
+              ...c,
+              lastMessage: lastMsg.content || '',
+              lastMessageTime: normalizeFirestoreTimestamp(lastMsg.timestamp),
+              lastMessageSender: senderId,
+              // Only increment unread if not viewing this chat AND it's not my message
+              unreadCount: (activeChatIdRef.current === g.groupId || isMyMessage)
+                ? 0
+                : (c.unreadCount || 0) + (lastMsg._isNew ? 1 : 0),
+            } : c);
+          }
+          return prev;
+        });
+
+        // If user is actively viewing this group, update messages state
+        if (activeChatIdRef.current === g.groupId) {
+          const mapped: Message = {
+            id: lastMsg.id,
+            chatId: g.groupId,
+            senderId,
+            content: lastMsg.content || '',
+            type: (lastMsg.messageType || 'text') as Message['type'],
+            timestamp: normalizeFirestoreTimestamp(lastMsg.timestamp),
+            status: 'sent',
+            imageUrl: lastMsg.mediaUrl || undefined,
+            replyToId: lastMsg.replyToId || undefined,
+            replyToContent: lastMsg.replyToContent || undefined,
+            replyToSender: lastMsg.replyToSender || undefined,
+          };
+          setMessages(prev => {
+            const existing = prev[g.groupId] || [];
+            // Dedupe by id
+            if (existing.some(m => m.id === mapped.id)) return prev;
+            return { ...prev, [g.groupId]: [...existing, mapped] };
+          });
+        }
+      });
+    });
+
+    return () => {
+      Object.values(groupMessageListenersRef.current).forEach(unsub => unsub());
+      groupMessageListenersRef.current = {};
+    };
+  }, [currentUser, groups]);
 
   // ─── Helper: Convert raw contact to UI Contact ────────────────────────────
 
