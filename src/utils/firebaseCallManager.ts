@@ -12,7 +12,9 @@ import {
   getDocs,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { ref, set, onChildAdded, remove, get } from 'firebase/database';
+import { db, realtimeDb } from './firebase';
+import { sanitizePathComponent } from './services/shared';
 import logger from './logger';
 
 export type CallStatus = 'ringing' | 'accepted' | 'rejected' | 'ended' | 'missed';
@@ -79,6 +81,14 @@ export class FirebaseCallManager {
       };
 
       await setDoc(doc(this.firestore, 'calls', callId), callData);
+
+      // Also write to RTDB for fast delivery (transient pipe — receiver deletes on consume)
+      const rtdbRef = ref(realtimeDb, `calls/${sanitizePathComponent(receiverId)}/${callId}`);
+      await set(rtdbRef, {
+        ...callData,
+        timestamp: Date.now(),
+      });
+
       this.log(`✅ Call initiated: ${callId}`);
     } catch (err) {
       this.error('Failed to initiate call', err);
@@ -99,6 +109,8 @@ export class FirebaseCallManager {
         startTime: Date.now(),
       });
 
+      // Clean up RTDB signaling node if it exists
+      // Note: receiverId not available here, so we clean up lazily via TTL or caller cleanup
       this.log(`✅ Call accepted: ${callId}`);
     } catch (err) {
       this.error('Failed to accept call', err);

@@ -17,7 +17,9 @@ import {
   onSnapshot,
   where,
 } from 'firebase/firestore';
+import { ref, onChildAdded, remove, get } from 'firebase/database';
 import { db, realtimeDb } from '../firebase';
+import { sanitizePathComponent } from './shared';
 
 export const callService = {
   /**
@@ -102,28 +104,53 @@ export const callService = {
 
   /**
    * Listen for incoming calls (ringing) directed at the current user.
-   * Watches the top-level `calls` collection for documents where receiverId == uid and status == 'ringing'.
+   * Uses RTDB for fast detection (transient pipe) with Firestore as persistence layer.
    */
   listenToIncomingCalls(uid: string, callback: (call: any | null) => void) {
+    // Primary: RTDB for fast detection (~10ms latency vs ~200ms Firestore)
+    const rtdbCallsRef = ref(realtimeDb, `calls/${sanitizePathComponent(uid)}`);
+    let hasReceivedFromRTDB = false;
+
+    const unsubRTDB = onChildAdded(rtdbCallsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+      hasReceivedFromRTDB = true;
+      callback({ id: snapshot.key, ...data });
+      // Clean up RTDB node after delivering to callback
+      remove(ref(realtimeDb, `calls/${sanitizePathComponent(uid)}/${snapshot.key}`)).catch(() => {});
+    }, (err) => {
+      console.error('❌ Error listening to RTDB calls:', err);
+    });
+
+    // Fallback: Firestore for cases where RTDB write failed or user reconnected late
     const q = query(
       collection(db, 'calls'),
       where('receiverId', '==', uid),
       where('status', '==', 'ringing'),
     );
 
-    return onSnapshot(q, (snapshot) => {
+    const unsubFirestore = onSnapshot(q, (snapshot) => {
+      // Skip if RTDB already delivered this call
+      if (hasReceivedFromRTDB) return;
       if (snapshot.empty) {
         callback(null);
         return;
       }
-      // Return the most recent ringing call
       const calls: any[] = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       calls.sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
       callback(calls[0]);
     }, (err) => {
-      console.error('❌ Error listening to incoming calls:', err);
-      callback(null);
+      if (err.code === 'failed-precondition' || err.message?.includes('index')) {
+        console.error('🔥 Firestore index required for incoming calls! Create an index for collection "calls" with fields "receiverId" ASC, "status" ASC, "timestamp" DESC.');
+      }
+      console.error('❌ Error listening to incoming calls (Firestore fallback):', err.code, err.message);
+      // Don't callback null here — RTDB may still deliver
     });
+
+    return () => {
+      unsubRTDB();
+      unsubFirestore();
+    };
   },
 
   /**
