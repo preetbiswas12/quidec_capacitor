@@ -1745,6 +1745,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.warn('⚠️ Failed to persist receipt to local .bin:', err);
       }
+
+      // Persist to Firestore so status survives sender refresh
+      try {
+        const { doc, updateDoc } = await import('firebase/firestore');
+        const { db } = await import('../../utils/firebase');
+        const msgRef = doc(db, 'conversations', receipt.conversationId, 'messages', receipt.messageId);
+        await updateDoc(msgRef, {
+          status: newStatus,
+          [newStatus === 'read' ? 'readAt' : 'deliveredAt']: Date.now(),
+        });
+      } catch (err) {
+        // Non-critical — local state and SQLite already updated
+      }
     });
 
     // 7. Listen to Deletions (cross-device message deletion sync)
