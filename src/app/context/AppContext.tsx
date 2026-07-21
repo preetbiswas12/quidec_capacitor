@@ -2498,6 +2498,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const forwardMessages = useCallback(async (messageIds: string[], targetChatId: string) => {
     if (!currentUser || messageIds.length === 0) return;
 
+    const errors: string[] = [];
     for (const msgId of messageIds) {
       let foundMsg: Message | undefined;
       for (const chatMsgs of Object.values(messages)) {
@@ -2506,15 +2507,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       if (!foundMsg) continue;
 
-      const prefix = foundMsg.content.startsWith('[Forwarded]') ? '' : '[Forwarded] ';
-      const content = `${prefix}${foundMsg.content}`;
+      try {
+        const prefix = foundMsg.content.startsWith('[Forwarded]') ? '' : '[Forwarded] ';
+        const content = `${prefix}${foundMsg.content}`;
 
-      await sendMessage(targetChatId, content, foundMsg.type, {
-        imageUrl: foundMsg.imageUrl,
-        linkUrl: foundMsg.linkUrl,
-        linkTitle: foundMsg.linkTitle,
-        linkDomain: foundMsg.linkDomain,
-      });
+        await sendMessage(targetChatId, content, foundMsg.type, {
+          imageUrl: foundMsg.imageUrl,
+          linkUrl: foundMsg.linkUrl,
+          linkTitle: foundMsg.linkTitle,
+          linkDomain: foundMsg.linkDomain,
+        });
+      } catch (err: any) {
+        console.error(`❌ Failed to forward message ${msgId}:`, err.message);
+        errors.push(msgId);
+      }
+    }
+    if (errors.length > 0) {
+      console.warn(`⚠️ ${errors.length}/${messageIds.length} messages failed to forward`);
     }
   }, [currentUser, messages, sendMessage]);
 
@@ -2852,7 +2861,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       import('firebase/database').then(({ ref, onValue, off }) => {
         import('../../utils/firebase').then(({ realtimeDb }) => {
           if (cancelled) return;
-          const typingRef = ref(realtimeDb, `typing/${sanitizePathComponent(activeChatId)}`);
+          const typingRef = ref(realtimeDb, `groupTyping/${sanitizePathComponent(activeChatId)}`);
           unsubGroupTyping = onValue(typingRef, (snapshot: any) => {
             const data = snapshot.val() || {};
             const othersTyping = Object.entries(data).filter(([uid]: [string, any]) => uid !== currentUser.userId);
