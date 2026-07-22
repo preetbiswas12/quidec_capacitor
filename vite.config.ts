@@ -37,6 +37,10 @@ export default defineConfig({
   assetsInclude: ['**/*.svg', '**/*.csv'],
   build: {
     chunkSizeWarningLimit: 900,
+    target: 'es2020',
+    esbuild: {
+      drop: ['console', 'debugger'],
+    },
     rollupOptions: {
       output: {
         manualChunks(id) {
