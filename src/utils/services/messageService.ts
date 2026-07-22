@@ -182,6 +182,33 @@ export const messageService = {
         // Non-critical — pagination falls back to primary store
       }
 
+      // Persist to Firestore for cross-device message history.
+      // Without this, 1:1 messages only exist in the transient RTDB pipe
+      // (deleted after receipt) and local SQLite (device-only). On a new device
+      // or after logout/login, all message history would be lost.
+      try {
+        await setDoc(doc(db, 'conversations', conversationId, 'messages', messageId), {
+          messageId,
+          fromUid,
+          toUid,
+          content: encryptedContent,
+          hmac: hmacSignature,
+          mediaUrl: options.mediaUrl || null,
+          messageType: options.messageType || 'text',
+          timestamp: ts,
+          status: options.status || MESSAGE_STATUS.SENT,
+          isEncrypted: true,
+          replyToId: options.replyToId || null,
+          replyToContent: options.replyToContent || null,
+          replyToSender: options.replyToSender || null,
+          totalChunks: options.totalChunks || null,
+          createdAt: ts,
+        }, { merge: true });
+        logger.info('recordMessage', `Firestore persistence OK → conversations/${conversationId}/messages/${messageId}`);
+      } catch (firestoreErr) {
+        logger.warn('recordMessage', `Firestore persistence failed (non-critical): ${firestoreErr}`);
+      }
+
       const duration = Date.now() - startTime;
       logger.info('recordMessage', `Message recorded successfully in ${duration}ms`);
 

@@ -58,7 +58,6 @@ export const defaultMockContext = {
   deleteMessage: vi.fn(),
   typingContacts: {},
   groups: [],
-  groupMessages: {},
   createGroup: vi.fn(),
   sendGroupMessage: vi.fn(),
   addGroupMembers: vi.fn(),

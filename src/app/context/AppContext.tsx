@@ -215,7 +215,7 @@ interface AppContextType {
 
   // Groups
   groups: any[];
-  groupMessages: Record<string, Message[]>;
+
   createGroup: (name: string, description: string, memberIds: string[]) => Promise<string>;
   sendGroupMessage: (groupId: string, content: string, type?: Message['type'], extra?: Partial<Message>) => Promise<void>;
   addGroupMembers: (groupId: string, memberIds: string[], callerId?: string) => Promise<void>;
@@ -364,7 +364,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Group Data
   const [groups, setGroups] = useState<any[]>([]);
-  const [groupMessages, setGroupMessages] = useState<Record<string, Message[]>>({});
+
 
   // Chat Requests
   const [chatRequests, setChatRequests] = useState<ChatRequest[]>([]);
@@ -523,6 +523,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deviceSessionUnsubscribeRef = useRef<(() => void) | null>(null);
   const groupMessageListenersRef = useRef<Record<string, () => void>>({});
   const groupMessageCountRef = useRef<Record<string, number>>({});
+  const chatMessageListenersRef = useRef<Record<string, () => void>>({});
 
   // ─── Helper: merge messages into a chat (used by pagination/local store)
   const addMessagesToChat = useCallback((chatId: string, items: Message[]) => {
@@ -538,6 +539,51 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return { ...prev, [chatId]: combined };
     });
   }, []);
+
+  // ─── Helper: lazily set up Firestore message listener for a chat ────────
+  // Skips if already listening (tracked by chatMessageListenersRef).
+  const ensureChatListener = useCallback((chatId: string, otherUserId: string) => {
+    if (chatMessageListenersRef.current[chatId]) return; // already listening
+    if (!currentUser) return;
+
+    const unsub = messageService.listenToMessages(
+      currentUser.userId,
+      otherUserId,
+      (rawMessages) => {
+        const mappedMessages = rawMessages.map((raw) => mapFirestoreMessage(raw, chatId));
+
+        setMessages((prev) => {
+          if (rawMessages.length === 0 && prev[chatId] && prev[chatId].length > 0) {
+            return prev;
+          }
+          const firestoreIds = new Set(mappedMessages.map(m => m.id));
+          const optimistic = (prev[chatId] || []).filter(m => !firestoreIds.has(m.id));
+          return {
+            ...prev,
+            [chatId]: [...optimistic, ...mappedMessages],
+          };
+        });
+
+        if (mappedMessages.length > 0) {
+          const lastMessage = mappedMessages[mappedMessages.length - 1];
+          setChats((prev) =>
+            sortChatsByTime(prev.map((item) =>
+              item.id === chatId
+                ? {
+                    ...item,
+                    lastMessage: lastMessage.content,
+                    lastMessageTime: lastMessage.timestamp,
+                    lastMessageSender: lastMessage.senderId,
+                  }
+                : item
+            ))
+          );
+        }
+      }
+    );
+
+    chatMessageListenersRef.current[chatId] = unsub;
+  }, [currentUser]);
 
   // ─── Auth Methods ─────────────────────────────────────────────────────────
 
@@ -1153,133 +1199,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!currentUser) return;
 
-    // Set up listeners for all current chats — but only re-subscribe when currentUser changes,
-    // NOT when chats changes. This prevents the catastrophic listener churn where every new
-    // message tears down and re-creates all Firestore onSnapshot listeners.
-    const setupListeners = () => {
-      const currentChats = chatsRef.current;
-      if (currentChats.length === 0) return [];
-
-      return currentChats.map((chat) => {
-        if (!chat.contactId) return () => {};
-
-        const myId = currentUser.userId;
-        let otherUserId = chat.contactId;
-        if (otherUserId === myId) {
-          if (chat.id.startsWith(myId + '_')) {
-            otherUserId = chat.id.slice(myId.length + 1);
-          } else if (chat.id.endsWith('_' + myId)) {
-            otherUserId = chat.id.slice(0, chat.id.length - myId.length - 1);
-          }
+    // Set up Firestore message listeners for all current chats.
+    // Uses ensureChatListener which is idempotent (tracked by chatMessageListenersRef).
+    // On a new device this may do nothing — listeners are added later when
+    // listenToFriends creates chat entries and calls ensureChatListener.
+    const currentChats = chatsRef.current;
+    for (const chat of currentChats) {
+      if (!chat.contactId) continue;
+      const myId = currentUser.userId;
+      let otherUserId = chat.contactId;
+      if (otherUserId === myId) {
+        if (chat.id.startsWith(myId + '_')) {
+          otherUserId = chat.id.slice(myId.length + 1);
+        } else if (chat.id.endsWith('_' + myId)) {
+          otherUserId = chat.id.slice(0, chat.id.length - myId.length - 1);
         }
-
-        return messageService.listenToMessages(
-          currentUser.userId,
-          otherUserId,
-          (rawMessages) => {
-            const mappedMessages = rawMessages.map((raw) => mapFirestoreMessage(raw, chat.id));
-
-            setMessages((prev) => {
-              if (rawMessages.length === 0 && prev[chat.id] && prev[chat.id].length > 0) {
-                return prev;
-              }
-              const firestoreIds = new Set(mappedMessages.map(m => m.id));
-              const optimistic = (prev[chat.id] || []).filter(m => !firestoreIds.has(m.id));
-              return {
-                ...prev,
-                [chat.id]: [...optimistic, ...mappedMessages],
-              };
-            });
-
-            if (mappedMessages.length > 0) {
-              const lastMessage = mappedMessages[mappedMessages.length - 1];
-              setChats((prev) =>
-                sortChatsByTime(prev.map((item) =>
-                  item.id === chat.id
-                    ? {
-                        ...item,
-                        lastMessage: lastMessage.content,
-                        lastMessageTime: lastMessage.timestamp,
-                        lastMessageSender: lastMessage.senderId,
-                      }
-                    : item
-                ))
-              );
-            }
-          }
-        );
-      });
-    };
-
-    const unsubscribers = setupListeners();
-
-    return () => {
-      unsubscribers.forEach((unsubscribe) => {
-        try {
-          unsubscribe();
-        } catch {
-          // ignore cleanup errors
-        }
-      });
-    };
-  }, [currentUser]); // Removed `chats` from deps — messages arrive via RTDB, not these Firestore listeners
-
-  // ─── Group Messages Listener ─────────────────────────────────────────────
-  useEffect(() => {
-    if (!currentUser || groups.length === 0) return;
-
-    const unsubscribers = groups.map((group) => {
-      return groupService.listenToGroupMessages(group.groupId, (msgs) => {
-        const mappedMessages: Message[] = msgs.map((raw: any) => ({
-          id: raw.messageId || raw.id,
-          chatId: raw.groupId,
-          senderId: raw.senderId,
-          content: raw.content || '',
-          type: raw.messageType || 'text',
-          timestamp: normalizeFirestoreTimestamp(raw.timestamp),
-        status: 'sending',
-          imageUrl: raw.mediaUrl || undefined,
-          replyToId: raw.replyToId || undefined,
-          replyToContent: raw.replyToContent || undefined,
-          replyToSender: raw.replyToSender || undefined,
-        }));
-
-        setGroupMessages(prev => ({
-          ...prev,
-          [group.groupId]: mappedMessages,
-        }));
-
-        // Also update the main messages map so ChatWindow can render
-        setMessages(prev => ({
-          ...prev,
-          [group.groupId]: mappedMessages,
-        }));
-
-        // Update chat preview (sort by most recent first)
-        if (mappedMessages.length > 0) {
-          const lastMsg = mappedMessages[mappedMessages.length - 1];
-          const isMyMsg = lastMsg.senderId === currentUser.userId;
-          setChats(prev => sortChatsByTime(prev.map(c =>
-            c.id === group.groupId
-              ? {
-                  ...c,
-                  lastMessage: lastMsg.content,
-                  lastMessageTime: lastMsg.timestamp,
-                  lastMessageSender: lastMsg.senderId,
-                  unreadCount: (activeChatIdRef.current === group.groupId || isMyMsg) ? 0 : (c.unreadCount + 1),
-                }
-              : c
-          )));
-        }
-      });
-    });
-
-    return () => {
-      unsubscribers.forEach(unsub => {
-        try { unsub(); } catch { /* ignore */ }
-      });
-    };
-  }, [currentUser, groups]);
+      }
+      ensureChatListener(chat.id, otherUserId);
+    }
+    // Cleanup is handled by the main useEffect cleanup via chatMessageListenersRef
+  }, [currentUser, ensureChatListener]);
 
   const completeOnboarding = useCallback((user: CurrentUser) => {
     setCurrentUser(user);
@@ -1595,6 +1534,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const normalized = rawFriends.map((f, i) => normalizeContact(f, i));
       setContacts(normalized);
       if (!chatsLoaded) setChatsLoaded(true);
+
+      // Ensure chat entries exist for all contacts (needed on new device where chats are empty)
+      // and set up Firestore message listeners for cross-device message history.
+      setChats(prev => {
+        const existingIds = new Set(prev.map(c => c.id));
+        const newChats: Chat[] = [];
+        for (const contact of normalized) {
+          const chatId = messageService.getConversationId(uid, contact.userId);
+          if (!existingIds.has(chatId)) {
+            newChats.push({
+              id: chatId,
+              contactId: contact.userId,
+              lastMessage: '',
+              lastMessageTime: '',
+              lastMessageSender: '',
+              unreadCount: 0,
+            });
+          }
+          // Lazily set up Firestore message listener for this chat
+          ensureChatListener(chatId, contact.userId);
+        }
+        return newChats.length > 0 ? [...newChats, ...prev] : prev;
+      });
     });
 
     // 2. Listen to Friends Presence — friendships doc is keyed by custom handle
@@ -1981,6 +1943,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deviceSessionUnsubscribeRef.current?.();
       Object.values(groupMessageListenersRef.current).forEach(unsub => unsub());
       groupMessageListenersRef.current = {};
+      Object.values(chatMessageListenersRef.current).forEach(unsub => unsub());
+      chatMessageListenersRef.current = {};
       // Mark offline on cleanup (logout, navigate away)
       presenceService.setUserOffline(uid);
     };
@@ -2214,10 +2178,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...prev,
         [groupId]: [...(prev[groupId] || []), msg],
       }));
-      setGroupMessages(prev => ({
-        ...prev,
-        [groupId]: [...(prev[groupId] || []), msg],
-      }));
+
 
       // Send to Firestore (encrypted + updates group preview)
       if (!navigator.onLine) {
@@ -3151,7 +3112,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     settings,
     updateSettings,
     groups,
-    groupMessages,
     createGroup,
     sendGroupMessage,
     addGroupMembers,
