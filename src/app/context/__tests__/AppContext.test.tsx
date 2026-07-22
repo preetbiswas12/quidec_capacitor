@@ -224,6 +224,7 @@ vi.mock('../../../utils/settingsPersistence', () => ({
   initSettingsPersistence: vi.fn(),
   saveSettingsToNative: vi.fn(),
   syncSettingsToFirebase: vi.fn(),
+  listenToSettingsChanges: vi.fn(() => vi.fn()),
   getOrCreateDeviceId: vi.fn(async () => 'test-device-id'),
 }));
 

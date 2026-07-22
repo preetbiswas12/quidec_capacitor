@@ -21,6 +21,7 @@ import {
   initSettingsPersistence, 
   saveSettingsToNative, 
   syncSettingsToFirebase,
+  listenToSettingsChanges,
   getOrCreateDeviceId 
 } from '../../utils/settingsPersistence';
 import { 
@@ -148,6 +149,7 @@ export interface AppSettings {
   theme: 'dark' | 'light' | 'system';
   notificationTone: string;
   vibrationType: string;
+  lastSyncedAt?: any;
 }
 
 interface AppContextType {
@@ -425,6 +427,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAppBadge(totalUnread);
   }, [chats]);
 
+  // ─── Sort chats by lastMessageTime (most recent first) ────────────────────
+  const sortChatsByTime = useCallback((chatsList: Chat[]): Chat[] => {
+    return [...chatsList].sort((a, b) => {
+      const ta = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
+      const tb = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
+      return tb - ta; // descending — most recent first
+    });
+  }, []);
+
   // ─── Network Status Listener ──────────────────────────────────────────────
   useEffect(() => {
     const handleOnline = () => {
@@ -480,6 +491,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return cleanup;
   }, [currentUser]);
 
+  // ─── Cross-device settings sync (real-time listener) ─────────────────────
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsub = listenToSettingsChanges(currentUser.userId, (remoteSettings) => {
+      setSettings(prev => {
+        // Only update if remote is actually newer to avoid loops
+        // lastSyncedAt may be Firestore Timestamp (.toMillis) or plain Date (.getTime)
+        const remoteTime = remoteSettings.lastSyncedAt?.toMillis?.() ?? (remoteSettings.lastSyncedAt as any)?.getTime?.() ?? 0;
+        const localTime = prev.lastSyncedAt?.toMillis?.() ?? (prev.lastSyncedAt as any)?.getTime?.() ?? 0;
+        if (remoteTime > localTime) {
+          return { ...prev, ...remoteSettings };
+        }
+        return prev;
+      });
+    });
+    return unsub;
+  }, [currentUser]);
+
   // ─── Presence & Typing Refs ──────────────────────────────────────────────
   const presenceUnsubscribeRef = useRef<(() => void) | null>(null);
   const typingUnsubscribeRef = useRef<(() => void) | null>(null);
@@ -493,6 +522,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const incomingCallUnsubscribeRef = useRef<(() => void) | null>(null);
   const deviceSessionUnsubscribeRef = useRef<(() => void) | null>(null);
   const groupMessageListenersRef = useRef<Record<string, () => void>>({});
+  const groupMessageCountRef = useRef<Record<string, number>>({});
 
   // ─── Helper: merge messages into a chat (used by pagination/local store)
   const addMessagesToChat = useCallback((chatId: string, items: Message[]) => {
@@ -1164,7 +1194,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (mappedMessages.length > 0) {
               const lastMessage = mappedMessages[mappedMessages.length - 1];
               setChats((prev) =>
-                prev.map((item) =>
+                sortChatsByTime(prev.map((item) =>
                   item.id === chat.id
                     ? {
                         ...item,
@@ -1173,7 +1203,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                         lastMessageSender: lastMessage.senderId,
                       }
                     : item
-                )
+                ))
               );
             }
           }
@@ -1225,20 +1255,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
           [group.groupId]: mappedMessages,
         }));
 
-        // Update chat preview
+        // Update chat preview (sort by most recent first)
         if (mappedMessages.length > 0) {
           const lastMsg = mappedMessages[mappedMessages.length - 1];
-          setChats(prev => prev.map(c =>
+          const isMyMsg = lastMsg.senderId === currentUser.userId;
+          setChats(prev => sortChatsByTime(prev.map(c =>
             c.id === group.groupId
               ? {
                   ...c,
                   lastMessage: lastMsg.content,
                   lastMessageTime: lastMsg.timestamp,
                   lastMessageSender: lastMsg.senderId,
-                  unreadCount: (activeChatIdRef.current === group.groupId) ? 0 : (c.unreadCount + 1),
+                  unreadCount: (activeChatIdRef.current === group.groupId || isMyMsg) ? 0 : (c.unreadCount + 1),
                 }
               : c
-          ));
+          )));
         }
       });
     });
@@ -1672,27 +1703,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.warn('⚠️ Failed to send delivery receipt:', err);
       }
 
-      // Update chat preview
+      // Update chat preview (sort by most recent first)
       setChats((prev) => {
         const existing = prev.find(c => c.id === chatId);
-        if (existing) {
-          return prev.map(c => c.id === chatId ? {
-            ...c,
-            lastMessage: incomingMsg.content,
-            lastMessageTime: incomingMsg.timestamp,
-            lastMessageSender: incomingMsg.senderId,
-            unreadCount: (activeChatIdRef.current === chatId) ? 0 : (c.unreadCount + 1)
-          } : c);
-        } else {
-          return [{
-            id: chatId,
-            contactId: msg.fromUid,
-            lastMessage: incomingMsg.content,
-            lastMessageTime: incomingMsg.timestamp,
-            lastMessageSender: incomingMsg.senderId,
-            unreadCount: 1
-          }, ...prev];
-        }
+        const updated = existing
+          ? prev.map(c => c.id === chatId ? {
+              ...c,
+              lastMessage: incomingMsg.content,
+              lastMessageTime: incomingMsg.timestamp,
+              lastMessageSender: incomingMsg.senderId,
+              unreadCount: (activeChatIdRef.current === chatId) ? 0 : (c.unreadCount + 1)
+            } : c)
+          : [{
+              id: chatId,
+              contactId: msg.fromUid,
+              lastMessage: incomingMsg.content,
+              lastMessageTime: incomingMsg.timestamp,
+              lastMessageSender: incomingMsg.senderId,
+              unreadCount: 1
+            }, ...prev];
+        return sortChatsByTime(updated);
       });
 
       // If user is actively viewing this chat, immediately send read receipts (blue tick)
@@ -1747,14 +1777,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       // Persist to Firestore so status survives sender refresh
+      // Use setDoc with merge because the message may only exist in the RTDB pipe
+      // (not in Firestore) — updateDoc would fail on a nonexistent document.
       try {
-        const { doc, updateDoc } = await import('firebase/firestore');
+        const { doc, setDoc } = await import('firebase/firestore');
         const { db } = await import('../../utils/firebase');
         const msgRef = doc(db, 'conversations', receipt.conversationId, 'messages', receipt.messageId);
-        await updateDoc(msgRef, {
+        await setDoc(msgRef, {
           status: newStatus,
           [newStatus === 'read' ? 'readAt' : 'deliveredAt']: Date.now(),
-        });
+        }, { merge: true });
       } catch (err) {
         // Non-critical — local state and SQLite already updated
       }
@@ -2066,20 +2098,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const senderId = lastMsg.senderId || lastMsg.fromUid || '';
         const isMyMessage = senderId === currentUser.userId;
 
-        // Update chat list preview
+        // Calculate new messages since last callback
+        const prevCount = groupMessageCountRef.current[g.groupId] || 0;
+        const newCount = msgs.length;
+        const newMsgsSinceLast = Math.max(0, newCount - prevCount);
+        groupMessageCountRef.current[g.groupId] = newCount;
+
+        // Count new messages from others (not from me)
+        const newUnreadFromOthers = isMyMessage
+          ? 0
+          : msgs.slice(prevCount).filter((m: any) => (m.senderId || m.fromUid) !== currentUser.userId).length;
+
+        // Update chat list preview (sort by most recent first)
         setChats(prev => {
           const existing = prev.find(c => c.id === g.groupId);
           if (existing) {
-            return prev.map(c => c.id === g.groupId ? {
+            return sortChatsByTime(prev.map(c => c.id === g.groupId ? {
               ...c,
               lastMessage: lastMsg.content || '',
               lastMessageTime: normalizeFirestoreTimestamp(lastMsg.timestamp),
               lastMessageSender: senderId,
-              // Only increment unread if not viewing this chat AND it's not my message
-              unreadCount: (activeChatIdRef.current === g.groupId || isMyMessage)
+              // Only increment unread if not viewing this chat AND there are new messages from others
+              unreadCount: (activeChatIdRef.current === g.groupId)
                 ? 0
-                : (c.unreadCount || 0) + (lastMsg._isNew ? 1 : 0),
-            } : c);
+                : (c.unreadCount || 0) + newUnreadFromOthers,
+            } : c));
           }
           return prev;
         });

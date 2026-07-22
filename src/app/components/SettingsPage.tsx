@@ -43,7 +43,6 @@ import {
   getNotificationPermissionStatus,
   requestNotificationPermissions
 } from '../../utils/notificationSettingsManager';
-import { saveSettingsToNative, syncSettingsToFirebase } from '../../utils/settingsPersistence';
 import { rotateKeyVersion } from '../../utils/encryption';
 import { updatePassword, updateEmail, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 
@@ -430,17 +429,8 @@ export default function SettingsPage({ onSubPageChange, forcedSubPage }: Setting
   };
 
   const handleUpdateSettings = async (updates: any) => {
+    // updateSettings handles both native storage save and Firebase sync
     updateSettings(updates);
-    
-    // Sync with Native/Cloud
-    try {
-      await saveSettingsToNative(updates);
-      if (currentUser) {
-        await syncSettingsToFirebase(currentUser.userId, updates);
-      }
-    } catch (err) {
-      console.warn('⚠️ Settings sync failed:', err);
-    }
 
     // Handle Native Notification Channel Sync
     if (updates.notifications !== undefined) {
