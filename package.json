@@ -45,7 +45,7 @@
     "@capacitor/status-bar": "^8.0.2",
     "@capawesome/capacitor-badge": "^8.0.2",
     "@sentry/react": "^10.63.0",
-    "@tailwindcss/vite": "^4.3.0",
+    "@tailwindcss/vite": "^4.3.3",
     "firebase": "^12.12.1",
     "idb": "^8.0.0",
     "lucide-react": "^0.487.0",
