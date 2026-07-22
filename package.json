@@ -31,8 +31,6 @@
     "clean": "rm -rf dist node_modules && pnpm install"
   },
   "dependencies": {
-    "@capacitor-firebase/authentication": "^8.2.0",
-    "@capacitor-firebase/messaging": "^8.2.0",
     "@capacitor/android": "^8.3.1",
     "@capacitor/app": "^8.0.0",
     "@capacitor/camera": "8.0.2",
@@ -41,11 +39,9 @@
     "@capacitor/filesystem": "8.1.1",
     "@capacitor/ios": "^8.3.1",
     "@capacitor/local-notifications": "^8.0.0",
-    "@capacitor/network": "^8.0.0",
     "@capacitor/preferences": "^8.0.0",
     "@capacitor/push-notifications": "^8.0.0",
     "@capacitor/share": "^8.0.1",
-    "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.2",
     "@capawesome/capacitor-badge": "^8.0.2",
     "@sentry/react": "^10.63.0",
@@ -58,8 +54,8 @@
     "peerjs": "^1.5.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-hook-form": "^7.75.0",
     "react-router": "^7.14.2",
+    "sonner": "^1.7.4",
     "sql.js": "^1.14.1",
     "tailwindcss": "^4.1.18"
   },

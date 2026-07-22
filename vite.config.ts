@@ -48,11 +48,8 @@ export default defineConfig({
             if (id.includes('react') || id.includes('react-dom') || id.includes('scheduler')) {
               return 'vendor-react';
             }
-            if (id.includes('peerjs') || id.includes('peer')) {
+            if (id.includes('peerjs')) {
               return 'vendor-p2p';
-            }
-            if (id.includes('@radix-ui') || id.includes('react-day-picker') || id.includes('cmdk') || id.includes('date-fns')) {
-              return 'vendor-ui';
             }
             if (id.includes('firebase')) {
               if (id.includes('firestore')) return 'firebase-firestore';
@@ -75,9 +72,6 @@ export default defineConfig({
             }
             if (id.includes('@sentry')) {
               return 'vendor-sentry';
-            }
-            if (id.includes('recharts')) {
-              return 'vendor-recharts';
             }
           }
         },

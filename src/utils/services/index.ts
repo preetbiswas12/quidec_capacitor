@@ -12,7 +12,6 @@ export { notificationService } from './notificationService';
 export { userService } from './userService';
 export { conversationService } from './conversationService';
 export { messageService } from './messageService';
-export { analyticsService } from './analyticsService';
 export { groupService } from './groupService';
 export { statusService } from './statusService';
 export { callService } from './callService';
@@ -38,7 +37,6 @@ import { notificationService } from './notificationService';
 import { userService } from './userService';
 import { conversationService } from './conversationService';
 import { messageService } from './messageService';
-import { analyticsService } from './analyticsService';
 import { groupService } from './groupService';
 import { statusService } from './statusService';
 import { callService } from './callService';
@@ -53,7 +51,6 @@ export default {
   notificationService,
   userService,
   conversationService,
-  analyticsService,
   groupService,
   statusService,
   callService,

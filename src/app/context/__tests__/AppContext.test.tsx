@@ -268,10 +268,6 @@ vi.mock('../../../utils/services/dataRetention', () => ({
   dataRetentionService: { cleanupOldData: vi.fn() },
 }));
 
-vi.mock('../../../utils/services/analyticsService', () => ({
-  analyticsService: { trackEvent: vi.fn() },
-}));
-
 vi.mock('../../../utils/websocketManager', () => ({
   websocketManager: { connect: vi.fn(), disconnect: vi.fn() },
 }));
