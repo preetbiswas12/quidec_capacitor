@@ -31,8 +31,8 @@
     "clean": "rm -rf dist node_modules && pnpm install"
   },
   "dependencies": {
-    "@capacitor-firebase/authentication": "^8.2.0",
-    "@capacitor-firebase/messaging": "^8.2.0",
+    "@capacitor-firebase/authentication": "^8.3.0",
+    "@capacitor-firebase/messaging": "^8.3.0",
     "@capacitor/android": "^8.3.1",
     "@capacitor/app": "^8.0.0",
     "@capacitor/camera": "8.0.2",
@@ -50,7 +50,7 @@
     "@capawesome/capacitor-badge": "^8.0.2",
     "@sentry/react": "^10.63.0",
     "@tailwindcss/vite": "^4.3.0",
-    "firebase": "^12.12.1",
+    "firebase": "^12.16.0",
     "idb": "^8.0.0",
     "lucide-react": "^0.487.0",
     "motion": "^12.38.0",
