@@ -179,6 +179,7 @@ export const groupService = {
    * Add members to a group. Admin only.
    */
   async addMembers(groupId: string, memberIds: string[], callerId?: string): Promise<void> {
+    const MAX_GROUP_SIZE = 256;
     try {
       if (callerId) await assertAdmin(groupId, callerId);
       const groupRef = doc(db, 'groups', groupId);
@@ -188,13 +189,17 @@ export const groupService = {
       const existingMembers = groupSnap.data().members || [];
       const newMembers = memberIds.filter(id => !existingMembers.includes(id));
 
-      if (newMembers.length > 0) {
-        await updateDoc(groupRef, {
-          members: arrayUnion(...newMembers),
-          updatedAt: serverTimestamp(),
-        });
-        console.log(`✅ Added ${newMembers.length} members to ${groupId}`);
+      if (newMembers.length === 0) return;
+
+      if (existingMembers.length + newMembers.length > MAX_GROUP_SIZE) {
+        throw new Error(`Group size limit (${MAX_GROUP_SIZE}) exceeded. Current: ${existingMembers.length}, adding: ${newMembers.length}`);
       }
+
+      await updateDoc(groupRef, {
+        members: arrayUnion(...newMembers),
+        updatedAt: serverTimestamp(),
+      });
+      console.log(`✅ Added ${newMembers.length} members to ${groupId}`);
     } catch (error: any) {
       console.error('❌ Error adding members:', error.message);
       throw error;

@@ -13,6 +13,7 @@ import { db, realtimeDb } from '../firebase';
 import logger from '../logger';
 import { sanitizePathComponent } from './shared';
 import { decryptUserData } from '../e2ee';
+import { withRetry } from '../networkRetry';
 
 export const presenceService = {
   /**
@@ -143,10 +144,17 @@ export const presenceService = {
               username: presenceData?.username,
             };
             callback({ ...friendsStatus });
+          }, (error) => {
+            console.error(`❌ Error listening to presence for ${friendUid}:`, error.message);
+            friendsStatus[friendUid] = { online: false, lastSeen: null };
+            callback({ ...friendsStatus });
           });
           friendsUnsubs.set(friendUid, unsubPresence);
         }
       }
+    }, (error) => {
+      console.error('❌ Error listening to friendships:', error.message);
+      callback({});
     });
 
     return () => {
@@ -217,6 +225,9 @@ export const presenceService = {
         }
       }
       callback(allFriends);
+    }, (error) => {
+      console.error('❌ Error listening to friends list:', error.message);
+      callback([]);
     });
   },
 
@@ -224,14 +235,16 @@ export const presenceService = {
    * Send WebRTC signaling (Ephemeral)
    */
   async sendSignaling(fromUid: string, toUid: string, signal: any) {
-    const signalId = `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    const signalRef = ref(realtimeDb, `signaling/${sanitizePathComponent(toUid)}/${signalId}`);
-    await set(signalRef, {
-      ...signal,
-      fromUid,
-      timestamp: rtdbServerTimestamp()
-    });
-    return signalId;
+    return withRetry(async () => {
+      const signalId = `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const signalRef = ref(realtimeDb, `signaling/${sanitizePathComponent(toUid)}/${signalId}`);
+      await set(signalRef, {
+        ...signal,
+        fromUid,
+        timestamp: rtdbServerTimestamp()
+      });
+      return signalId;
+    }, { operation: 'sendSignaling', maxRetries: 3, baseDelayMs: 500 });
   },
 
   /**

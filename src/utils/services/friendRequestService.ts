@@ -200,6 +200,9 @@ export const friendRequestService = {
         ...doc.data(),
       }));
       callback(requests);
+    }, (error) => {
+      console.error('❌ Error listening to pending requests:', error.message);
+      callback([]);
     });
 
     return unsubscribe;
@@ -221,6 +224,9 @@ export const friendRequestService = {
         ...doc.data(),
       }));
       callback(requests);
+    }, (error) => {
+      console.error('❌ Error listening to outgoing requests:', error.message);
+      callback([]);
     });
 
     return unsubscribe;

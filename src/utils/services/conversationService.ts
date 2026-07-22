@@ -64,6 +64,9 @@ export const conversationService = {
         ...doc.data(),
       }));
       callback(conversations);
+    }, (error) => {
+      console.error('❌ Error listening to conversations:', error.message);
+      callback([]);
     });
 
     return unsubscribe;
