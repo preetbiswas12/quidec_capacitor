@@ -1535,8 +1535,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setContacts(normalized);
       if (!chatsLoaded) setChatsLoaded(true);
 
+      // Set up Firestore message listeners for all contacts (idempotent via chatMessageListenersRef).
+      // Must run outside setChats updater to avoid side effects in state updaters.
+      for (const contact of normalized) {
+        const chatId = messageService.getConversationId(uid, contact.userId);
+        ensureChatListener(chatId, contact.userId);
+      }
+
       // Ensure chat entries exist for all contacts (needed on new device where chats are empty)
-      // and set up Firestore message listeners for cross-device message history.
       setChats(prev => {
         const existingIds = new Set(prev.map(c => c.id));
         const newChats: Chat[] = [];
@@ -1552,8 +1558,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
               unreadCount: 0,
             });
           }
-          // Lazily set up Firestore message listener for this chat
-          ensureChatListener(chatId, contact.userId);
         }
         return newChats.length > 0 ? [...newChats, ...prev] : prev;
       });
@@ -1634,10 +1638,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const incomingMsg = mapFirestoreMessage({ ...msg, content: decryptedContent }, chatId);
 
-      setMessages((prev) => ({
-        ...prev,
-        [chatId]: [...(prev[chatId] || []), incomingMsg],
-      }));
+      setMessages((prev) => {
+        const existing = prev[chatId] || [];
+        // Deduplicate — RTDB pipe may arrive before or after the Firestore listener
+        if (existing.some(m => m.id === incomingMsg.id)) return prev;
+        return {
+          ...prev,
+          [chatId]: [...existing, incomingMsg],
+        };
+      });
 
       // Persist incoming message to local SQLite so it survives refresh
       try {
@@ -2091,26 +2100,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return prev;
         });
 
-        // If user is actively viewing this group, update messages state
-        if (activeChatIdRef.current === g.groupId) {
-          const mapped: Message = {
-            id: lastMsg.id,
+        // Always update messages state for this group (same pattern as ensureChatListener
+        // for 1:1 chats — keeps messages fresh regardless of which chat is active).
+        {
+          const mappedMessages: Message[] = msgs.map((m: any) => ({
+            id: m.id,
             chatId: g.groupId,
-            senderId,
-            content: lastMsg.content || '',
-            type: (lastMsg.messageType || 'text') as Message['type'],
-            timestamp: normalizeFirestoreTimestamp(lastMsg.timestamp),
+            senderId: m.senderId || m.fromUid || '',
+            content: m.content || '',
+            type: (m.messageType || 'text') as Message['type'],
+            timestamp: normalizeFirestoreTimestamp(m.timestamp),
             status: 'sent',
-            imageUrl: lastMsg.mediaUrl || undefined,
-            replyToId: lastMsg.replyToId || undefined,
-            replyToContent: lastMsg.replyToContent || undefined,
-            replyToSender: lastMsg.replyToSender || undefined,
-          };
+            imageUrl: m.mediaUrl || undefined,
+            replyToId: m.replyToId || undefined,
+            replyToContent: m.replyToContent || undefined,
+            replyToSender: m.replyToSender || undefined,
+          }));
           setMessages(prev => {
-            const existing = prev[g.groupId] || [];
-            // Dedupe by id
-            if (existing.some(m => m.id === mapped.id)) return prev;
-            return { ...prev, [g.groupId]: [...existing, mapped] };
+            const firestoreIds = new Set(mappedMessages.map(m => m.id));
+            const optimistic = (prev[g.groupId] || []).filter(m => !firestoreIds.has(m.id));
+            return { ...prev, [g.groupId]: [...optimistic, ...mappedMessages] };
           });
         }
       });
@@ -2181,6 +2190,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
 
       // Send to Firestore (encrypted + updates group preview)
+      let firestoreMsgId: string | null = null;
       if (!navigator.onLine) {
         const result = await sendMessageWhenAvailable(currentUser.userId, groupId, content, {
           messageType: type as 'text' | 'image' | 'video' | 'audio' | 'document' | 'link',
@@ -2198,7 +2208,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
         }
       } else {
-        await groupService.sendGroupMessage(groupId, currentUser.userId, content, {
+        firestoreMsgId = await groupService.sendGroupMessage(groupId, currentUser.userId, content, {
           messageType: type,
           mediaUrl: extra?.imageUrl || null,
           replyToId: extra?.replyToId,
@@ -2206,6 +2216,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           replyToSender: extra?.replyToSender,
           expiresAt: msg.expiresAt,
         });
+      }
+
+      // Patch optimistic message ID to match Firestore's ID so the group listener
+      // deduplicates correctly instead of showing a duplicate.
+      if (firestoreMsgId && firestoreMsgId !== msgId) {
+        setMessages(prev => ({
+          ...prev,
+          [groupId]: (prev[groupId] || []).map(m =>
+            m.id === msgId ? { ...m, id: firestoreMsgId! } : m
+          ),
+        }));
       }
 
       // Push notifications to other group members via Render FCM relay
