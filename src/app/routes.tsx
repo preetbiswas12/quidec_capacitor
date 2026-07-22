@@ -22,7 +22,7 @@ function ProtectedRoute() {
   const { isOnboarded, isAuthenticating, showSplash, needsVerification } = useApp();
 
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence mode="sync">
       {showSplash || isAuthenticating ? (
         <motion.div
           key="splash-protected"
@@ -72,7 +72,7 @@ function AuthRoute() {
   const { isOnboarded, isAuthenticating, showSplash, needsVerification } = useApp();
 
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence mode="sync">
       {showSplash || isAuthenticating ? (
         <motion.div
           key="splash"

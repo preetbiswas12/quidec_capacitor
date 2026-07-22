@@ -7,12 +7,12 @@ const { messageService, authService, presenceService, friendRequestService, typi
 import { getCustomUsernameByFirebaseUid } from '../../utils/services/shared';
 import { getDoc, doc, query, collection, where, getDocs, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../utils/firebase';
-import { initializePushNotifications } from '../../utils/fcm';
+import { initializePushNotifications, setOnMessageCallback } from '../../utils/fcm';
 import { loadMessages as loadLocalMessages, loadAllChats, listLocalChatIds, clearKeyCache, updateMessageReactions, updateMessageStar, updateMessageContent, getStarredMessages, searchAllMessages as searchLocalMessages, migrateOldEncryptionData, appendMessage as appendLocalMessage } from '../../utils/sqliteMessageStore';
 import type { SearchResult as LocalSearchResult } from '../../utils/sqliteMessageStore';
 import { getEncryptionKey, getKeyVersion, checkAndRotateKey, decryptMessageV2, getConversationKey } from '../../utils/encryption';
 import { ensureKeyPair, encryptUserData, decryptUserData } from '../../utils/e2ee';
-import { sendMessageWhenAvailable, startAutoFlushOnReconnect, queueReadReceipt } from '../../utils/offlineMessageSender';
+import { sendMessageWhenAvailable, startAutoFlushOnReconnect, queueReadReceipt, flushMessageQueue } from '../../utils/offlineMessageSender';
 import { uploadMediaWithProgress, loadMediaWithCache } from '../../utils/mediaUploadHandler';
 import { permissionManager } from '../../utils/permissionManager';
 import { setAppBadge } from '../../utils/services/notificationService';
@@ -1100,7 +1100,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await migrateOldEncryptionData();
 
         const chatIds = await listLocalChatIds(currentUser.userId);
-        if (cancelled || chatIds.length === 0) return;
+        if (cancelled || chatIds.length === 0) {
+          if (!cancelled) setChatsLoaded(true);
+          return;
+        }
 
         const localData = await loadAllChats(currentUser.userId, chatIds);
         if (cancelled) return;
@@ -1150,11 +1153,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         // Create Chat entries from local data so the chat list is populated
         setChats(prev => {
-          const existingIds = new Set(prev.map(c => c.id));
+          const existingMap = new Map(prev.map(c => [c.id, c]));
           const newChats: Chat[] = [];
 
           for (const [chatId, storedMsgs] of Object.entries(localData)) {
-            if (storedMsgs.length === 0 || existingIds.has(chatId)) continue;
+            if (storedMsgs.length === 0) continue;
 
             // Derive contactId from conversation ID (sorted UIDs joined by _)
             let contactId = chatId;
@@ -1169,22 +1172,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
               m => m.senderId !== myId && m.status !== 'read'
             ).length;
 
-            newChats.push({
-              id: chatId,
-              contactId,
-              lastMessage: lastMsg.content,
-              lastMessageTime: lastMsg.timestamp,
-              lastMessageSender: lastMsg.senderId,
-              unreadCount,
-            });
+            const existing = existingMap.get(chatId);
+            if (existing) {
+              // Update existing entry with lastMessage from SQLite if it's empty or older
+              const existingTime = existing.lastMessageTime ? new Date(existing.lastMessageTime).getTime() : 0;
+              const sqliteTime = lastMsg.timestamp ? new Date(lastMsg.timestamp).getTime() : 0;
+              if (!existing.lastMessage || sqliteTime > existingTime) {
+                existingMap.set(chatId, {
+                  ...existing,
+                  lastMessage: lastMsg.content,
+                  lastMessageTime: lastMsg.timestamp,
+                  lastMessageSender: lastMsg.senderId,
+                  unreadCount,
+                });
+              }
+            } else {
+              newChats.push({
+                id: chatId,
+                contactId,
+                lastMessage: lastMsg.content,
+                lastMessageTime: lastMsg.timestamp,
+                lastMessageSender: lastMsg.senderId,
+                unreadCount,
+              });
+            }
           }
 
-          return newChats.length > 0 ? [...newChats, ...prev] : prev;
+          if (newChats.length > 0 || existingMap.size !== prev.length) {
+            return sortChatsByTime([...existingMap.values(), ...newChats]);
+          }
+          return prev;
         });
 
         console.log(`📦 Loaded local messages for ${chatIds.length} chats`);
+        // Mark chats as loaded so skeleton loaders disappear and real data shows
+        if (!cancelled) setChatsLoaded(true);
       } catch (err) {
         console.warn('⚠️ Failed to load local messages:', err);
+        // Still mark as loaded even on error to avoid permanent skeleton
+        if (!cancelled) setChatsLoaded(true);
       }
     };
 
@@ -1422,6 +1448,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await setupNotificationActions();
         await initializePushNotifications(uid, null);
         setNotificationsEnabled(settings.notifications);
+        // Wire up foreground notification callback to trigger message delivery
+        setOnMessageCallback((type: string, fromName: string) => {
+          console.log(`📬 Foreground notification: ${fromName} sent ${type}`);
+          // Flush any queued offline messages on notification wake
+          flushMessageQueue(uid).catch(() => {});
+        });
         console.log('✅ Push notifications initialized');
       } catch (err) {
         console.warn('⚠️ Notification init failed (non-fatal):', err);
@@ -1430,9 +1462,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // 0.0.1 Web push fallback: on web, fcm.js exits early — use Firebase Messaging SDK
       if (!(window as any).Capacitor?.isNativePlatform?.()) {
         try {
-          const { initializePushNotifications: initWebPush, getFCMToken, setupForegroundMessageHandler } = await import('../../utils/firebase');
+          const { initializePushNotifications: initWebPush, getFCMToken } = await import('../../utils/firebase');
           await initWebPush((payload) => {
             console.log('📬 Web foreground message:', payload);
+            // Flush queued messages when foreground notification arrives
+            flushMessageQueue(uid).catch(() => {});
           });
           const token = await getFCMToken();
           if (token) {
@@ -1967,7 +2001,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     CapacitorApp.addListener('backButton', () => {
       const path = window.location.hash.replace(/^#/, '') || window.location.pathname;
 
-      // If on a sub-route (chat, group, call), navigate back via router
+      // If on a sub-route (chat, group, call), navigate to /app explicitly
+      if (path.startsWith('/app/chat/') || path.startsWith('/app/group/') ||
+          path.startsWith('/call/video/') || path.startsWith('/call/voice/')) {
+        navigate('/app');
+        return;
+      }
+
+      // If on other sub-routes (privacy, terms, etc), go back in history
       if (path !== '/app' && path !== '/' && path !== '') {
         navigate(-1);
         return;
