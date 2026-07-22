@@ -5,7 +5,7 @@ vi.mock('../../firebase', () => ({
   realtimeDb: {},
 }));
 
-const { mockSetDoc, mockGetDocs, mockDeleteDoc, mockWriteBatch, mockOnSnapshot, mockServerTimestamp, mockQuery, mockOrderBy, mockLimit, mockCollection, mockDoc, mockWhere } = vi.hoisted(() => ({
+const { mockSetDoc, mockGetDocs, mockDeleteDoc, mockWriteBatch, mockOnSnapshot, mockServerTimestamp, mockQuery, mockOrderBy, mockLimit, mockCollection, mockDoc, mockWhere, mockRef, mockOnChildAdded, mockRemove, mockGet } = vi.hoisted(() => ({
   mockSetDoc: vi.fn(),
   mockGetDocs: vi.fn(),
   mockDeleteDoc: vi.fn(),
@@ -18,6 +18,10 @@ const { mockSetDoc, mockGetDocs, mockDeleteDoc, mockWriteBatch, mockOnSnapshot, 
   mockCollection: vi.fn(),
   mockDoc: vi.fn((_db: any, ...segments: string[]) => ({ _path: segments })),
   mockWhere: vi.fn(),
+  mockRef: vi.fn((_db: any, path: string) => ({ _rtdbPath: path })),
+  mockOnChildAdded: vi.fn((_ref: any, _cb: any, _errCb: any) => vi.fn()),
+  mockRemove: vi.fn().mockResolvedValue(undefined),
+  mockGet: vi.fn().mockResolvedValue({ val: () => null }),
 }));
 
 vi.mock('firebase/firestore', () => ({
@@ -33,6 +37,13 @@ vi.mock('firebase/firestore', () => ({
   serverTimestamp: mockServerTimestamp,
   onSnapshot: mockOnSnapshot,
   where: mockWhere,
+}));
+
+vi.mock('firebase/database', () => ({
+  ref: mockRef,
+  onChildAdded: mockOnChildAdded,
+  remove: mockRemove,
+  get: mockGet,
 }));
 
 import { callService } from '../callService';
@@ -186,18 +197,24 @@ describe('listenToCallHistory', () => {
 });
 
 describe('listenToIncomingCalls', () => {
-  it('sets up onSnapshot listener on calls collection', () => {
-    const unsubscribe = vi.fn();
-    mockOnSnapshot.mockReturnValue(unsubscribe);
+  it('sets up RTDB and Firestore listeners', () => {
+    const unsubRTDB = vi.fn();
+    const unsubFirestore = vi.fn();
+    mockOnChildAdded.mockReturnValue(unsubRTDB);
+    mockOnSnapshot.mockReturnValue(unsubFirestore);
 
     const result = callService.listenToIncomingCalls('user1', vi.fn());
 
+    expect(mockOnChildAdded).toHaveBeenCalledTimes(1);
     expect(mockOnSnapshot).toHaveBeenCalledTimes(1);
-    expect(result).toBe(unsubscribe);
+    result();
+    expect(unsubRTDB).toHaveBeenCalled();
+    expect(unsubFirestore).toHaveBeenCalled();
   });
 
-  it('returns null when no incoming calls', () => {
+  it('returns null when no incoming calls from RTDB or Firestore', () => {
     const callback = vi.fn();
+    mockOnChildAdded.mockReturnValue(vi.fn());
     mockOnSnapshot.mockImplementation((_q: any, onNext: (...args: unknown[]) => void) => {
       onNext({ empty: true, docs: [] });
       return vi.fn();
@@ -208,8 +225,9 @@ describe('listenToIncomingCalls', () => {
     expect(callback).toHaveBeenCalledWith(null);
   });
 
-  it('returns most recent ringing call', () => {
+  it('returns most recent ringing call from Firestore fallback', () => {
     const callback = vi.fn();
+    mockOnChildAdded.mockReturnValue(vi.fn());
     mockOnSnapshot.mockImplementation((_q: any, onNext: (...args: unknown[]) => void) => {
       onNext({
         empty: false,
@@ -228,16 +246,34 @@ describe('listenToIncomingCalls', () => {
     expect(call.id).toBe('call-new');
   });
 
-  it('invokes callback with null on error', () => {
+  it('delivers RTDB call when onChildAdded fires', () => {
     const callback = vi.fn();
-    mockOnSnapshot.mockImplementation((_q: any, _onNext: any, onError: (...args: unknown[]) => void) => {
-      onError(new Error('permission-denied'));
+    mockOnChildAdded.mockImplementation((_ref: any, cb: (snap: any) => void) => {
+      cb({ key: 'rtdb-call-1', val: () => ({ receiverId: 'user1', status: 'ringing', timestamp: 300 }) });
+      return vi.fn();
+    });
+    mockOnSnapshot.mockReturnValue(vi.fn());
+
+    callService.listenToIncomingCalls('user1', callback);
+
+    expect(callback).toHaveBeenCalledWith(expect.objectContaining({ id: 'rtdb-call-1' }));
+  });
+
+  it('skips Firestore callback when RTDB already delivered', () => {
+    const callback = vi.fn();
+    mockOnChildAdded.mockImplementation((_ref: any, cb: (snap: any) => void) => {
+      cb({ key: 'rtdb-call-1', val: () => ({ receiverId: 'user1', status: 'ringing' }) });
+      return vi.fn();
+    });
+    mockOnSnapshot.mockImplementation((_q: any, onNext: (...args: unknown[]) => void) => {
+      onNext({ empty: false, docs: [{ id: 'fs-call', data: () => ({ timestamp: 999 }) }] });
       return vi.fn();
     });
 
     callService.listenToIncomingCalls('user1', callback);
 
-    expect(callback).toHaveBeenCalledWith(null);
+    // Only RTDB callback, not Firestore
+    expect(callback).toHaveBeenCalledTimes(1);
   });
 });
 
